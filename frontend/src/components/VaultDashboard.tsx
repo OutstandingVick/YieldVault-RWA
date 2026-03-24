@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { TrendingUp, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
+import { benjiStrategy } from '../lib/strategy';
+import { hasCustomRpcConfig, networkConfig } from '../config/network';
 
 interface VaultDashboardProps {
     walletAddress: string | null;
@@ -74,6 +76,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                             This vault pools USDC and deploys it into verified tokenized sovereign bonds available on the Stellar network.
                             Yields are algorithmically harvested and auto-compounded daily into the vault token price.
                         </p>
+                        <div style={{ marginTop: '12px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                            Strategy: <span style={{ color: '#fff' }}>{benjiStrategy.name}</span> ({benjiStrategy.issuer})
+                        </div>
+                        <div style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                            RPC: {hasCustomRpcConfig ? 'Custom' : 'Default'} - {networkConfig.rpcUrl}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -195,6 +203,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                         <div className="flex justify-between items-center">
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Network Fee</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>~0.00001 XLM</span>
+                        </div>
+                        <div className="flex justify-between items-center" style={{ marginTop: '8px' }}>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>BENJI Strategy</span>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+                                {benjiStrategy.status === 'active' ? 'Active' : 'Inactive'}
+                            </span>
                         </div>
                     </div>
 

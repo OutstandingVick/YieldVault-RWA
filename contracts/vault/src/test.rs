@@ -71,12 +71,67 @@ fn test_vault_flow() {
 }
 
 #[test]
+<<<<<<< HEAD
+fn test_governance_sets_benji_strategy() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let voter_1 = Address::generate(&env);
+    let voter_2 = Address::generate(&env);
+    let benji_strategy = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.set_dao_threshold(&2);
+
+    let proposal_id = vault.create_strategy_proposal(&admin, &benji_strategy);
+    vault.vote_on_proposal(&voter_1, &proposal_id, &true, &1);
+    vault.vote_on_proposal(&voter_2, &proposal_id, &true, &1);
+    vault.execute_strategy_proposal(&proposal_id);
+
+    assert_eq!(vault.benji_strategy(), benji_strategy);
+}
+
+#[test]
+fn test_benji_connector_reports_yield() {
+=======
 fn test_deposit_invalid_amount() {
+>>>>>>> origin/main
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
+<<<<<<< HEAD
+    let benji_strategy = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1000);
+    usdc_admin_client.mint(&benji_strategy, &100);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.set_dao_threshold(&1);
+    let proposal_id = vault.create_strategy_proposal(&admin, &benji_strategy);
+    vault.vote_on_proposal(&admin, &proposal_id, &true, &1);
+    vault.execute_strategy_proposal(&proposal_id);
+
+    vault.deposit(&user, &500);
+    assert_eq!(vault.total_assets(), 500);
+
+    vault.report_benji_yield(&benji_strategy, &40);
+    assert_eq!(vault.total_assets(), 540);
+=======
 
     // Setup underlying token
     let token_admin = Address::generate(&env);
@@ -95,4 +150,5 @@ fn test_deposit_invalid_amount() {
     // Try depositing -1 - should fail
     let result = vault.try_deposit(&user, &-1);
     assert!(result.is_err());
+>>>>>>> origin/main
 }

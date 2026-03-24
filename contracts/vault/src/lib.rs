@@ -13,9 +13,23 @@ pub enum DataKey {
     TotalShares,
     TotalAssets,
     Admin,
+    DaoThreshold,
+    ProposalNonce,
+    BenjiStrategy,
+    Proposal(u32),
+    Vote(u32, Address),
     ShareBalance(Address),
 }
 
+<<<<<<< HEAD
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyProposal {
+    pub strategy: Address,
+    pub yes_votes: i128,
+    pub no_votes: i128,
+    pub executed: bool,
+=======
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -23,6 +37,7 @@ pub enum VaultError {
     AlreadyInitialized = 1,
     InsufficientShares = 2,
     InvalidAmount = 3,
+>>>>>>> origin/main
 }
 
 #[contract]
@@ -39,9 +54,14 @@ impl YieldVault {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TokenAsset, &token);
         env.storage().instance().set(&DataKey::TotalAssets, &0i128);
+<<<<<<< HEAD
+        env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
+        env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
+=======
         env.storage().instance().set(&DataKey::TotalShares, &0i128);
 
         Ok(())
+>>>>>>> origin/main
     }
 
     /// Read the underlying token address.
@@ -62,6 +82,83 @@ impl YieldVault {
     /// Read a user's share balance.
     pub fn balance(env: Env, user: Address) -> i128 {
         env.storage().instance().get(&DataKey::ShareBalance(user)).unwrap_or(0)
+    }
+
+    /// Read configured BENJI strategy contract address.
+    pub fn benji_strategy(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::BenjiStrategy).unwrap()
+    }
+
+    /// Configure DAO quorum threshold. Only admin can update this parameter.
+    pub fn set_dao_threshold(env: Env, threshold: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        if threshold <= 0 {
+            panic!("threshold must be > 0");
+        }
+        env.storage().instance().set(&DataKey::DaoThreshold, &threshold);
+    }
+
+    /// Create a proposal to update the BENJI strategy connector address.
+    pub fn create_strategy_proposal(env: Env, proposer: Address, strategy: Address) -> u32 {
+        proposer.require_auth();
+        let mut next_nonce: u32 = env.storage().instance().get(&DataKey::ProposalNonce).unwrap_or(0);
+        next_nonce += 1;
+        env.storage().instance().set(&DataKey::ProposalNonce, &next_nonce);
+
+        let proposal = StrategyProposal {
+            strategy,
+            yes_votes: 0,
+            no_votes: 0,
+            executed: false,
+        };
+        env.storage().instance().set(&DataKey::Proposal(next_nonce), &proposal);
+        next_nonce
+    }
+
+    /// Vote on a proposal with a given voting weight.
+    pub fn vote_on_proposal(env: Env, voter: Address, proposal_id: u32, support: bool, weight: i128) {
+        voter.require_auth();
+        if weight <= 0 {
+            panic!("weight must be > 0");
+        }
+        if env.storage().instance().has(&DataKey::Vote(proposal_id, voter.clone())) {
+            panic!("duplicate vote");
+        }
+
+        let mut proposal: StrategyProposal = env.storage().instance().get(&DataKey::Proposal(proposal_id)).unwrap();
+        if proposal.executed {
+            panic!("proposal already executed");
+        }
+
+        if support {
+            proposal.yes_votes += weight;
+        } else {
+            proposal.no_votes += weight;
+        }
+
+        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage().instance().set(&DataKey::Vote(proposal_id, voter), &true);
+    }
+
+    /// Execute a strategy proposal once it reaches threshold and has majority support.
+    pub fn execute_strategy_proposal(env: Env, proposal_id: u32) {
+        let mut proposal: StrategyProposal = env.storage().instance().get(&DataKey::Proposal(proposal_id)).unwrap();
+        if proposal.executed {
+            panic!("proposal already executed");
+        }
+
+        let threshold: i128 = env.storage().instance().get(&DataKey::DaoThreshold).unwrap_or(1);
+        if proposal.yes_votes < threshold {
+            panic!("quorum not reached");
+        }
+        if proposal.yes_votes <= proposal.no_votes {
+            panic!("proposal rejected");
+        }
+
+        env.storage().instance().set(&DataKey::BenjiStrategy, &proposal.strategy);
+        proposal.executed = true;
+        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
     }
 
     /// Calculates the number of shares given an asset amount based on the current exchange rate.
@@ -165,6 +262,25 @@ impl YieldVault {
 
         // Transfer the generated yield from the admin (or strategy contract) into the vault.
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
+
+        let ta = Self::total_assets(env.clone());
+        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
+    }
+
+    /// BENJI strategy connector callback for reporting harvested yield into the vault.
+    pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
+        strategy.require_auth();
+        if amount <= 0 {
+            panic!("yield amount must be > 0");
+        }
+        let configured: Address = env.storage().instance().get(&DataKey::BenjiStrategy).unwrap();
+        if strategy != configured {
+            panic!("unauthorized strategy");
+        }
+
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.transfer(&strategy, &env.current_contract_address(), &amount);
 
         let ta = Self::total_assets(env.clone());
         env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
