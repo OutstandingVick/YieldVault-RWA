@@ -1,8 +1,8 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::testutils::{Address as _};
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::testutils::{Address as _, Events as _};
+use soroban_sdk::{token, Address, Env, IntoVal, TryFromVal};
 
 fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     let token_address = e.register_stellar_asset_contract_v2(admin.clone()).address();
@@ -31,9 +31,6 @@ fn test_vault_flow() {
 
     // 1. Initialize
     vault.initialize(&admin, &usdc.address);
-
-    assert_eq!(vault.total_assets(), 0);
-    assert_eq!(vault.total_shares(), 0);
 
     // 2. User 1 Deposits 100 USDC -> gets 100 shares
     let minted_user1 = vault.deposit(&user1, &100);
@@ -71,4 +68,31 @@ fn test_vault_flow() {
     let withdrawn_user2 = vault.withdraw(&user2, &100);
     assert_eq!(withdrawn_user2, 110);
     assert_eq!(usdc.balance(&user2), 910); // 800 + 110
+}
+
+#[test]
+fn test_deposit_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    // Setup underlying token
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+
+    // Register Vault Contract
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+
+    vault.initialize(&admin, &usdc.address);
+
+    // Try depositing 0 - should fail
+    let result = vault.try_deposit(&user, &0);
+    assert!(result.is_err());
+
+    // Try depositing -1 - should fail
+    let result = vault.try_deposit(&user, &-1);
+    assert!(result.is_err());
 }

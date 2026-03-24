@@ -3,17 +3,26 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
 };
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    Token,
+    TokenAsset,
     TotalShares,
     TotalAssets,
     Admin,
     ShareBalance(Address),
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum VaultError {
+    AlreadyInitialized = 1,
+    InsufficientShares = 2,
+    InvalidAmount = 3,
 }
 
 #[contract]
@@ -22,20 +31,22 @@ pub struct YieldVault;
 #[contractimpl]
 impl YieldVault {
     /// Initialize the vault with the underlying asset (USDC) and an admin who controls the strategy.
-    pub fn initialize(env: Env, admin: Address, token: Address) {
+    pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), VaultError> {
         admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("already initialized");
+            return Err(VaultError::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Token, &token);
-        env.storage().instance().set(&DataKey::TotalShares, &0i128);
+        env.storage().instance().set(&DataKey::TokenAsset, &token);
         env.storage().instance().set(&DataKey::TotalAssets, &0i128);
+        env.storage().instance().set(&DataKey::TotalShares, &0i128);
+
+        Ok(())
     }
 
     /// Read the underlying token address.
     pub fn token(env: Env) -> Address {
-        env.storage().instance().get(&DataKey::Token).unwrap()
+        env.storage().instance().get(&DataKey::TokenAsset).unwrap() // Changed DataKey::Token to DataKey::TokenAsset
     }
 
     /// Read the total minted shares.
@@ -76,9 +87,11 @@ impl YieldVault {
     }
 
     /// Deposits USDC into the vault and mints proportional shares to the user.
-    pub fn deposit(env: Env, user: Address, amount: i128) -> i128 {
+    pub fn deposit(env: Env, user: Address, amount: i128) -> Result<i128, VaultError> {
         user.require_auth();
-        if amount <= 0 { panic!("deposit must be > 0"); }
+        if amount <= 0 { 
+            return Err(VaultError::InvalidAmount);
+        }
 
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
@@ -88,6 +101,9 @@ impl YieldVault {
         // Transfer assets from user to vault
         token_client.transfer(&user, &env.current_contract_address(), &amount);
 
+        // Emit Deposit event
+        env.events().publish((symbol_short!("deposit"),), (amount, shares_to_mint));
+
         // Update state
         let ta = Self::total_assets(env.clone());
         env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
@@ -96,18 +112,22 @@ impl YieldVault {
         env.storage().instance().set(&DataKey::TotalShares, &(ts + shares_to_mint));
 
         let user_shares = Self::balance(env.clone(), user.clone());
-        env.storage().instance().set(&DataKey::ShareBalance(user), &(user_shares + shares_to_mint));
-
-        shares_to_mint
+        env.storage().instance().set(&DataKey::ShareBalance(user.clone()), &(user_shares + shares_to_mint));
+        
+        Ok(shares_to_mint)
     }
 
     /// Withdraws USDC backed by burned shares from the user.
-    pub fn withdraw(env: Env, user: Address, shares: i128) -> i128 {
+    pub fn withdraw(env: Env, user: Address, shares: i128) -> Result<i128, VaultError> {
         user.require_auth();
-        if shares <= 0 { panic!("withdraw must be > 0"); }
+        if shares <= 0 { 
+            return Err(VaultError::InvalidAmount);
+        }
 
         let user_shares = Self::balance(env.clone(), user.clone());
-        if user_shares < shares { panic!("insufficient shares"); }
+        if user_shares < shares { 
+            return Err(VaultError::InsufficientShares);
+        }
 
         let assets_to_return = Self::calculate_assets(env.clone(), shares);
 
@@ -124,9 +144,13 @@ impl YieldVault {
         let ts = Self::total_shares(env.clone());
         env.storage().instance().set(&DataKey::TotalShares, &(ts - shares));
 
-        env.storage().instance().set(&DataKey::ShareBalance(user), &(user_shares - shares));
+        let vault_balance = Self::balance(env.clone(), user.clone());
+        env.storage().instance().set(&DataKey::ShareBalance(user.clone()), &(vault_balance - shares));
 
-        assets_to_return
+        // Emit Withdraw event
+        env.events().publish((symbol_short!("withdraw"), user.clone()), (assets_to_return, shares));
+
+        Ok(assets_to_return)
     }
 
     /// Admin function to artificially accrue yield, simulating returns from an RWA strategy.
