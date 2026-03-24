@@ -22,7 +22,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
         </div>
       ) : (
         <div className="flex flex-col gap-lg">
-          <div className="glass-panel" style={{ padding: '24px', background: 'rgba(0,0,0,0.1)' }}>
+          <div className="glass-panel" style={{ padding: '24px', background: 'var(--bg-muted)' }}>
             <div className="flex justify-between items-center">
               <div>
                 <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Total Assets</div>
@@ -35,7 +35,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             </div>
           </div>
           
-          <div className="glass-panel" style={{ padding: '24px', background: 'rgba(0,0,0,0.1)' }}>
+          <div className="glass-panel" style={{ padding: '24px', background: 'var(--bg-muted)' }}>
             <h3 style={{ marginBottom: '16px' }}>Stellar RWA Yield Fund</h3>
             <div className="flex justify-between items-center">
               <div>

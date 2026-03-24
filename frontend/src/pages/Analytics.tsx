@@ -13,24 +13,24 @@ const Analytics: React.FC = () => {
             </header>
 
             <div className="flex gap-lg" style={{ flexWrap: 'wrap' }}>
-                <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'rgba(0,0,0,0.1)' }}>
+                <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'var(--bg-muted)' }}>
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Total Value Locked</div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 600 }}>$12,450,800</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', marginTop: '8px' }}>+12.5% this month</div>
                 </div>
-                <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'rgba(0,0,0,0.1)' }}>
+                <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'var(--bg-muted)' }}>
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Vault Participants</div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 600 }}>1,248</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', marginTop: '8px' }}>+82 new users</div>
                 </div>
-                <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'rgba(0,0,0,0.1)' }}>
+                <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'var(--bg-muted)' }}>
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Strategy Stability</div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 600 }}>99.9%</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', marginTop: '8px' }}>Tracking Sovereign Bonds</div>
                 </div>
             </div>
 
-            <div className="glass-panel" style={{ marginTop: '32px', padding: '48px', textAlign: 'center', background: 'rgba(0,0,0,0.1)' }}>
+            <div className="glass-panel" style={{ marginTop: '32px', padding: '48px', textAlign: 'center', background: 'var(--bg-muted)' }}>
                 <div style={{ color: 'var(--text-secondary)' }}>Interactive Charts coming soon...</div>
             </div>
         </div>

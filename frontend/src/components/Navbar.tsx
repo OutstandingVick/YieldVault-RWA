@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import WalletConnect from './WalletConnect';
+import ThemeToggle from './ThemeToggle';
 import { Layers } from 'lucide-react';
 
 interface NavbarProps {
@@ -39,9 +40,7 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
                             fontWeight: 700,
                             fontSize: '1.25rem',
                             letterSpacing: '-0.02em',
-                            background: 'linear-gradient(90deg, #fff, #94a3b8)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
+                            color: 'var(--text-primary)',
                             marginLeft: '8px'
                         }}>
                             YieldVault <span style={{ color: 'var(--accent-cyan)' }}>RWA</span>
@@ -85,15 +84,17 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
                     </div>
                 </div>
 
-                <WalletConnect
-                    walletAddress={walletAddress}
-                    onConnect={onConnect}
-                    onDisconnect={onDisconnect}
-                />
+                <div className="flex items-center gap-md">
+                    <ThemeToggle />
+                    <WalletConnect
+                        walletAddress={walletAddress}
+                        onConnect={onConnect}
+                        onDisconnect={onDisconnect}
+                    />
+                </div>
             </div>
         </nav>
     );
 };
 
 export default Navbar;
-

@@ -109,7 +109,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                 {isConnecting ? 'Connecting...' : 'Connect Freighter'}
             </button>
             {error && (
-                <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '8px', background: 'rgba(255, 50, 50, 0.1)', color: '#ff6b6b', padding: '8px 12px', borderRadius: '8px', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid rgba(255, 50, 50, 0.2)' }}>
+                <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '8px', background: 'var(--bg-error)', color: 'var(--text-error)', padding: '8px 12px', borderRadius: '8px', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid var(--border-error)' }}>
                     {error}
                 </div>
             )}
