@@ -1,20 +1,22 @@
 import { useState } from 'react';
-import { TrendingUp, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
+import { TrendingUp, ShieldCheck, Wallet as WalletIcon, Activity } from 'lucide-react';
 import { benjiStrategy } from '../lib/strategy';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
+import { useVault } from '../context/VaultContext';
 
 interface VaultDashboardProps {
     walletAddress: string | null;
 }
 
 const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
+    const { formattedTvl, formattedApy } = useVault();
     const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw'>('deposit');
     const [amount, setAmount] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [fakeBalance, setFakeBalance] = useState(1250.50);
 
-    const yieldRate = "8.45%";
-    const tvl = "$12,450,800";
+    const yieldRate = formattedApy;
+    const tvl = formattedTvl;
 
     const handleTransaction = () => {
         if (!walletAddress || !amount || isNaN(Number(amount))) return;
@@ -55,7 +57,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
 
                     <div className="flex gap-xl" style={{ marginBottom: '32px' }}>
                         <div>
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '4px' }}>Total Value Locked</div>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                Total Value Locked
+                                <span className="flex items-center gap-xs" style={{ color: 'var(--accent-cyan)', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    <Activity size={10} className="animate-pulse" />
+                                    Live
+                                </span>
+                            </div>
                             <div style={{ fontSize: '1.25rem', fontFamily: 'var(--font-display)', fontWeight: 600 }}>{tvl}</div>
                         </div>
                         <div>
