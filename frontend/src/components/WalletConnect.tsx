@@ -17,7 +17,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
     useEffect(() => {
         const checkConnection = async () => {
             try {
-                if (await isAllowed()) {
+                const allowed = await isAllowed();
+                if (allowed.isAllowed) {
                     const userInfo = await getAddress();
                     if (userInfo.address) {
                         onConnect(userInfo.address);
@@ -35,7 +36,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
         setError(null);
         try {
             await setAllowed();
-            if (await isAllowed()) {
+            const allowed = await isAllowed();
+            if (allowed.isAllowed) {
                 const userInfo = await getAddress();
                 if (userInfo.address) {
                     onConnect(userInfo.address);
