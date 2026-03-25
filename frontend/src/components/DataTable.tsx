@@ -1,4 +1,5 @@
 import type { KeyboardEvent, ReactNode } from "react";
+import { useTranslation } from "../i18n";
 
 export type TableSortDirection = "asc" | "desc";
 
@@ -58,6 +59,7 @@ export function DataTable<T>({
   onPageChange,
   renderRowDetails,
 }: DataTableProps<T>) {
+  const { t } = useTranslation();
   const handleHeaderKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     columnId: string,
@@ -103,7 +105,7 @@ export function DataTable<T>({
                         onKeyDown={(event) =>
                           handleHeaderKeyDown(event, column.id)
                         }
-                        aria-label={`Sort by ${column.header}`}
+                        aria-label={`${t("dataTable.sortBy")} ${column.header}`}
                       >
                         <span>{column.header}</span>
                         <span className="data-table-sort-indicator" aria-hidden="true">
@@ -160,7 +162,8 @@ export function DataTable<T>({
       {pagination && pagination.totalPages > 1 && (
         <div className="data-table-pagination">
           <div className="data-table-pagination-summary">
-            Page {pagination.page} of {pagination.totalPages}
+            {t("dataTable.pageLabel")} {pagination.page}{" "}
+            {t("dataTable.pageOf")} {pagination.totalPages}
           </div>
           <div className="data-table-pagination-actions">
             <button
@@ -169,7 +172,7 @@ export function DataTable<T>({
               onClick={() => onPageChange?.(pagination.page - 1)}
               disabled={pagination.page <= 1}
             >
-              Previous
+              {t("dataTable.previous")}
             </button>
             <button
               type="button"
@@ -177,7 +180,7 @@ export function DataTable<T>({
               onClick={() => onPageChange?.(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
             >
-              Next
+              {t("dataTable.next")}
             </button>
           </div>
         </div>

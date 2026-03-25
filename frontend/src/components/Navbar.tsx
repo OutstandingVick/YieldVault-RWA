@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import WalletConnect from './WalletConnect';
 import ThemeToggle from './ThemeToggle';
 import { Layers } from './icons';
+import { useTranslation } from '../i18n';
 
 interface NavbarProps {
   walletAddress: string | null;
@@ -15,6 +16,7 @@ const Navbar: React.FC<NavbarProps> = ({
   onConnect,
   onDisconnect,
 }) => {
+  const { t } = useTranslation();
   return (
     <nav
       style={{
@@ -58,8 +60,10 @@ const Navbar: React.FC<NavbarProps> = ({
                 marginLeft: "8px",
               }}
             >
-              YieldVault{" "}
-              <span style={{ color: "var(--accent-cyan)" }}>RWA</span>
+              {t("nav.brand.primary")}{" "}
+              <span style={{ color: "var(--accent-cyan)" }}>
+                {t("nav.brand.accent")}
+              </span>
             </span>
           </NavLink>
 
@@ -75,7 +79,7 @@ const Navbar: React.FC<NavbarProps> = ({
                 fontSize: "0.95rem",
               })}
             >
-              Vaults
+              {t("nav.vaults")}
             </NavLink>
             <NavLink
               to="/portfolio"
@@ -88,7 +92,7 @@ const Navbar: React.FC<NavbarProps> = ({
                 fontSize: "0.95rem",
               })}
             >
-              Portfolio
+              {t("nav.portfolio")}
             </NavLink>
             <NavLink
               to="/analytics"
@@ -101,7 +105,7 @@ const Navbar: React.FC<NavbarProps> = ({
                 fontSize: "0.95rem",
               })}
             >
-              Analytics
+              {t("nav.analytics")}
             </NavLink>
           </div>
         </div>
