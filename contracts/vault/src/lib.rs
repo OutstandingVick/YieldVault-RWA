@@ -1,5 +1,6 @@
 #![no_std]
 
+#[cfg(test)]
 mod test;
 pub mod strategy;
 pub mod benji_strategy;
@@ -99,11 +100,20 @@ impl YieldVault {
             return Err(VaultError::AlreadyInitialized);
         }
 
+        let state = VaultState {
+            total_shares: 0,
+            total_assets: 0,
+            is_paused: false,
+        };
+
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TokenAsset, &token);
+        env.storage().instance().set(&DataKey::State, &state);
         env.storage().instance().set(&DataKey::TotalAssets, &0i128);
+        env.storage().instance().set(&DataKey::TotalShares, &0i128);
         env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
         env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
+        Ok(())
     }
 
     /// Set or update the active strategy connector.
@@ -116,19 +126,6 @@ impl YieldVault {
     /// Read the active strategy address.
     pub fn strategy(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Strategy)
-
-        // Initialize the unified state
-        let state = VaultState {
-            total_shares: 0,
-            total_assets: 0,
-            is_paused: false,
-        };
-        env.storage().instance().set(&DataKey::State, &state);
-
-        env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
-        env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
-
-        Ok(())
     }
 
     pub fn set_pause(env: Env, paused: bool) {
@@ -163,18 +160,7 @@ impl YieldVault {
         Self::get_state(&env).total_shares
     }
 
-    /// Read the total underlying assets (idle in vault + invested in strategy).
-    pub fn total_assets(env: Env) -> i128 {
-        let idle_assets = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        
-        let strategy_assets = if let Some(strategy_addr) = Self::strategy(env.clone()) {
-            let strategy_client = StrategyClient::new(&env, &strategy_addr);
-            strategy_client.total_value()
-        } else {
-            0
-        };
-
-        idle_assets + strategy_assets
+    /// Read the total underlying assets represented by the vault.
     pub fn total_assets(env: Env) -> i128 {
         Self::get_state(&env).total_assets
     }
@@ -641,23 +627,42 @@ impl YieldVault {
         env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta + amount));
     }
 
-    /// Admin function to artificially accrue yield (legacy, but updated for strategy).
-    pub fn accrue_yield(env: Env, amount: i128) {
+    /// Admin function to distribute realized yield into the vault.
+    ///
+    /// Yield increases `total_assets` without minting any new shares, which
+    /// raises the share price for existing holders.
+    pub fn distribute_yield(env: Env, amount: i128) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+        if amount <= 0 {
+            panic!("yield amount must be > 0");
+        }
 
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
 
-        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+        let ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
-        token_client.transfer(&admin, &env.current_contract_address(), &amount);
 
         let mut state = Self::get_state(&env);
         state.total_assets += amount;
         env.storage().instance().set(&DataKey::State, &state);
+
+        env.events().publish(
+            (symbol_short!("yielddist"), admin),
+            (amount, state.total_assets, state.total_shares),
+        );
+    }
+
+    /// Legacy admin function retained for compatibility.
+    pub fn accrue_yield(env: Env, amount: i128) {
+        Self::distribute_yield(env, amount);
     }
 
     pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
