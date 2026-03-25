@@ -3,6 +3,7 @@ import { isAllowed, setAllowed, getAddress } from '@stellar/freighter-api';
 import { Loader2, LogOut, Wallet } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
 import { useToast } from '../context/ToastContext';
+import CopyButton from './CopyButton';
 
 interface WalletConnectProps {
     walletAddress: string | null;
@@ -82,7 +83,16 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     }}
                 >
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-cyan)', boxShadow: '0 0 8px var(--accent-cyan)' }} />
-                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{formatAddress(walletAddress)}</span>
+                    <div className="copy-field">
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }} title={walletAddress}>
+                            {formatAddress(walletAddress)}
+                        </span>
+                        <CopyButton
+                            value={walletAddress}
+                            label="wallet address"
+                            successDescription="The full wallet address has been copied to your clipboard."
+                        />
+                    </div>
                 </div>
                 <div
                     className="glass-panel"

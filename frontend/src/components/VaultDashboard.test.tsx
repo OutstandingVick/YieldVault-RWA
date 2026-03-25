@@ -76,6 +76,8 @@ describe("VaultDashboard", () => {
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
+    expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy strategy ID/i })).toBeInTheDocument();
   });
 
   it("allows switching between deposit and withdraw tabs", async () => {

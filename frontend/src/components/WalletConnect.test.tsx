@@ -77,6 +77,7 @@ describe('WalletConnect', () => {
         );
 
         expect(screen.getByText(expectedAddress)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Copy wallet address/i })).toBeInTheDocument();
     });
 
     it('calls onDisconnect when the disconnect button is clicked', () => {
