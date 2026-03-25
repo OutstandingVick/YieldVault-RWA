@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import WalletConnect from './WalletConnect';
 import * as freighter from '@stellar/freighter-api';
@@ -14,9 +15,11 @@ vi.mock('@stellar/freighter-api', () => ({
 // Mock framer-motion to avoid animation issues in tests
 vi.mock('framer-motion', () => ({
     motion: {
-        div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+        div: ({ children, ...props }: ComponentProps<'div'>) => <div {...props}>{children}</div>,
     },
 }));
+
+const mockedFreighter = vi.mocked(freighter);
 
 describe('WalletConnect', () => {
     const mockOnConnect = vi.fn();
@@ -27,7 +30,7 @@ describe('WalletConnect', () => {
     });
 
     it('renders the connect button when no wallet is connected', async () => {
-        (freighter.isAllowed as any).mockResolvedValue(false);
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
         render(
             <WalletConnect 
                 walletAddress={null} 
@@ -40,9 +43,11 @@ describe('WalletConnect', () => {
     });
 
     it('calls onConnect when manually connected via button', async () => {
-        (freighter.isAllowed as any).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-        (freighter.setAllowed as any).mockResolvedValue(true);
-        (freighter.getAddress as any).mockResolvedValue({ address: 'GABC123' });
+        mockedFreighter.isAllowed
+            .mockResolvedValueOnce({ isAllowed: false })
+            .mockResolvedValueOnce({ isAllowed: true });
+        mockedFreighter.setAllowed.mockResolvedValue({ isAllowed: true });
+        mockedFreighter.getAddress.mockResolvedValue({ address: 'GABC123' });
 
         render(
             <WalletConnect 
