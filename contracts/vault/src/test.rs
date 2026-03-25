@@ -10,6 +10,9 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(e, &token_address)
 }
 
+// ─── helper: 10^18 scale factor ───────────────────────────────────────────────
+const SCALE: i128 = 1_000_000_000_000_000_000i128;
+
 #[test]
 fn test_vault_flow() {
     let env = Env::default();
@@ -300,4 +303,225 @@ fn test_full_lifecycle_with_korean_strategy_yield_integration() {
     assert_eq!(vault.balance(&user), 0);
     assert_eq!(vault.total_assets(), 0);
     assert_eq!(vault.total_shares(), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// get_share_price tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Fresh vault with zero shares minted must return the 1:1 sentinel (SCALE).
+#[test]
+fn test_share_price_initial_is_one_to_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    // No deposits yet — price must be exactly 1.0 (SCALE)
+    assert_eq!(vault.get_share_price(), SCALE);
+}
+
+/// After an equal deposit the price must stay exactly 1:1.
+#[test]
+fn test_share_price_after_deposit_is_one_to_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1_000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.deposit(&user, &1_000);
+
+    // assets == shares == 1000 → price == 1.0
+    assert_eq!(vault.get_share_price(), SCALE);
+}
+
+/// Accruing yield increases total_assets without minting shares,
+/// so the price must rise proportionally.
+/// Setup: deposit 1000 → accrue 200 → assets=1200, shares=1000
+/// Expected price: 1200/1000 = 1.2 → 1_200_000_000_000_000_000
+#[test]
+fn test_share_price_rises_after_yield_accrual() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1_000);
+    usdc_admin_client.mint(&admin, &200);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.deposit(&user, &1_000);
+    assert_eq!(vault.get_share_price(), SCALE); // 1.0 before yield
+
+    vault.accrue_yield(&200);
+
+    // price = 1200 * SCALE / 1000 = 1.2 * SCALE
+    let expected = 1_200 * SCALE / 1_000;
+    assert_eq!(vault.get_share_price(), expected);
+}
+
+/// Multiple yield accruals must compound correctly.
+/// Setup: deposit 1000 → accrue 100 → accrue 150 → assets=1250, shares=1000
+/// Expected price: 1.25
+#[test]
+fn test_share_price_after_multiple_accruals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1_000);
+    usdc_admin_client.mint(&admin, &250);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.deposit(&user, &1_000);
+    vault.accrue_yield(&100);
+    vault.accrue_yield(&150);
+
+    // price = 1250 * SCALE / 1000 = 1.25 * SCALE
+    let expected = 1_250 * SCALE / 1_000;
+    assert_eq!(vault.get_share_price(), expected);
+}
+
+/// Price must update correctly when a second depositor joins after yield
+/// has already been accrued (they receive fewer shares for the same tokens).
+/// Setup:
+///   user1 deposits 1000 → shares=1000, assets=1000
+///   accrue 200           → shares=1000, assets=1200   price=1.2
+///   user2 deposits 600   → new_shares = 600*1000/1200 = 500
+///                          shares=1500, assets=1800    price still 1.2
+#[test]
+fn test_share_price_stable_after_second_deposit_at_premium() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user1, &1_000);
+    usdc_admin_client.mint(&user2, &600);
+    usdc_admin_client.mint(&admin, &200);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.deposit(&user1, &1_000);
+    vault.accrue_yield(&200);
+
+    let price_before = vault.get_share_price();
+    assert_eq!(price_before, 1_200 * SCALE / 1_000);
+
+    vault.deposit(&user2, &600);
+
+    // Price must remain 1.2 — second depositor doesn't dilute existing holders
+    let price_after = vault.get_share_price();
+    assert_eq!(price_after, price_before);
+}
+
+/// Partial withdrawal must not change the share price for remaining holders.
+/// Setup: deposit 1000 → accrue 200 (price=1.2) → withdraw 500 shares
+/// assets returned = 500 * 1200/1000 = 600
+/// remaining: assets=600, shares=500 → price still 1.2
+#[test]
+fn test_share_price_unchanged_after_partial_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1_000);
+    usdc_admin_client.mint(&admin, &200);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.deposit(&user, &1_000);
+    vault.accrue_yield(&200);
+
+    let price_before = vault.get_share_price();
+
+    vault.withdraw(&user, &500);
+
+    // Price must stay at 1.2 after withdrawal
+    assert_eq!(vault.get_share_price(), price_before);
+}
+
+/// End-to-end: full lifecycle price tracking with Korean strategy yield.
+/// Verifies price increases with each accrual round.
+#[test]
+fn test_share_price_tracks_korean_strategy_yield() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1_000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    let strategy_id = env.register(MockKoreanSovereignStrategy, ());
+    let strategy = mock_strategy::MockKoreanSovereignStrategyClient::new(&env, &strategy_id);
+    // base_yield=10, increment=5 → yields: 10, 15, 20
+    strategy.initialize(&admin, &vault_id, &10, &5);
+    vault.configure_korean_strategy(&strategy_id);
+
+    vault.deposit(&user, &500);
+    assert_eq!(vault.get_share_price(), SCALE); // 1.0 after deposit
+
+    vault.accrue_korean_debt_yield(); // assets = 510
+    let price_1 = vault.get_share_price();
+    assert_eq!(price_1, 510 * SCALE / 500); // 1.02
+
+    vault.accrue_korean_debt_yield(); // assets = 525
+    let price_2 = vault.get_share_price();
+    assert_eq!(price_2, 525 * SCALE / 500); // 1.05
+
+    vault.accrue_korean_debt_yield(); // assets = 545
+    let price_3 = vault.get_share_price();
+    assert_eq!(price_3, 545 * SCALE / 500); // 1.09
+
+    // Each accrual must strictly increase the price
+    assert!(price_1 > SCALE);
+    assert!(price_2 > price_1);
+    assert!(price_3 > price_2);
 }
