@@ -1,5 +1,5 @@
-import React from 'react';
-import VaultDashboard from '../components/VaultDashboard';
+import React from "react";
+import VaultDashboard from "../components/VaultDashboard";
 
 interface HomeProps {
   walletAddress: string | null;
@@ -31,6 +31,7 @@ const Home: React.FC<HomeProps> = ({ walletAddress, usdcBalance }) => {
         </p>
       </header>
 
+      <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
       <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
     </>
   );

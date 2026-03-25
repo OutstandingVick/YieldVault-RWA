@@ -5,9 +5,9 @@ import ThemeToggle from './ThemeToggle';
 import { Layers, Menu, X } from './icons';
 
 interface NavbarProps {
-    walletAddress: string | null;
-    onConnect: (address: string) => void;
-    onDisconnect: () => void;
+  walletAddress: string | null;
+  onConnect: (address: string) => void;
+  onDisconnect: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
@@ -17,7 +17,6 @@ const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const closeMobileMenu = () => setMobileMenuOpen(false);
-
   return (
     <nav
       style={{
@@ -121,7 +120,6 @@ const Navbar: React.FC<NavbarProps> = ({
             onDisconnect={onDisconnect}
           />
         </div>
-
         <button
           type="button"
           className="mobile-nav-toggle"
