@@ -1,5 +1,4 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
 import WalletConnect from './WalletConnect';
 import ThemeToggle from './ThemeToggle';
 import { Layers } from './icons';
@@ -83,81 +82,17 @@ const Navbar: React.FC<NavbarProps> = ({ currentPath, onNavigate, walletAddress,
                     </a>
                 </div>
 
-                <WalletConnect
-                    walletAddress={walletAddress}
-                    onConnect={onConnect}
-                    onDisconnect={onDisconnect}
-                />
+                <div className="flex items-center gap-md">
+                    <ThemeToggle />
+                    <WalletConnect
+                        walletAddress={walletAddress}
+                        onConnect={onConnect}
+                        onDisconnect={onDisconnect}
+                    />
+                </div>
             </div>
-            <span
-              style={{
-                fontFamily: "var(--font-display)",
-                fontWeight: 700,
-                fontSize: "1.25rem",
-                letterSpacing: "-0.02em",
-                color: "var(--text-primary)",
-                marginLeft: "8px",
-              }}
-            >
-              YieldVault{" "}
-              <span style={{ color: "var(--accent-cyan)" }}>RWA</span>
-            </span>
-          </NavLink>
-
-          <div className="flex gap-lg" style={{ marginLeft: "32px" }}>
-            <NavLink
-              to="/"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
-              })}
-            >
-              Vaults
-            </NavLink>
-            <NavLink
-              to="/portfolio"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
-              })}
-            >
-              Portfolio
-            </NavLink>
-            <NavLink
-              to="/analytics"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
-              })}
-            >
-              Analytics
-            </NavLink>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-md">
-          <ThemeToggle />
-          <WalletConnect
-            walletAddress={walletAddress}
-            onConnect={onConnect}
-            onDisconnect={onDisconnect}
-          />
-        </div>
-      </div>
-    </nav>
-  );
+        </nav>
+    );
 };
 
 export default Navbar;

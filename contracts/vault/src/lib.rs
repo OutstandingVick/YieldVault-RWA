@@ -5,8 +5,7 @@ pub mod strategy;
 pub mod benji_strategy;
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
-    Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
 };
 use crate::strategy::StrategyClient;
 
@@ -75,6 +74,7 @@ pub enum VaultError {
     InvalidAmount = 3,
     ArithmeticError = 4,
     InsufficientAssets = 5,
+    ContractPaused = 6,
 }
 
 #[contract]
@@ -103,8 +103,18 @@ impl YieldVault {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TokenAsset, &token);
         env.storage().instance().set(&DataKey::TotalAssets, &0i128);
+        env.storage().instance().set(&DataKey::TotalShares, &0i128);
+
+        let state = VaultState {
+            total_shares: 0,
+            total_assets: 0,
+            is_paused: false,
+        };
+        env.storage().instance().set(&DataKey::State, &state);
         env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
         env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
+
+        Ok(())
     }
 
     /// Set or update the active strategy connector.
@@ -117,19 +127,6 @@ impl YieldVault {
     /// Read the active strategy address.
     pub fn strategy(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Strategy)
-
-        // Initialize the unified state
-        let state = VaultState {
-            total_shares: 0,
-            total_assets: 0,
-            is_paused: false,
-        };
-        env.storage().instance().set(&DataKey::State, &state);
-
-        env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
-        env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
-
-        Ok(())
     }
 
     pub fn set_pause(env: Env, paused: bool) {
@@ -167,7 +164,7 @@ impl YieldVault {
     /// Read the total underlying assets (idle in vault + invested in strategy).
     pub fn total_assets(env: Env) -> i128 {
         let idle_assets = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        
+
         let strategy_assets = if let Some(strategy_addr) = Self::strategy(env.clone()) {
             let strategy_client = StrategyClient::new(&env, &strategy_addr);
             strategy_client.total_value()
@@ -176,8 +173,6 @@ impl YieldVault {
         };
 
         idle_assets + strategy_assets
-    pub fn total_assets(env: Env) -> i128 {
-        Self::get_state(&env).total_assets
     }
 
     pub fn balance(env: Env, user: Address) -> i128 {
@@ -218,8 +213,8 @@ impl YieldVault {
             .instance()
             .get(&DataKey::KoreanDebtStrategy)
             .unwrap();
-        let strategy_client = KoreanDebtStrategyClient::new(&env, &strategy);
-        let harvested = strategy_client.harvest_yield();
+        let strategy_client = StrategyClient::new(&env, &strategy);
+        let harvested = strategy_client.total_value();
 
         if harvested <= 0 {
             panic!("yield amount must be > 0");
@@ -460,6 +455,84 @@ impl YieldVault {
         ShipmentPage {
             shipment_ids: page_ids,
             next_cursor,
+        }
+    }
+
+    fn insert_sorted_unique(env: &Env, ids: Vec<u64>, shipment_id: u64) -> Vec<u64> {
+        let mut result = Vec::new(env);
+        let mut inserted = false;
+        let mut idx = 0;
+
+        while idx < ids.len() {
+            let current = ids.get(idx).unwrap();
+            if current == shipment_id {
+                return ids;
+            }
+
+            if !inserted && shipment_id < current {
+                result.push_back(shipment_id);
+                inserted = true;
+            }
+
+            result.push_back(current);
+            idx += 1;
+        }
+
+        if !inserted {
+            result.push_back(shipment_id);
+        }
+
+        result
+    }
+
+    fn remove_id(env: &Env, ids: Vec<u64>, shipment_id: u64) -> Vec<u64> {
+        let mut result = Vec::new(env);
+        let mut idx = 0;
+
+        while idx < ids.len() {
+            let current = ids.get(idx).unwrap();
+            if current != shipment_id {
+                result.push_back(current);
+            }
+            idx += 1;
+        }
+
+        result
+    }
+
+    fn index_after_cursor(ids: &Vec<u64>, cursor: Option<u64>) -> u32 {
+        let Some(cursor_id) = cursor else {
+            return 0;
+        };
+
+        let mut idx = 0;
+        while idx < ids.len() {
+            if ids.get(idx).unwrap() > cursor_id {
+                return idx;
+            }
+            idx += 1;
+        }
+
+        ids.len()
+    }
+
+    fn divest(env: Env, amount: i128) {
+        if amount <= 0 {
+            return;
+        }
+
+        if let Some(strategy_addr) = Self::strategy(env.clone()) {
+            let strategy_client = StrategyClient::new(&env, &strategy_addr);
+            strategy_client.withdraw(&amount);
+
+            let idle_assets = env
+                .storage()
+                .instance()
+                .get::<_, i128>(&DataKey::TotalAssets)
+                .unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&DataKey::TotalAssets, &(idle_assets + amount));
         }
     }
 
