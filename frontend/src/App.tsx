@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -11,6 +11,7 @@ import Navbar from "./components/Navbar";
 import "./index.css";
 
 import * as Sentry from "@sentry/react";
+import { fetchUsdcBalance } from "./lib/stellarAccount";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -46,6 +47,7 @@ const LoadingPage = () => (
 
 function App() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [usdcBalance, setUsdcBalance] = useState(0);
 
   const handleConnect = async (address: string) => {
     setWalletAddress(address);
@@ -53,7 +55,26 @@ function App() {
 
   const handleDisconnect = () => {
     setWalletAddress(null);
+    setUsdcBalance(0);
   };
+
+  useEffect(() => {
+    const loadBalance = async () => {
+      if (!walletAddress) {
+        setUsdcBalance(0);
+        return;
+      }
+
+      try {
+        const discoveredBalance = await fetchUsdcBalance(walletAddress);
+        setUsdcBalance(discoveredBalance);
+      } catch {
+        setUsdcBalance(0);
+      }
+    };
+
+    loadBalance();
+  }, [walletAddress]);
 
   return (
     <Sentry.ErrorBoundary
@@ -78,7 +99,7 @@ function App() {
                   <SentryRoutes>
                     <Route
                       path="/"
-                      element={<Home walletAddress={walletAddress} />}
+                      element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
                     />
                     <Route
                       path="/portfolio"

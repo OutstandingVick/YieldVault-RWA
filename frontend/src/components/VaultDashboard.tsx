@@ -7,15 +7,16 @@ import { useToast } from "../context/ToastContext";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
+  usdcBalance?: number;
 }
 
-const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
+const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBalance = 0 }) => {
     const { formattedTvl, formattedApy, summary, error, isLoading } = useVault();
     const toast = useToast();
     const [activeTab, setActiveTab] = useState<"deposit" | "withdraw">("deposit");
     const [amount, setAmount] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
-    const [fakeBalance, setFakeBalance] = useState(1250.5);
+    const [pendingBalanceChange, setPendingBalanceChange] = useState(0);
 
     const yieldRate = formattedApy;
     const tvl = formattedTvl;
@@ -34,8 +35,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
         // Simulate transaction delay
         setTimeout(() => {
             const value = Number(amount);
-            if (activeTab === "deposit") setFakeBalance(prev => prev + value);
-            if (activeTab === "withdraw") setFakeBalance(prev => Math.max(0, prev - value));
+            if (activeTab === "deposit") {
+                setPendingBalanceChange((prev) => prev + value);
+            }
+            if (activeTab === "withdraw") {
+                setPendingBalanceChange((prev) => prev - value);
+            }
             setAmount("");
             setIsProcessing(false);
             toast.success({
@@ -191,7 +196,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                             {activeTab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'}
                         </div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                            Balance: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{walletAddress ? fakeBalance.toFixed(2) : '0.00'}</span>
+                            Balance: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{walletAddress ? Math.max(0, usdcBalance + pendingBalanceChange).toFixed(2) : '0.00'}</span>
                         </div>
                     </div>
 
@@ -214,7 +219,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                                     padding: '4px 10px',
                                     borderRadius: '6px'
                                 }}
-                                onClick={() => setAmount(fakeBalance.toString())}
+                                onClick={() =>
+                                  setAmount(
+                                    Math.max(0, usdcBalance + pendingBalanceChange).toString()
+                                  )
+                                }
                             >
                                 MAX
                             </button>
