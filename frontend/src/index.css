@@ -552,4 +552,51 @@ button {
     right: 16px;
     width: auto;
   }
+
+  /* Mobile Flex Utilities */
+  .flex-col-mobile {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+  }
+  
+  .flex-wrap-mobile {
+    flex-wrap: wrap !important;
+  }
+
+  .navbar-container {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .navbar-links {
+    margin-left: 0 !important;
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .nav-link {
+    padding: 12px !important;
+  }
+
+  .glass-panel-mobile {
+    padding: 20px !important;
+  }
+
+  .stats-grid-mobile {
+    flex-direction: column;
+    gap: 16px !important;
+  }
+  
+  .btn {
+    min-height: 48px; /* Accessible tap target */
+  }
+
+  .padding-mobile {
+    padding: 16px !important;
+  }
+
+  .justify-center-mobile {
+    justify-content: center !important;
+  }
 }

@@ -24,8 +24,8 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
             borderBottom: '1px solid var(--border-glass)',
             padding: '16px 0'
         }}>
-            <div className="container flex justify-between items-center">
-                <div className="flex items-center gap-xl">
+            <div className="container flex justify-between items-center navbar-container">
+                <div className="flex items-center gap-xl flex-wrap-mobile justify-center-mobile">
                     <NavLink to="/" className="flex items-center gap-sm" style={{ textDecoration: 'none' }}>
                         <div style={{
                             background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-purple))',
@@ -47,9 +47,10 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
                         </span>
                     </NavLink>
 
-                    <div className="flex gap-lg" style={{ marginLeft: '32px' }}>
+                    <div className="flex gap-lg navbar-links">
                         <NavLink
                             to="/"
+                            className="nav-link"
                             style={({ isActive }) => ({
                                 color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                                 textDecoration: 'none',
@@ -61,6 +62,7 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
                         </NavLink>
                         <NavLink
                             to="/portfolio"
+                            className="nav-link"
                             style={({ isActive }) => ({
                                 color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                                 textDecoration: 'none',
@@ -72,6 +74,7 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
                         </NavLink>
                         <NavLink
                             to="/analytics"
+                            className="nav-link"
                             style={({ isActive }) => ({
                                 color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                                 textDecoration: 'none',
@@ -84,7 +87,7 @@ const Navbar: React.FC<NavbarProps> = ({ walletAddress, onConnect, onDisconnect 
                     </div>
                 </div>
 
-                <div className="flex items-center gap-md">
+                <div className="flex items-center gap-md flex-wrap-mobile justify-center-mobile">
                     <ThemeToggle />
                     <WalletConnect
                         walletAddress={walletAddress}

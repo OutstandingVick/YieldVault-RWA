@@ -53,10 +53,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
             {/* Left Column - Vault Stats */}
             <div style={{ flex: '1 1 500px' }} className="flex flex-col gap-lg">
 
-                <div className="glass-panel" style={{ padding: '32px' }}>
+                <div className="glass-panel glass-panel-mobile" style={{ padding: '32px' }}>
                     {error && <ApiStatusBanner error={error} />}
 
-                    <div className="flex justify-between items-center" style={{ marginBottom: '24px' }}>
+                    <div className="flex justify-between items-center flex-wrap-mobile gap-md" style={{ marginBottom: '24px' }}>
                         <div>
                             <h2 style={{ fontSize: '1.5rem', marginBottom: '4px' }}>Global RWA Yield Fund</h2>
                             <span className="tag" style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
@@ -73,7 +73,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
 
                     <div style={{ height: '1px', background: 'var(--border-glass)', margin: '24px 0' }} />
 
-                    <div className="flex gap-xl" style={{ marginBottom: '32px' }}>
+                    <div className="flex gap-xl stats-grid-mobile" style={{ marginBottom: '32px' }}>
                         <div>
                             <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 Total Value Locked
@@ -93,7 +93,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                         </div>
                     </div>
 
-                    <div className="glass-panel" style={{ padding: '20px', background: 'var(--bg-muted)' }}>
+                    <div className="glass-panel padding-mobile" style={{ padding: '20px', background: 'var(--bg-muted)' }}>
                         <h3 style={{ fontSize: '1.1rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <TrendingUp size={18} color="var(--accent-purple)" />
                             Strategy Overview
@@ -114,7 +114,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
 
             {/* Right Column - User Interaction */}
             <div style={{ flex: '1 1 400px' }}>
-                <div className="glass-panel" style={{ padding: '32px', position: 'relative', overflow: 'hidden' }}>
+                <div className="glass-panel glass-panel-mobile" style={{ padding: '32px', position: 'relative', overflow: 'hidden' }}>
 
                     {/* Decorative Glow */}
                     <div style={{
@@ -186,7 +186,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                         </button>
                     </div>
 
-                    <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
+                    <div className="flex justify-between items-center flex-wrap-mobile gap-md" style={{ marginBottom: '16px' }}>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                             {activeTab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'}
                         </div>
@@ -221,20 +221,20 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress }) => {
                         </div>
                     </div>
 
-                    <div className="glass-panel" style={{ padding: '16px', background: 'var(--bg-muted)', marginBottom: '24px' }}>
-                        <div className="flex justify-between items-center">
+                    <div className="glass-panel padding-mobile" style={{ padding: '16px', background: 'var(--bg-muted)', marginBottom: '24px' }}>
+                        <div className="flex justify-between items-center flex-wrap-mobile gap-sm">
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>BENJI Strategy</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>
                                 {strategy.status === 'active' ? 'Active' : 'Inactive'}
                             </span>
                         </div>
-                        <div className="flex justify-between items-center" style={{ marginTop: '8px' }}>
+                        <div className="flex justify-between items-center flex-wrap-mobile gap-sm" style={{ marginTop: '8px' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Exchange Rate</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>
                                 1 yvUSDC = {summary.exchangeRate.toFixed(3)} USDC
                             </span>
                         </div>
-                        <div className="flex justify-between items-center" style={{ marginTop: '8px' }}>
+                        <div className="flex justify-between items-center flex-wrap-mobile gap-sm" style={{ marginTop: '8px' }}>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Network Fee</span>
                             <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{summary.networkFeeEstimate}</span>
                         </div>
