@@ -1,6 +1,8 @@
 #![no_std]
 
 mod test;
+#[cfg(test)]
+mod fuzz_math;
 pub mod strategy;
 pub mod benji_strategy;
 

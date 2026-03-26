@@ -12,14 +12,14 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
 #[test]
 fn test_vault_flow() {
     let env = Env::default();
-    env.mock_all_auths();
+    env.mock_all_auths_allowing_non_root_auth();
 
     let admin = Address::generate(&env);
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
 
     let token_admin = Address::generate(&env);
-    let usdc = create_token_contract(&env, &token_admin);
+    let usdc = create_token(&env, &token_admin);
     let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
     usdc_admin_client.mint(&user1, &1000);
     usdc_admin_client.mint(&user2, &1000);
