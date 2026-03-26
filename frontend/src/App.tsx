@@ -6,11 +6,14 @@ import {
   Navigate,
 } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
+import { ToastProvider } from "./context/ToastContext";
 import { VaultProvider } from "./context/VaultContext";
+import { ToastProvider } from "./context/ToastContext";
 import Navbar from "./components/Navbar";
 import "./index.css";
 
 import * as Sentry from "@sentry/react";
+import ErrorFallback from "./components/ErrorFallback";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -58,10 +61,14 @@ function App() {
 
   return (
     <Sentry.ErrorBoundary
-      fallback={<p>An error occurred. Our team has been notified.</p>}
+      fallback={({ error, resetError }) => (
+        <ErrorFallback error={error} resetError={resetError} />
+      )}
       showDialog
     >
       <ThemeProvider>
+        <ToastProvider>
+          <VaultProvider>
         <VaultProvider>
           <Router>
             <div className="app-container">
@@ -98,6 +105,39 @@ function App() {
               </main>
             </div>
           </Router>
+          <ToastProvider>
+            <Router>
+              <div className="app-container">
+                <Navbar
+                  walletAddress={walletAddress}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                />
+                <main
+                  className="container"
+                  style={{ marginTop: "100px", paddingBottom: "60px" }}
+                >
+                  <Suspense fallback={<LoadingPage />}>
+                    {/* Replaced Routes with SentryRoutes to capture performance events */}
+                    <SentryRoutes>
+                      <Route
+                        path="/"
+                        element={<Home walletAddress={walletAddress} />}
+                      />
+                      <Route
+                        path="/portfolio"
+                        element={<Portfolio walletAddress={walletAddress} />}
+                      />
+                      <Route path="/analytics" element={<Analytics />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </SentryRoutes>
+                  </Suspense>
+                </main>
+              </div>
+            </Router>
+          </VaultProvider>
+        </ToastProvider>
+          </ToastProvider>
         </VaultProvider>
       </ThemeProvider>
     </Sentry.ErrorBoundary>
