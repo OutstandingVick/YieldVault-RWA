@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useVault } from "../context/VaultContext";
@@ -45,6 +45,65 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
         schema,
     );
 
+    const [showDraftBanner, setShowDraftBanner] = useState(false);
+    const isInitialAutoRestoreRef = useRef(false);
+    const isInitialSaveRef = useRef(true);
+
+    // Initial load for drafts
+    useEffect(() => {
+        const raw = localStorage.getItem("vault_tx_draft");
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed.expiresAt > Date.now() && parsed.amount) {
+                    isInitialAutoRestoreRef.current = true;
+                    setActiveTab(parsed.tab);
+                    handleChange({ target: { name: "amount", value: parsed.amount } } as unknown as React.ChangeEvent<HTMLInputElement>);
+                    setShowDraftBanner(true);
+                } else {
+                    localStorage.removeItem("vault_tx_draft");
+                }
+            } catch {
+                localStorage.removeItem("vault_tx_draft");
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Autosave
+    useEffect(() => {
+        if (isInitialSaveRef.current) {
+            isInitialSaveRef.current = false;
+            return;
+        }
+
+        if (isInitialAutoRestoreRef.current) {
+             isInitialAutoRestoreRef.current = false;
+             return;
+        }
+
+        if (showDraftBanner) {
+            setShowDraftBanner(false);
+        }
+
+        if (values.amount) {
+            const payload = {
+                amount: values.amount,
+                tab: activeTab,
+                expiresAt: Date.now() + 24 * 60 * 60 * 1000
+            };
+            localStorage.setItem("vault_tx_draft", JSON.stringify(payload));
+        } else {
+            localStorage.removeItem("vault_tx_draft");
+        }
+    }, [values.amount, activeTab, showDraftBanner]);
+
+    const handleDiscardDraft = () => {
+        localStorage.removeItem("vault_tx_draft");
+        handleChange({ target: { name: "amount", value: "" } } as unknown as React.ChangeEvent<HTMLInputElement>);
+        setShowDraftBanner(false);
+    };
+
     const handleTransaction = async () => {
         if (!walletAddress) {
             toast.warning({
@@ -67,6 +126,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
                     setPendingBalanceChange((prev) => prev - value);
                 }
                 handleChange({ target: { name: "amount", value: "" } } as Parameters<typeof handleChange>[0]);
+                localStorage.removeItem("vault_tx_draft");
+                setShowDraftBanner(false);
                 setIsProcessing(false);
                 toast.success({
                     title: activeTab === "deposit" ? "Deposit queued" : "Withdrawal queued",
@@ -191,7 +252,20 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
                         </div>
                     )}
 
-                    <Tabs defaultValue="deposit" onValueChange={(v) => { setActiveTab(v as "deposit" | "withdraw"); }}>
+                    {/* Draft Restored Banner */}
+                    {showDraftBanner && (
+                        <div className="glass-panel" style={{ padding: '12px 16px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-muted)', borderLeft: '4px solid var(--accent-cyan)' }}>
+                            <div>
+                                <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>Unsaved draft restored</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>We've recovered your previous input.</div>
+                            </div>
+                            <button type="button" className="btn btn-outline" style={{ padding: '6px 12px', fontSize: '0.8rem', height: 'auto' }} onClick={handleDiscardDraft}>
+                                Discard
+                            </button>
+                        </div>
+                    )}
+
+                    <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "deposit" | "withdraw"); }}>
                         <TabsList style={{ marginBottom: '24px' }}>
                             <TabsTrigger value="deposit">Deposit</TabsTrigger>
                             <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
