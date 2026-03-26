@@ -35,7 +35,7 @@ export async function fetchUsdcBalance(
   const account = await server.accounts().accountId(walletAddress).call();
 
   const usdc = account.balances.find((balance) => {
-    if (balance.asset_type === "native") return false;
+    if (!("asset_code" in balance) || !("asset_issuer" in balance)) return false;
     if (balance.asset_code !== USDC_CODE) return false;
     if (USDC_ISSUER && balance.asset_issuer !== USDC_ISSUER) return false;
     return true;

@@ -12,6 +12,7 @@ import {
 } from "../lib/transactionApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useDataTableState } from "../hooks/useDataTableState";
+import ViewState from "../components/ViewState";
 
 interface TransactionHistoryProps {
   walletAddress: string | null;
@@ -171,11 +172,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       </header>
 
       {!walletAddress ? (
-        <div style={{ textAlign: "center", padding: "48px" }}>
-          <p style={{ color: "var(--text-secondary)" }}>
-            Please connect your wallet to view your transaction history.
-          </p>
-        </div>
+        <ViewState
+          title="Wallet required"
+          description="Please connect your wallet to view your transaction history."
+        />
       ) : (
         <div className="flex flex-col gap-lg">
           {error && <ApiStatusBanner error={error} />}
@@ -248,15 +248,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             </div>
 
             {isLoading ? (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "48px",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                Loading transactions...
-              </div>
+              <ViewState
+                title="Loading transactions"
+                description="Fetching recent deposits and withdrawals."
+              />
             ) : (
               <DataTable
                 caption="Transaction history"

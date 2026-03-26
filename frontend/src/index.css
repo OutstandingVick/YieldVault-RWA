@@ -34,6 +34,21 @@
   --bg-error: rgba(255, 50, 50, 0.1);
   --text-error: #ff6b6b;
   --border-error: rgba(255, 50, 50, 0.2);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
 }
 
 [data-theme='light'] {
@@ -85,6 +100,84 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-main {
+  margin-top: 96px;
+  padding-bottom: 56px;
+}
+
+.app-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-glass);
+  padding: var(--space-4) 0;
+}
+
+.nav-links {
+  display: flex;
+  gap: var(--space-6);
+  margin-left: var(--space-8);
+}
+
+.nav-menu-toggle {
+  display: none;
+}
+
+.skip-link {
+  position: fixed;
+  left: var(--space-4);
+  top: -40px;
+  z-index: 200;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+}
+
+.skip-link:focus {
+  top: var(--space-3);
+}
+
+.view-state {
+  text-align: center;
+  padding: var(--space-8);
+  border: 1px dashed var(--border-glass);
+  border-radius: var(--radius-md);
+  background: var(--bg-muted);
+}
+
+.view-state-error {
+  border-color: var(--border-error);
+  background: var(--bg-error);
+}
+
+.view-state-title {
+  font-size: var(--font-size-xl);
+  margin-bottom: var(--space-3);
+}
+
+.view-state-description {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.view-state-action {
+  margin-top: var(--space-4);
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 600;
@@ -102,6 +195,15 @@ button {
   background: none;
   cursor: pointer;
   outline: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
 }
 
 /* Glassmorphism Utilities */
@@ -218,6 +320,17 @@ button {
   .vault-chart-canvas {
     height: clamp(200px, 58vw, 280px);
     min-height: 200px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -732,6 +845,36 @@ button {
 }
 
 @media (max-width: 768px) {
+  .app-main {
+    margin-top: 136px;
+  }
+
+  .nav-menu-toggle {
+    display: inline-flex;
+  }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 0;
+    right: 0;
+    margin-left: 0;
+    padding: var(--space-4);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-glass);
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .nav-links-open {
+    display: flex;
+  }
+
+  .nav-actions {
+    gap: var(--space-2);
+  }
+
   .data-table-scroll {
     overflow-x: visible;
   }

@@ -13,6 +13,7 @@ import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
 import { useToast } from "../context/ToastContext";
+import ViewState from "../components/ViewState";
 
 interface PortfolioProps {
   walletAddress: string | null;
@@ -207,11 +208,10 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       </header>
 
       {!walletAddress ? (
-        <div style={{ textAlign: "center", padding: "48px" }}>
-          <p style={{ color: "var(--text-secondary)" }}>
-            Please connect your wallet to view your portfolio.
-          </p>
-        </div>
+        <ViewState
+          title="Wallet required"
+          description="Please connect your wallet to view your portfolio."
+        />
       ) : (
         <div className="flex flex-col gap-lg">
           {error && <ApiStatusBanner error={error} />}
@@ -308,6 +308,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             </div>
 
             <div
+              aria-live="polite"
               style={{
                 color: "var(--text-secondary)",
                 fontSize: "0.86rem",

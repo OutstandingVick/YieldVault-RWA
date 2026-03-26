@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
@@ -28,11 +29,13 @@ const mockSummary = {
 
 function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
   return render(
-    <ToastProvider>
-      <VaultProvider>
-        <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
-      </VaultProvider>
-    </ToastProvider>,
+    <MemoryRouter>
+      <ToastProvider>
+        <VaultProvider>
+          <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+        </VaultProvider>
+      </ToastProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -59,9 +62,9 @@ describe("VaultDashboard", () => {
   it("renders the connect overlay when wallet is not connected", async () => {
     renderDashboard(null);
 
-    expect(screen.getByText(/Wallet Not Connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Wallet not connected/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Please connect your Freighter wallet/i),
+      screen.getByText(/Connect your Freighter wallet/i),
     ).toBeInTheDocument();
     expect(
       await screen.findByText(/Franklin BENJI Connector/i),
@@ -107,18 +110,16 @@ describe("VaultDashboard", () => {
     const button = screen.getByText("Approve & Deposit");
     fireEvent.click(button);
 
-    expect(
-      screen.getByText(/Processing Transaction.../i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Processing.../i)).toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(1200);
     });
 
     expect(
-      screen.queryByText(/Processing Transaction.../i),
+      screen.queryByText(/Processing.../i),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("1350.50")).toBeInTheDocument();
+    expect(screen.getByText(/Balance: 1350.50 USDC/i)).toBeInTheDocument();
   });
 
   it("shows a normalized API error message when data loading fails", async () => {

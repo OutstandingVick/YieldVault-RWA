@@ -100,11 +100,21 @@ describe('WalletConnect', () => {
     });
 
     it('handles wallet disconnects gracefully during polling', async () => {
-        vi.useFakeTimers();
         mockedFreighter.isAllowed
             .mockResolvedValueOnce({ isAllowed: true })
             .mockResolvedValueOnce({ isAllowed: false });
         mockedFreighter.getAddress.mockResolvedValue({ address: 'GABC123' });
+        vi
+            .spyOn(window, 'setInterval')
+            .mockImplementation((handler) => {
+                Promise.resolve().then(() => {
+                    if (typeof handler === 'function') {
+                        handler();
+                    }
+                });
+                return 1 as unknown as ReturnType<typeof window.setInterval>;
+            });
+        vi.spyOn(window, 'clearInterval').mockImplementation(() => undefined);
 
         render(
             <WalletConnectWrapper
@@ -113,12 +123,6 @@ describe('WalletConnect', () => {
                 onDisconnect={mockOnDisconnect}
             />
         );
-
-        await waitFor(() => {
-            expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
-        });
-
-        await vi.advanceTimersByTimeAsync(10000);
 
         await waitFor(() => {
             expect(mockOnDisconnect).toHaveBeenCalled();

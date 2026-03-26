@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 import WalletConnect from "./WalletConnect";
 import ThemeToggle from "./ThemeToggle";
@@ -15,26 +15,18 @@ const Navbar: React.FC<NavbarProps> = ({
   onConnect,
   onDisconnect,
 }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const closeMenu = () => setMenuOpen(false);
+
   return (
-    <nav
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 100,
-        background: "var(--bg-surface)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderBottom: "1px solid var(--border-glass)",
-        padding: "16px 0",
-      }}
-    >
+    <nav className="app-nav" aria-label="Primary navigation">
       <div className="container flex justify-between items-center">
         <div className="flex items-center gap-xl">
           <NavLink
             to="/"
             className="flex items-center gap-sm"
+            onClick={closeMenu}
             style={{ textDecoration: "none" }}
           >
             <div
@@ -63,9 +55,22 @@ const Navbar: React.FC<NavbarProps> = ({
             </span>
           </NavLink>
 
-          <div className="flex gap-lg" style={{ marginLeft: "32px" }}>
+          <button
+            type="button"
+            className="nav-menu-toggle btn btn-outline"
+            aria-expanded={menuOpen}
+            aria-controls="app-navigation-links"
+            onClick={() => setMenuOpen((prev) => !prev)}
+          >
+            Menu
+          </button>
+          <div
+            id="app-navigation-links"
+            className={`nav-links ${menuOpen ? "nav-links-open" : ""}`}
+          >
             <NavLink
               to="/"
+              onClick={closeMenu}
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -79,6 +84,7 @@ const Navbar: React.FC<NavbarProps> = ({
             </NavLink>
             <NavLink
               to="/portfolio"
+              onClick={closeMenu}
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -92,6 +98,7 @@ const Navbar: React.FC<NavbarProps> = ({
             </NavLink>
             <NavLink
               to="/analytics"
+              onClick={closeMenu}
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -105,6 +112,7 @@ const Navbar: React.FC<NavbarProps> = ({
             </NavLink>
             <NavLink
               to="/transactions"
+              onClick={closeMenu}
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -119,7 +127,7 @@ const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-md">
+        <div className="flex items-center gap-md nav-actions">
           <ThemeToggle />
           <WalletConnect
             walletAddress={walletAddress}
