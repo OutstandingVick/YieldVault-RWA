@@ -26,11 +26,11 @@ const mockSummary = {
   },
 };
 
-function renderDashboard(walletAddress: string | null) {
+function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
   return render(
     <ToastProvider>
       <VaultProvider>
-        <VaultDashboard walletAddress={walletAddress} />
+        <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
       </VaultProvider>
     </ToastProvider>,
   );

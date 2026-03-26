@@ -19,6 +19,7 @@ function App() {
 
   const handleDisconnect = () => {
     setWalletAddress(null);
+    setUsdcBalance(0);
   };
 
   const handleNavigate = (path: AppPath) => {
