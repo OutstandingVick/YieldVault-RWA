@@ -3,6 +3,11 @@ import { NavLink } from 'react-router-dom';
 import WalletConnect from './WalletConnect';
 import ThemeToggle from './ThemeToggle';
 import { Layers, Menu, X } from './icons';
+import React from "react";
+import { NavLink } from "react-router-dom";
+import WalletConnect from "./WalletConnect";
+import ThemeToggle from "./ThemeToggle";
+import { Layers } from "./icons";
 
 interface NavbarProps {
   walletAddress: string | null;
@@ -108,6 +113,19 @@ const Navbar: React.FC<NavbarProps> = ({
               })}
             >
               Analytics
+            </NavLink>
+            <NavLink
+              to="/transactions"
+              style={({ isActive }) => ({
+                color: isActive
+                  ? "var(--accent-cyan)"
+                  : "var(--text-secondary)",
+                textDecoration: "none",
+                fontWeight: 500,
+                fontSize: "0.95rem",
+              })}
+            >
+              Transactions
             </NavLink>
           </div>
         </div>
