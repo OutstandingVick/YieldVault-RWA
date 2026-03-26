@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod fuzz_math;
 pub mod strategy;
 pub mod benji_strategy;
 
@@ -575,7 +577,6 @@ impl YieldVault {
 
         let vault_balance = Self::balance(env.clone(), user.clone());
         env.storage().instance().set(&DataKey::ShareBalance(user.clone()), &(vault_balance - shares));
-        token_client.transfer(&env.current_contract_address(), &user, &assets_to_return);
 
         state.total_assets -= assets_to_return;
         state.total_shares -= shares;
@@ -683,6 +684,9 @@ impl YieldVault {
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
         token_client.transfer(&strategy, &env.current_contract_address(), &amount);
+
+        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
 
         let mut state = Self::get_state(&env);
         state.total_assets += amount;
