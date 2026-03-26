@@ -7,26 +7,26 @@
 //! ──────────────
 //! 1.  initialize          – happy path, double-init, auth guard
 //! 2.  deposit             – happy path, zero/negative guard, share math,
-//!                           first-deposit 1:1, post-yield dilution
+//!     first-deposit 1:1, post-yield dilution
 //! 3.  withdraw            – happy path, zero/negative guard, insufficient shares,
-//!                           exact boundary, post-yield exchange rate
+//!     exact boundary, post-yield exchange rate
 //! 4.  accrue_yield        – happy path, zero-amount guard, non-admin guard
 //! 5.  report_benji_yield  – happy path, wrong strategy, zero amount
 //! 6.  accrue_korean_yield – happy path (mock), non-positive harvest guard
 //! 7.  governance          – proposal lifecycle, duplicate vote, zero weight,
-//!                           below threshold, rejected, already executed
+//!     below threshold, rejected, already executed
 //! 8.  set_dao_threshold   – happy path, zero guard, non-admin guard
 //! 9.  shipments           – add, duplicate guard, status update, same-status no-op,
-//!                           multi-status isolation, pagination edge cases
+//!     multi-status isolation, pagination edge cases
 //! 10. invariants          – share/asset accounting never drifts across multi-user
-//!                           deposit/withdraw/yield sequences; full exit zeroes state
+//!     deposit/withdraw/yield sequences; full exit zeroes state
 
 #![cfg(test)]
 
 use super::*;
+use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address, Env, Vec};
-use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,9 +41,9 @@ fn create_token<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
 fn setup_vault(
     e: &Env,
 ) -> (
-    YieldVaultClient,
-    token::Client,
-    token::StellarAssetClient,
+    YieldVaultClient<'_>,
+    token::Client<'_>,
+    token::StellarAssetClient<'_>,
     Address,
 ) {
     let admin = Address::generate(e);
@@ -81,7 +81,7 @@ fn test_vault_with_benji_strategy() {
     // Register Contracts
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
-    
+
     let strategy_id = env.register(BenjiStrategy, ());
     let strategy = BenjiStrategyClient::new(&env, &strategy_id);
 
@@ -100,7 +100,7 @@ fn test_vault_with_benji_strategy() {
     vault.invest(&60);
     assert_eq!(usdc.balance(&vault_id), 40);
     assert_eq!(usdc.balance(&strategy_id), 60);
-    
+
     // In our mock, strategy value depends on BENJI tokens held by contract
     // Let's simulate the strategy contract "buying" BENJI tokens
     benji_admin_client.mint(&strategy_id, &60);
@@ -923,4 +923,21 @@ fn test_invariant_share_asset_round_trip() {
     // Due to integer truncation recovered may be slightly less than 300.
     assert!(recovered <= 300);
     assert!(300 - recovered <= 2); // at most 2 units of dust.
+}
+
+#[test]
+#[should_panic]
+fn test_reallocate_strategy_unauthorized() {
+    let e = Env::default();
+    e.mock_all_auths();
+    let (vault, _token, _sac, _admin) = setup_vault(&e);
+
+    let user = Address::generate(&e);
+    let strategy_a = Address::generate(&e);
+    let strategy_b = Address::generate(&e);
+
+    // Act as unauthorized user
+    e.as_contract(&user, || {
+        vault.reallocate_strategy(&strategy_a, &strategy_b, &100);
+    });
 }

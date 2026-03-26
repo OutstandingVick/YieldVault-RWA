@@ -1,16 +1,16 @@
 #![no_std]
 
-mod test;
+pub mod benji_strategy;
 #[cfg(test)]
 mod fuzz_math;
 pub mod strategy;
-pub mod benji_strategy;
+mod test;
 
+use crate::strategy::StrategyClient;
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
     Address, Env, Vec,
 };
-use crate::strategy::StrategyClient;
 
 const MAX_PAGE_SIZE: u32 = 50;
 
@@ -155,8 +155,12 @@ impl YieldVault {
 
     /// Read the total underlying assets (idle in vault + invested in strategy).
     pub fn total_assets(env: Env) -> i128 {
-        let idle_assets = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        
+        let idle_assets = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+
         let strategy_assets = if let Some(strategy_addr) = Self::strategy(env.clone()) {
             let strategy_client = StrategyClient::new(&env, &strategy_addr);
             strategy_client.total_value()
@@ -335,7 +339,6 @@ impl YieldVault {
     ///
     /// ### Authority
     /// Requires `Admin` signature.
-
     pub fn add_shipment(env: Env, shipment_id: u64, status: ShipmentStatus) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -404,7 +407,6 @@ impl YieldVault {
     /// ### Parameters
     /// * `cursor` - Optional ID to start after.
     /// * `page_size` - Number of items to return (max 50).
-
     pub fn shipment_ids_by_status(
         env: Env,
         status: ShipmentStatus,
@@ -479,7 +481,6 @@ impl YieldVault {
     ///
     /// ### Events
     /// Publishes a `(symbol_short!("deposit"),)` event with `(amount, shares_minted)`.
-
     pub fn deposit(env: Env, user: Address, amount: i128) -> Result<i128, VaultError> {
         let mut state = Self::get_state(&env);
         if state.is_paused {
@@ -503,11 +504,19 @@ impl YieldVault {
         token_client.transfer(&user, &env.current_contract_address(), &amount);
 
         // Update idle state
-        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
-        
+        let ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(ta + amount));
+
         let ts = Self::total_shares(env.clone());
-        env.storage().instance().set(&DataKey::TotalShares, &(ts + shares_to_mint));
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalShares, &(ts + shares_to_mint));
         state.total_assets += amount;
         state.total_shares += shares_to_mint;
         env.storage().instance().set(&DataKey::State, &state);
@@ -531,7 +540,6 @@ impl YieldVault {
     ///
     /// ### Returns
     /// The quantity of underlying tokens returned to the user.
-
     pub fn withdraw(env: Env, user: Address, shares: i128) -> Result<i128, VaultError> {
         let mut state = Self::get_state(&env);
         if state.is_paused {
@@ -559,24 +567,39 @@ impl YieldVault {
         let token_client = token::Client::new(&env, &token_addr);
 
         // Check if vault has enough idle assets, otherwise divest from strategy
-        let mut idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+        let mut idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
         if idle_ta < assets_to_return {
             let needed = assets_to_return - idle_ta;
             Self::divest(env.clone(), needed);
-            idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+            idle_ta = env
+                .storage()
+                .instance()
+                .get::<_, i128>(&DataKey::TotalAssets)
+                .unwrap_or(0);
         }
 
         // Transfer assets from vault to user
         token_client.transfer(&env.current_contract_address(), &user, &assets_to_return);
 
         // Update state
-        env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta - assets_to_return));
-        
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(idle_ta - assets_to_return));
+
         let ts = Self::total_shares(env.clone());
-        env.storage().instance().set(&DataKey::TotalShares, &(ts - shares));
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalShares, &(ts - shares));
 
         let vault_balance = Self::balance(env.clone(), user.clone());
-        env.storage().instance().set(&DataKey::ShareBalance(user.clone()), &(vault_balance - shares));
+        env.storage().instance().set(
+            &DataKey::ShareBalance(user.clone()),
+            &(vault_balance - shares),
+        );
 
         state.total_assets -= assets_to_return;
         state.total_shares -= shares;
@@ -601,18 +624,31 @@ impl YieldVault {
         let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
-        let mut idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        if idle_ta < amount { panic!("insufficient idle assets"); }
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        if idle_ta < amount {
+            panic!("insufficient idle assets");
+        }
 
         // Approve and deposit to strategy
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
-        token_client.approve(&env.current_contract_address(), &strategy_addr, &amount, &env.ledger().sequence());
-        
+        token_client.approve(
+            &env.current_contract_address(),
+            &strategy_addr,
+            &amount,
+            &env.ledger().sequence(),
+        );
+
         strategy_client.deposit(&amount);
 
         // Update idle assets
-        env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta - amount));
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(idle_ta - amount));
     }
 
     /// Recall funds from the strategy.
@@ -624,8 +660,14 @@ impl YieldVault {
         strategy_client.withdraw(&amount);
 
         // The strategy contract should have transferred funds back to the vault
-        let idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta + amount));
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(idle_ta + amount));
     }
 
     /// Admin function to artificially accrue yield (legacy, but updated for strategy).
@@ -638,8 +680,14 @@ impl YieldVault {
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
 
-        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
+        let ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(ta + amount));
 
         let mut state = Self::get_state(&env);
         state.total_assets += amount;
@@ -665,8 +713,14 @@ impl YieldVault {
         let token_client = token::Client::new(&env, &token_addr);
         token_client.transfer(&strategy, &env.current_contract_address(), &amount);
 
-        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
+        let ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(ta + amount));
 
         let mut state = Self::get_state(&env);
         state.total_assets += amount;
@@ -727,5 +781,43 @@ impl YieldVault {
                 ids.len()
             }
         }
+    }
+
+    /// Reallocate funds from one strategy to another.
+    /// Only callable by Admin.
+    pub fn reallocate_strategy(
+        env: Env,
+        from_strategy: Address,
+        to_strategy: Address,
+        amount: i128,
+    ) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        if amount <= 0 {
+            panic!("amount must be > 0");
+        }
+
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
+
+        // 1. Withdraw from old strategy
+        let old_strategy_client = StrategyClient::new(&env, &from_strategy);
+        old_strategy_client.withdraw(&amount);
+
+        // 2. Approve and Deposit into new strategy
+        token_client.approve(
+            &env.current_contract_address(),
+            &to_strategy,
+            &amount,
+            &env.ledger().sequence(),
+        );
+        let new_strategy_client = StrategyClient::new(&env, &to_strategy);
+        new_strategy_client.deposit(&amount);
+
+        // 3. Update the active strategy tracking if necessary
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategy, &to_strategy);
     }
 }
