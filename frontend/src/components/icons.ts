@@ -1,5 +1,6 @@
 export {
   Activity,
+  ChevronRight,
   Layers,
   Loader2,
   LogOut,

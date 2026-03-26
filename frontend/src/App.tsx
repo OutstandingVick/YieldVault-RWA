@@ -8,7 +8,6 @@ import {
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
 import { VaultProvider } from "./context/VaultContext";
-import { ToastProvider } from "./context/ToastContext";
 import Navbar from "./components/Navbar";
 import "./index.css";
 
@@ -90,43 +89,6 @@ function App() {
       <ThemeProvider>
         <ToastProvider>
           <VaultProvider>
-        <VaultProvider>
-          <Router>
-            <div className="app-container">
-              <Navbar
-                walletAddress={walletAddress}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-              />
-              <main
-                className="container"
-                style={{ marginTop: "100px", paddingBottom: "60px" }}
-              >
-                <Suspense fallback={<LoadingPage />}>
-                  {/* Replaced Routes with SentryRoutes to capture performance events */}
-                  <SentryRoutes>
-                    <Route
-                      path="/"
-                      element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
-                    />
-                    <Route
-                      path="/portfolio"
-                      element={<Portfolio walletAddress={walletAddress} />}
-                    />
-                    <Route path="/analytics" element={<Analytics />} />
-                    <Route
-                      path="/transactions"
-                      element={
-                        <TransactionHistory walletAddress={walletAddress} />
-                      }
-                    />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </SentryRoutes>
-                </Suspense>
-              </main>
-            </div>
-          </Router>
-          <ToastProvider>
             <Router>
               <div className="app-container">
                 <Navbar
@@ -143,13 +105,19 @@ function App() {
                     <SentryRoutes>
                       <Route
                         path="/"
-                        element={<Home walletAddress={walletAddress} />}
+                        element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
                       />
                       <Route
                         path="/portfolio"
                         element={<Portfolio walletAddress={walletAddress} />}
                       />
                       <Route path="/analytics" element={<Analytics />} />
+                      <Route
+                        path="/transactions"
+                        element={
+                          <TransactionHistory walletAddress={walletAddress} />
+                        }
+                      />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </SentryRoutes>
                   </Suspense>
@@ -158,8 +126,6 @@ function App() {
             </Router>
           </VaultProvider>
         </ToastProvider>
-          </ToastProvider>
-        </VaultProvider>
       </ThemeProvider>
     </Sentry.ErrorBoundary>
   );
