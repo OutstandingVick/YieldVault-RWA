@@ -29,7 +29,7 @@ describe('Navbar', () => {
 
         expect(screen.getByText(/YieldVault/)).toBeInTheDocument();
         expect(screen.getByText(/RWA/)).toBeInTheDocument();
-        expect(screen.getByText('Home')).toBeInTheDocument();
+        expect(screen.getByText('Vaults')).toBeInTheDocument();
         expect(screen.getByText('Analytics')).toBeInTheDocument();
         expect(screen.getByText('Portfolio')).toBeInTheDocument();
     });

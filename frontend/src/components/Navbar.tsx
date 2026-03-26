@@ -68,7 +68,7 @@ const Navbar: React.FC<NavbarProps> = ({ currentPath, onNavigate, walletAddress,
                             onNavigate('/');
                         }}
                     >
-                        Home
+                        Vaults
                     </a>
                     <a
                         href="/analytics"
