@@ -31,6 +31,7 @@ describe('Navbar', () => {
         expect(screen.getByText(/RWA/)).toBeInTheDocument();
         expect(screen.getByText('Home')).toBeInTheDocument();
         expect(screen.getByText('Analytics')).toBeInTheDocument();
+        expect(screen.getByText('Portfolio')).toBeInTheDocument();
     });
 
     it('renders the wallet connect button', () => {
@@ -61,7 +62,7 @@ describe('Navbar', () => {
                 <ToastProvider>
                     <ThemeProvider>
                         <Navbar
-                            currentPath="/analytics"
+                            currentPath="/portfolio"
                             onNavigate={mockOnNavigate}
                             walletAddress={fullAddress}
                             onConnect={mockOnConnect}

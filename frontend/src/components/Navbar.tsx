@@ -4,8 +4,8 @@ import ThemeToggle from './ThemeToggle';
 import { Layers } from './icons';
 
 interface NavbarProps {
-    currentPath: '/' | '/analytics';
-    onNavigate: (path: '/' | '/analytics') => void;
+    currentPath: '/' | '/analytics' | '/portfolio';
+    onNavigate: (path: '/' | '/analytics' | '/portfolio') => void;
     walletAddress: string | null;
     onConnect: (address: string) => void;
     onDisconnect: () => void;
@@ -79,6 +79,16 @@ const Navbar: React.FC<NavbarProps> = ({ currentPath, onNavigate, walletAddress,
                         }}
                     >
                         Analytics
+                    </a>
+                    <a
+                        href="/portfolio"
+                        style={navLinkStyle(currentPath === '/portfolio')}
+                        onClick={(event) => {
+                            event.preventDefault();
+                            onNavigate('/portfolio');
+                        }}
+                    >
+                        Portfolio
                     </a>
                 </div>
 
