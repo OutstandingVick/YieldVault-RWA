@@ -5,6 +5,8 @@ mod test;
 mod fuzz_math;
 pub mod strategy;
 pub mod benji_strategy;
+pub mod permissions;
+pub mod external_calls;
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
