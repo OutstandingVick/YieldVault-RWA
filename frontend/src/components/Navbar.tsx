@@ -51,8 +51,8 @@ const Navbar: React.FC<NavbarProps> = ({
             <span
               style={{
                 fontFamily: "var(--font-display)",
-                fontWeight: 700,
-                fontSize: "1.25rem",
+                fontWeight: "var(--font-bold)",
+                fontSize: "var(--text-xl)",
                 letterSpacing: "-0.02em",
                 color: "var(--text-primary)",
                 marginLeft: "8px",
@@ -71,8 +71,8 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
               Vaults
@@ -84,8 +84,8 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
               Portfolio
@@ -97,8 +97,8 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
               Analytics
@@ -110,8 +110,8 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
               Transactions

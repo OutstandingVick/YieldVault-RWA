@@ -198,10 +198,10 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   return (
     <div className="glass-panel" style={{ padding: "32px" }}>
       <header style={{ textAlign: "center", marginBottom: "48px" }}>
-        <h1 style={{ fontSize: "2.5rem", marginBottom: "16px" }}>
+        <h1 style={{ marginBottom: "16px" }}>
           Your <span className="text-gradient">Portfolio</span>
         </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "1.1rem" }}>
+        <p className="text-body-lg">
           Overview of your deposited real-world assets.
         </p>
       </header>
@@ -224,10 +224,10 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               className="glass-panel"
               style={{ padding: "24px", background: "var(--bg-muted)" }}
             >
-              <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
+              <div className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
                 Total Assets
               </div>
-              <div style={{ fontSize: "1.8rem", fontWeight: 600 }}>
+              <div style={{ fontSize: "var(--text-4xl)", fontWeight: "var(--font-semibold)" }}>
                 {currencyFormatter.format(totalValue)}
               </div>
             </div>
@@ -235,14 +235,14 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               className="glass-panel"
               style={{ padding: "24px", background: "var(--bg-muted)" }}
             >
-              <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
+              <div className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
                 Unrealized Gain
               </div>
               <div
                 style={{
-                  fontSize: "1.2rem",
+                  fontSize: "var(--text-2xl)",
                   color: "var(--accent-cyan)",
-                  fontWeight: 600,
+                  fontWeight: "var(--font-semibold)",
                 }}
               >
                 +{currencyFormatter.format(totalGain)}
@@ -253,19 +253,19 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           <section
             className="glass-panel"
             style={{ padding: "24px", background: "var(--bg-muted)" }}
-            aria-label="Portfolio holdings"
+            aria-labelledby="holdings-heading"
           >
             <div className="portfolio-toolbar">
               <div>
-                <h3 style={{ marginBottom: "6px" }}>Holdings</h3>
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.92rem" }}>
+                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Holdings</h2>
+                <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
                   Sort, search, and page through all current vault positions.
                 </p>
               </div>
 
               <div className="portfolio-toolbar-controls">
                 <label className="input-group" style={{ minWidth: "180px" }}>
-                  <span>Status Filter</span>
+                  <span className="text-body-sm">Status Filter</span>
                   <div className="input-wrapper">
                     <select
                       className="portfolio-select"
@@ -281,7 +281,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                 </label>
 
                 <label className="input-group" style={{ minWidth: "220px" }}>
-                  <span>Search holdings</span>
+                  <span className="text-body-sm">Search holdings</span>
                   <div className="input-wrapper">
                     <input
                       className="input-field"
@@ -289,7 +289,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                       placeholder="Search asset, vault, issuer..."
                       value={urlState.filters.search || ""}
                       onChange={(event) => setSearch(event.target.value)}
-                      style={{ fontSize: "1rem", fontFamily: "var(--font-sans)" }}
+                      style={{ fontSize: "var(--text-base)", fontFamily: "var(--font-sans)" }}
                     />
                   </div>
                 </label>
@@ -307,13 +307,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               </div>
             </div>
 
-            <div
-              style={{
-                color: "var(--text-secondary)",
-                fontSize: "0.86rem",
-                marginBottom: "16px",
-              }}
-            >
+            <div className="text-body-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
               {isLoading ? "Loading holdings..." : `${totalItems} holdings found`}
             </div>
 

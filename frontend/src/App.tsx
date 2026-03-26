@@ -33,14 +33,14 @@ const LoadingPage = () => (
       alignItems: "center",
       height: "60vh",
       color: "var(--accent-cyan)",
-      fontSize: "1.2rem",
-      fontWeight: 500,
+      fontSize: "var(--text-xl)",
+      fontWeight: "var(--font-medium)",
     }}
   >
     <div style={{ textAlign: "center" }}>
       <div
         className="text-gradient"
-        style={{ fontSize: "2rem", marginBottom: "16px" }}
+        style={{ fontSize: "var(--text-3xl)", marginBottom: "16px" }}
       >
         Loading...
       </div>

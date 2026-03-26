@@ -105,14 +105,14 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
 
                     <div className="vault-stats-header flex justify-between items-center" style={{ marginBottom: '24px' }}>
                         <div>
-                            <h2 style={{ fontSize: '1.5rem', marginBottom: '4px' }}>Global RWA Yield Fund</h2>
+                            <h2 style={{ marginBottom: '4px' }}>Global RWA Yield Fund</h2>
                             <span className="tag" style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
                                 Tokens: USDC
                             </span>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Current APY</div>
-                            <div className="text-gradient" style={{ fontSize: '2rem', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+                            <div className="text-body-sm" style={{ color: 'var(--text-secondary)' }}>Current APY</div>
+                            <div className="text-gradient" style={{ fontSize: 'var(--text-3xl)', fontFamily: 'var(--font-display)', fontWeight: 'var(--font-bold)' }}>
                                 {yieldRate}
                             </div>
                         </div>
@@ -122,37 +122,37 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
 
                     <div className="vault-stats-meta flex gap-xl" style={{ marginBottom: '32px' }}>
                         <div>
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div className="text-body-sm" style={{ color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 Total Value Locked
-                                <span className="flex items-center gap-xs" style={{ color: 'var(--accent-cyan)', fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <span className="flex items-center gap-xs" style={{ color: 'var(--accent-cyan)', fontSize: 'var(--text-xs)', fontWeight: 'var(--font-semibold)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                     <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />
                                     {isLoading ? "Syncing" : "Live"}
                                 </span>
                             </div>
-                            <div style={{ fontSize: '1.25rem', fontFamily: 'var(--font-display)', fontWeight: 600 }}>{tvl}</div>
+                            <div style={{ fontSize: 'var(--text-xl)', fontFamily: 'var(--font-display)', fontWeight: 'var(--font-semibold)' }}>{tvl}</div>
                         </div>
                         <div>
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '4px' }}>Underlying Asset</div>
+                            <div className="text-body-sm" style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>Underlying Asset</div>
                             <div className="flex items-center gap-sm">
                                 <ShieldCheck size={16} color="var(--accent-cyan)" />
-                                <span style={{ fontSize: '1.1rem', fontWeight: 500 }}>{summary.assetLabel}</span>
+                                <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--font-medium)' }}>{summary.assetLabel}</span>
                             </div>
                         </div>
                     </div>
 
                     <div className="glass-panel" style={{ padding: '20px', background: 'var(--bg-muted)' }}>
-                        <h3 style={{ fontSize: '1.1rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <TrendingUp size={18} color="var(--accent-purple)" />
                             Strategy Overview
                         </h3>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6' }}>
+                        <p className="text-body-sm" style={{ color: 'var(--text-secondary)', lineHeight: 'var(--leading-relaxed)' }}>
                             This vault pools USDC and deploys it into verified tokenized sovereign bonds available on the Stellar network.
                             Yields are algorithmically harvested and auto-compounded daily into the vault token price.
                         </p>
-                        <div style={{ marginTop: '12px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                        <div className="text-caption" style={{ marginTop: '12px' }}>
                             Strategy: <span style={{ color: 'var(--text-primary)' }}>{strategy.name}</span> ({strategy.issuer})
                         </div>
-                        <div style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                        <div className="text-caption" style={{ marginTop: '8px' }}>
                             RPC: {hasCustomRpcConfig ? 'Custom' : 'Default'} - {networkConfig.rpcUrl}
                         </div>
                     </div>
@@ -201,7 +201,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
                         }}>
                             <WalletIcon size={48} color="var(--accent-cyan)" style={{ marginBottom: '16px', opacity: 0.8 }} />
                             <h3 style={{ marginBottom: '8px' }}>Wallet Not Connected</h3>
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '24px' }}>
+                            <p className="text-body-sm" style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
                                 Please connect your Freighter wallet to deposit USDC and earn RWA yields.
                             </p>
                         </div>
