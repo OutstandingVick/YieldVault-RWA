@@ -7,6 +7,8 @@ import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./Tabs";
 import { FormField, SubmitButton, useForm, type ValidationSchema } from "../forms";
+import { submitDeposit, submitWithdrawal } from "../lib/vaultApi";
+import { normalizeApiError, isValidationError } from "../lib/api";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
@@ -115,30 +117,51 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBala
 
         setIsProcessing(true);
 
-        // Simulate transaction delay
-        await new Promise<void>((resolve) => {
-            setTimeout(() => {
-                const value = Number(values.amount);
-                if (activeTab === "deposit") {
-                    setPendingBalanceChange((prev) => prev + value);
-                }
-                if (activeTab === "withdraw") {
-                    setPendingBalanceChange((prev) => prev - value);
-                }
-                handleChange({ target: { name: "amount", value: "" } } as Parameters<typeof handleChange>[0]);
-                localStorage.removeItem("vault_tx_draft");
-                setShowDraftBanner(false);
-                setIsProcessing(false);
-                toast.success({
-                    title: activeTab === "deposit" ? "Deposit queued" : "Withdrawal queued",
-                    description:
-                        activeTab === "deposit"
-                            ? `${value.toFixed(2)} USDC has been added to your pending vault activity.`
-                            : `${value.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
+        try {
+            const value = Number(values.amount);
+            
+            if (activeTab === "deposit") {
+                await submitDeposit({
+                    walletAddress,
+                    amount: values.amount,
+                    asset: "USDC"
                 });
-                resolve();
-            }, 2000);
-        });
+                setPendingBalanceChange((prev) => prev + value);
+            } else if (activeTab === "withdraw") {
+                await submitWithdrawal({
+                    walletAddress,
+                    shares: value,
+                    asset: "USDC"
+                });
+                setPendingBalanceChange((prev) => prev - value);
+            }
+            
+            handleChange({ target: { name: "amount", value: "" } } as Parameters<typeof handleChange>[0]);
+            localStorage.removeItem("vault_tx_draft");
+            setShowDraftBanner(false);
+            
+            toast.success({
+                title: activeTab === "deposit" ? "Deposit queued" : "Withdrawal queued",
+                description: activeTab === "deposit"
+                    ? `${value.toFixed(2)} USDC has been added to your pending vault activity.`
+                    : `${value.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
+            });
+        } catch (error) {
+            if (isValidationError(error)) {
+                toast.error({
+                    title: "Validation failed",
+                    description: error.userMessage,
+                });
+            } else {
+                const apiError = normalizeApiError(error);
+                toast.error({
+                    title: "Transaction failed",
+                    description: apiError.userMessage,
+                });
+            }
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     return (

@@ -1,7 +1,7 @@
-import type { ApiError } from "../lib/api";
+import type { ApiError, ValidationError } from "../lib/api";
 
 interface ApiStatusBannerProps {
-  error: ApiError;
+  error: ApiError | ValidationError;
 }
 
 const ApiStatusBanner: React.FC<ApiStatusBannerProps> = ({ error }) => {

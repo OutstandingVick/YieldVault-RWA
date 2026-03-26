@@ -196,6 +196,7 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   appPage: async ({ page }, use) => {
     await interceptApiRoutes(page);
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

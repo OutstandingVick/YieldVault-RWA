@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import WalletConnect from './WalletConnect';
@@ -100,8 +100,6 @@ describe('WalletConnect', () => {
     });
 
     it('handles wallet disconnects gracefully during polling', async () => {
-        // Helper to flush all pending promises
-        const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
         vi.useFakeTimers({ shouldAdvanceTime: false });
         mockedFreighter.isAllowed
