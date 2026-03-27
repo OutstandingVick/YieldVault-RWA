@@ -210,24 +210,19 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
           <section
             className="glass-panel"
             style={{ padding: "24px", background: "var(--bg-muted)" }}
-            aria-label="Transaction history"
+            aria-labelledby="transactions-heading"
           >
             <div className="portfolio-toolbar">
               <div>
-                <h3 style={{ marginBottom: "6px" }}>Transactions</h3>
-                <p
-                  style={{
-                    color: "var(--text-secondary)",
-                    fontSize: "0.92rem",
-                  }}
-                >
+                <h2 id="transactions-heading" style={{ marginBottom: "6px" }}>Transactions</h2>
+                <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
                   Sort and filter your deposit and withdrawal history.
                 </p>
               </div>
 
               <div className="portfolio-toolbar-controls">
                 <label className="input-group" style={{ minWidth: "160px" }}>
-                  <span>Type</span>
+                  <span className="text-body-sm">Type</span>
                   <div className="input-wrapper">
                     <select
                       aria-label="Filter by type"
@@ -245,7 +240,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 </label>
 
                 <label className="input-group" style={{ minWidth: "120px" }}>
-                  <span>Rows</span>
+                  <span className="text-body-sm">Rows</span>
                   <div className="input-wrapper">
                     <select
                       aria-label="Rows per page"
@@ -262,13 +257,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               </div>
             </div>
 
-            <div
-              style={{
-                color: "var(--text-secondary)",
-                fontSize: "0.86rem",
-                marginBottom: "16px",
-              }}
-            >
+            <div className="text-body-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
               {isLoading
                 ? "Loading transactions..."
                 : `${totalItems} transactions found`}
