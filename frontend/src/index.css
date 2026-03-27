@@ -184,6 +184,93 @@ h6 {
   border-radius: 4px;
 }
 
+/* ── Mobile Touch Targets (WCAG 2.5.8 – minimum 44×44px) ──────── */
+button,
+a,
+input[type="checkbox"],
+input[type="radio"],
+select,
+[role="button"],
+[role="tab"],
+[role="menuitem"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Links inside paragraphs should still have adequate tap area */
+a {
+  padding: 4px 2px;
+}
+
+/* Icon-only buttons need explicit sizing */
+button svg:only-child,
+button [aria-hidden="true"]:only-child + span:not(:empty) {
+  /* parent button already has min-height/width */
+}
+
+/* Inline links in body text */
+p a,
+li a,
+td a,
+span a {
+  min-height: auto;
+  padding: 2px 0;
+  /* Ensure enough vertical spacing around link text */
+}
+
+/* Ensure form inputs are tall enough */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+textarea,
+select {
+  min-height: 44px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* Navigation links and tabs */
+.nav-link,
+.tab-button,
+.pagination-page-btn,
+.pagination-btn-nav {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Increase spacing between interactive elements to prevent accidental taps */
+.btn + .btn,
+button + button,
+a + a {
+  margin-left: 8px;
+}
+
+/* Table row tap targets on mobile */
+@media (max-width: 768px) {
+  .data-table-row {
+    min-height: 48px;
+  }
+
+  /* Increase icon button sizes on mobile */
+  .copy-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Ensure navbar links are large enough */
+  .nav-link {
+    min-height: 48px;
+    padding: 12px 16px;
+  }
+}
+
 /* Skip to main content link for screen readers */
 .skip-to-main {
   position: absolute;
