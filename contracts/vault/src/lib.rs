@@ -175,7 +175,6 @@ impl YieldVault {
 
     /// Read the total underlying assets represented by the vault.
     pub fn total_assets(env: Env) -> i128 {
-        Self::get_state(&env).total_assets
         let idle_assets = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
 
         let strategy_assets = if let Some(strategy_addr) = Self::strategy(env.clone()) {
@@ -630,8 +629,6 @@ impl YieldVault {
         // Transfer assets from user to vault
         token_client.transfer(&user, &env.current_contract_address(), &amount);
 
-        token_client.transfer(&user, &env.current_contract_address(), &amount);
-
         // Update state
         let ta = Self::total_assets(env.clone());
         env.storage()
@@ -711,13 +708,9 @@ impl YieldVault {
             .set(&DataKey::TotalShares, &Self::checked_sub(ts, shares)?);
 
         env.storage().instance().set(
-            &DataKey::ShareBalance(user.clone()),
+            &user_key,
             &Self::checked_sub(user_shares, shares)?,
         );
-
-        env.storage()
-            .instance()
-            .set(&user_key, &(user_shares - shares));
 
         env.events().publish(
             (symbol_short!("withdraw"), user),
@@ -748,6 +741,7 @@ impl YieldVault {
 
         // Update idle assets
         env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta - amount));
+        Ok(())
     }
 
     /// Recall funds from the strategy.
@@ -784,6 +778,8 @@ impl YieldVault {
             .instance()
             .get::<_, i128>(&DataKey::TotalAssets)
             .unwrap_or(0);
+        // Update total assets state
+        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
 
         let mut state = Self::get_state(&env);
@@ -796,12 +792,7 @@ impl YieldVault {
         );
     }
 
-    /// Legacy admin function retained for compatibility.
-    pub fn accrue_yield(env: Env, amount: i128) {
-        Self::distribute_yield(env, amount);
-    }
-
-    pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
+    pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) -> Result<(), VaultError> {
         strategy.require_auth();
         if amount <= 0 {
             return Err(VaultError::InvalidAmount);
@@ -810,7 +801,7 @@ impl YieldVault {
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
 
-        token_client.transfer(&admin, &env.current_contract_address(), &amount);
+        token_client.transfer(&strategy, &env.current_contract_address(), &amount);
 
         let ta = Self::total_assets(env.clone());
         env.storage()

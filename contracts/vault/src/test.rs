@@ -767,3 +767,49 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.total_shares(), 200);
     assert_eq!(vault.total_assets(), 200);
 }
+
+// ─── Pause Mechanism Tests ───────────────────────────────────────────────
+
+#[test]
+fn test_pause_mechanism() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    // 1. Initially NOT paused
+    assert_eq!(vault.is_paused(), false);
+    vault.deposit(&user, &100);
+    assert_eq!(vault.balance(&user), 100);
+
+    // 2. Pause the vault
+    vault.set_pause(&true);
+    assert_eq!(vault.is_paused(), true);
+
+    // 3. Verify deposit reverts when paused
+    let deposit_result = vault.try_deposit(&user, &100);
+    assert_eq!(deposit_result, Err(Ok(VaultError::ContractPaused)));
+
+    // 4. Verify withdraw reverts when paused
+    let withdraw_result = vault.try_withdraw(&user, &50);
+    assert_eq!(withdraw_result, Err(Ok(VaultError::ContractPaused)));
+
+    // 5. Unpause the vault
+    vault.set_pause(&false);
+    assert_eq!(vault.is_paused(), false);
+
+    // 6. Verify operations resume
+    vault.deposit(&user, &100);
+    assert_eq!(vault.balance(&user), 200);
+    vault.withdraw(&user, &50);
+    assert_eq!(vault.balance(&user), 150);
+}
