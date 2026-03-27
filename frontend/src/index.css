@@ -887,6 +887,11 @@ button {
   padding: 16px 20px;
 }
 
+.compact-mode .data-table th,
+.compact-mode .data-table td {
+  padding: 10px 14px;
+}
+
 /* Page Header Component */
 .page-header {
   position: relative;
