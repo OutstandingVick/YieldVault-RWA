@@ -220,11 +220,13 @@ describe("TransactionHistory", () => {
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
     // Navigate to page 2
-    const nextBtn = screen.getByRole("button", { name: /Next/i });
+    const nextBtn = screen.getByRole("button", { name: /Go to next page/i });
     fireEvent.click(nextBtn);
 
     await waitFor(() =>
-      expect(screen.getByText(/Page 2 of/i)).toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { current: "page", name: /Go to page 2/i }),
+      ).toBeInTheDocument(),
     );
 
     // Apply a filter — should reset to page 1
@@ -234,7 +236,9 @@ describe("TransactionHistory", () => {
     fireEvent.change(filterSelect, { target: { value: "deposit" } });
 
     await waitFor(() =>
-      expect(screen.queryByText(/Page 2 of/i)).not.toBeInTheDocument(),
+      expect(
+        screen.getByRole("button", { current: "page", name: /Go to page 1/i }),
+      ).toBeInTheDocument(),
     );
   });
 

@@ -8,6 +8,11 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
+    resolve: {
+      alias: {
+        "es-toolkit/compat/sortBy": "/src/shims/esToolkitSortBy.ts",
+      },
+    },
     build: {
       sourcemap: true,
     },
