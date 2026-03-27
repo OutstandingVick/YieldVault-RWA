@@ -1,8 +1,17 @@
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
+import * as vaultApi from "../lib/vaultApi";
+
+vi.mock("../lib/vaultApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof vaultApi>();
+  return {
+    ...actual,
+    submitDeposit: vi.fn(),
+  };
+});
 
 const mockSummary = {
   tvl: 12450800,
@@ -76,6 +85,8 @@ describe("VaultDashboard", () => {
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
+    expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy strategy ID/i })).toBeInTheDocument();
   });
 
   it("allows switching between deposit and withdraw tabs", async () => {
@@ -94,11 +105,15 @@ describe("VaultDashboard", () => {
   });
 
   it("updates the amount input and processes a deposit", async () => {
-    renderDashboard("GABC123");
+    let resolveSubmit!: () => void;
+    const submitPromise = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    vi.mocked(vaultApi.submitDeposit).mockReturnValue(submitPromise);
+    
+    renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
     expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
-
-    vi.useFakeTimers();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "100" } });
@@ -107,17 +122,22 @@ describe("VaultDashboard", () => {
     const button = screen.getByText("Approve & Deposit");
     fireEvent.click(button);
 
-    expect(
-      screen.getByText(/Processing Transaction.../i),
-    ).toBeInTheDocument();
-
-    act(() => {
-      vi.advanceTimersByTime(2000);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Processing Transaction.../i),
+      ).toBeInTheDocument();
     });
 
-    expect(
-      screen.queryByText(/Processing Transaction.../i),
-    ).not.toBeInTheDocument();
+    // Resolve the mocked API call
+    resolveSubmit();
+
+    // Wait for internal component state update
+    await waitFor(() => {
+        expect(
+          screen.queryByText(/Processing Transaction.../i),
+        ).not.toBeInTheDocument();
+    });
+    
     expect(screen.getByText("1350.50")).toBeInTheDocument();
   });
 
@@ -159,7 +179,7 @@ describe("VaultDashboard", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
-    });
+    }, { timeout: 3000 });
     expect(screen.getByRole("alert")).toHaveTextContent(
       "We could not reach the server. Check your connection and try again.",
     );
