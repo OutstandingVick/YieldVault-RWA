@@ -1,5 +1,6 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "../i18n";
+import { Pagination } from "./Pagination";
 
 export type TableSortDirection = "asc" | "desc";
 
@@ -31,6 +32,7 @@ interface DataTableProps<T> {
   onSortChange?: (columnId: string) => void;
   pagination?: PaginationState;
   onPageChange?: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   renderRowDetails?: (row: T) => ReactNode;
 }
 
@@ -57,6 +59,7 @@ export function DataTable<T>({
   onSortChange,
   pagination,
   onPageChange,
+  onPageSizeChange,
   renderRowDetails,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
@@ -183,6 +186,15 @@ export function DataTable<T>({
               {t("dataTable.next")}
             </button>
           </div>
+      {pagination && (
+        <div className="data-table-pagination" style={{ padding: 0 }}>
+          <Pagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            totalItems={pagination.totalItems}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+          />
         </div>
       )}
     </div>

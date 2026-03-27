@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { isAllowed, setAllowed, getAddress } from '@stellar/freighter-api';
+import React, { useState, useEffect } from "react";
+import { setAllowed } from "@stellar/freighter-api";
 import { Loader2, LogOut, Wallet } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
 import { useToast } from '../context/ToastContext';
 import { useTranslation } from '../i18n';
+import CopyButton from './CopyButton';
+import { discoverConnectedAddress } from "../lib/stellarAccount";
 
 interface WalletConnectProps {
     walletAddress: string | null;
@@ -17,21 +19,34 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
     const { t } = useTranslation();
 
     useEffect(() => {
-        const checkConnection = async () => {
-            try {
-                const allowed = await isAllowed();
-                if (allowed.isAllowed) {
-                    const userInfo = await getAddress();
-                    if (userInfo.address) {
-                        onConnect(userInfo.address);
-                    }
-                }
-            } catch (e) {
-                console.error("Error checking Freighter connection:", e);
+        let mounted = true;
+
+        const syncConnection = async () => {
+            const discoveredAddress = await discoverConnectedAddress();
+            if (!mounted) return;
+
+            if (discoveredAddress) {
+                onConnect(discoveredAddress);
+                return;
+            }
+
+            if (walletAddress) {
+                onDisconnect();
+                toast.info({
+                    title: "Wallet disconnected",
+                    description: "Freighter is no longer connected to this session.",
+                });
             }
         };
-        checkConnection();
-    }, [onConnect]);
+
+        syncConnection();
+        const interval = window.setInterval(syncConnection, 10000);
+
+        return () => {
+            mounted = false;
+            window.clearInterval(interval);
+        };
+    }, [onConnect, onDisconnect, toast, walletAddress]);
 
     const handleConnect = async () => {
         setIsConnecting(true);
@@ -47,6 +62,13 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                         description: t('toast.walletConnected.description'),
                     });
                 }
+            const discoveredAddress = await discoverConnectedAddress();
+            if (discoveredAddress) {
+                onConnect(discoveredAddress);
+                toast.success({
+                    title: "Wallet connected",
+                    description: "Freighter is now connected to your YieldVault session.",
+                });
             } else {
                 toast.warning({
                     title: t('toast.walletPermissionRequired.title'),
@@ -84,7 +106,16 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     }}
                 >
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-cyan)', boxShadow: '0 0 8px var(--accent-cyan)' }} />
-                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{formatAddress(walletAddress)}</span>
+                    <div className="copy-field">
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }} title={walletAddress}>
+                            {formatAddress(walletAddress)}
+                        </span>
+                        <CopyButton
+                            value={walletAddress}
+                            label="wallet address"
+                            successDescription="The full wallet address has been copied to your clipboard."
+                        />
+                    </div>
                 </div>
                 <div
                     className="glass-panel"
