@@ -2,6 +2,7 @@ export type ApiErrorCode =
   | "NETWORK_ERROR"
   | "TIMEOUT"
   | "ABORTED"
+  | "AUTH_ERROR"
   | "HTTP_ERROR"
   | "INVALID_RESPONSE"
   | "UNKNOWN_ERROR";
@@ -65,6 +66,7 @@ const DEFAULT_USER_MESSAGE =
   "Something went wrong while loading data. Please try again.";
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const AUTH_STATUS_CODES = new Set([401, 403]);
 
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
@@ -121,6 +123,20 @@ export function normalizeApiError(
       userMessage:
         "We received an unexpected response from the server. Please try again.",
       retryable: false,
+      cause: error,
+    });
+  }
+
+  if (options.status && AUTH_STATUS_CODES.has(options.status)) {
+    return new ApiError({
+      ...baseMetadata,
+      code: "AUTH_ERROR",
+      message: `Request failed with status ${options.status}: authorization required.`,
+      userMessage:
+        "Your session has expired. Please reconnect your wallet to continue.",
+      retryable: false,
+      status: options.status,
+      statusText: options.statusText,
       cause: error,
     });
   }
