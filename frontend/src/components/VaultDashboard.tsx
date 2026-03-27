@@ -5,6 +5,7 @@ import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
 import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
+import CopyButton from "./CopyButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
 
 interface VaultDashboardProps {
@@ -197,6 +198,18 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </p>
             <div style={{ marginTop: "12px", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
               Strategy: <span style={{ color: "var(--text-primary)" }}>{strategy.name}</span> ({strategy.issuer})
+            </div>
+            <div
+              className="copy-field"
+              style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
+            >
+              <span>Strategy ID:</span>
+              <span className="copy-field-value copy-field-value-mono">{strategy.id}</span>
+              <CopyButton
+                value={strategy.id}
+                label="strategy ID"
+                successDescription="The strategy ID has been copied to your clipboard."
+              />
             </div>
             <div style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}>
               RPC: {hasCustomRpcConfig ? "Custom" : "Default"} - {networkConfig.rpcUrl}
