@@ -4,6 +4,7 @@ import ApiStatusBanner from "../components/ApiStatusBanner";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
 import { normalizeApiError, type ApiError } from "../lib/api";
+import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
 import {
   getTransactions,
   formatAmount,
@@ -77,7 +78,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<ApiError | null>(null);
+  const [error, setError] = useState<ApiError | ValidationError | null>(null);
 
   // Task 4.3: Wire useDataTableState for sort, page, pageSize URL persistence
   const { state, setSort, setPage, setPageSize } = useDataTableState({
@@ -109,13 +110,22 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       setIsLoading(true);
 
       try {
-        const data = await getTransactions(walletAddress);
+        const data = await getTransactions({
+          walletAddress,
+          limit: state.pageSize,
+          order: state.sortDirection,
+          type: txType,
+        });
         if (!isMounted) return;
         setTransactions(data);
         setError(null);
       } catch (unknownError) {
         if (!isMounted) return;
-        setError(normalizeApiError(unknownError));
+        if (isValidationError(unknownError)) {
+          setError(unknownError);
+        } else {
+          setError(normalizeApiError(unknownError));
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -128,13 +138,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [walletAddress]);
+  }, [walletAddress, state.pageSize, state.sortDirection, txType]);
 
   // Apply type filter before passing to useClientDataTable
-  const filteredByType =
-    txType === "all"
-      ? transactions
-      : transactions.filter((tx) => tx.type === txType);
+  const filteredByType = transactions; // already filtered by API
 
   const { rows, page, totalItems, totalPages } = useClientDataTable({
     rows: filteredByType,

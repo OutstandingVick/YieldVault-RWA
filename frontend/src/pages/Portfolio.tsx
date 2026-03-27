@@ -5,6 +5,8 @@ import {
   type DataTableColumn,
 } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
+import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
+import CopyButton from "../components/CopyButton";
 import { normalizeApiError, type ApiError } from "../lib/api";
 import {
   getPortfolioHoldings,
@@ -39,6 +41,18 @@ const columns: DataTableColumn<PortfolioHolding>[] = [
         <div style={{ fontWeight: 600 }}>{row.asset}</div>
         <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
           {row.vaultName}
+        </div>
+        <div
+          className="copy-field"
+          style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
+        >
+          <span>Position ID:</span>
+          <span className="copy-field-value copy-field-value-mono">{row.id}</span>
+          <CopyButton
+            value={row.id}
+            label="position ID"
+            successDescription={`Position ID ${row.id} has been copied to your clipboard.`}
+          />
         </div>
       </div>
     ),
@@ -102,7 +116,7 @@ const columns: DataTableColumn<PortfolioHolding>[] = [
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const toast = useToast();
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
-  const [error, setError] = useState<ApiError | null>(null);
+  const [error, setError] = useState<ApiError | ValidationError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const { state: urlState, setSearch, setSort, setPage, setPageSize, setFilters, reset } = useUrlState<{ status: string, search: string }>({
@@ -130,7 +144,10 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       setIsLoading(true);
 
       try {
-        const response = await getPortfolioHoldings();
+        const response = await getPortfolioHoldings({
+          walletAddress,
+          status: urlState.filters.status || "all",
+        });
         if (!isMounted) {
           return;
         }
@@ -140,12 +157,20 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
         if (!isMounted) {
           return;
         }
-        const nextError = normalizeApiError(unknownError);
-        setError(nextError);
-        toast.error({
-          title: "Portfolio sync failed",
-          description: nextError.userMessage,
-        });
+        if (isValidationError(unknownError)) {
+          setError(unknownError);
+          toast.error({
+            title: "Validation failed",
+            description: unknownError.userMessage,
+          });
+        } else {
+          const nextError = normalizeApiError(unknownError);
+          setError(nextError);
+          toast.error({
+            title: "Portfolio sync failed",
+            description: nextError.userMessage,
+          });
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -158,7 +183,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
     return () => {
       isMounted = false;
     };
-  }, [toast, walletAddress]);
+  }, [toast, walletAddress, urlState.filters.status]);
 
   const filteredHoldings = React.useMemo(() => {
     if (!urlState.filters.status || urlState.filters.status === "all") {
