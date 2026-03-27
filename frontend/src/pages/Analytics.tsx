@@ -3,6 +3,7 @@ import { Activity } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
+import ViewState from "../components/ViewState";
 
 const Analytics: React.FC = () => {
     const { formattedTvl, summary, error, isLoading } = useVault();
@@ -10,6 +11,12 @@ const Analytics: React.FC = () => {
     return (
         <div className="glass-panel" style={{ padding: '32px' }}>
             {error && <ApiStatusBanner error={error} />}
+            {isLoading && !error && (
+                <ViewState
+                    title="Loading analytics"
+                    description="Preparing current pool health and performance metrics."
+                />
+            )}
 
             <PageHeader
                 title={<span className="text-gradient">Project Analytics</span>}

@@ -1,10 +1,11 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useState, lazy, Suspense } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
 } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
 import { VaultProvider } from "./context/VaultContext";
@@ -90,7 +91,6 @@ function AppErrorFallback() {
 
   const handleDisconnect = () => {
     setWalletAddress(null);
-    setUsdcBalance(0);
   };
 
   const handleNavigate = (path: AppPath) => {
@@ -172,7 +172,22 @@ function AppErrorFallback() {
             </div>
           </Router>
         </VaultProvider>
-      </ThemeProvider>
+      </ToastProvider>
+    </ThemeProvider>
+  );
+}
+
+function App() {
+  return (
+    <Sentry.ErrorBoundary
+      fallback={({ error, resetError }) => (
+        <ErrorFallback error={error} resetError={resetError} />
+      )}
+      showDialog
+    >
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
+      </QueryClientProvider>
     </Sentry.ErrorBoundary>
     <div className="app-container">
       <Navbar
