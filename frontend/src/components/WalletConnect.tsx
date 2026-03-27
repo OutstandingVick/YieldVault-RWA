@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { setAllowed } from "@stellar/freighter-api";
 import { Loader2, LogOut, Wallet } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
@@ -13,10 +13,20 @@ interface WalletConnectProps {
 
 const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect, onDisconnect }) => {
     const [isConnecting, setIsConnecting] = useState(false);
+    const announcedAddressRef = useRef<string | null>(null);
     const toast = useToast();
+
+    if (walletAddress && announcedAddressRef.current !== walletAddress) {
+        announcedAddressRef.current = walletAddress;
+        onConnect(walletAddress);
+    }
 
     useEffect(() => {
         let mounted = true;
+
+        if (walletAddress) {
+            onConnect(walletAddress);
+        }
 
         const syncConnection = async () => {
             const discoveredAddress = await discoverConnectedAddress();
@@ -37,10 +47,12 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
         };
 
         syncConnection();
+        const immediateRecheck = window.setTimeout(syncConnection, 0);
         const interval = window.setInterval(syncConnection, 10000);
 
         return () => {
             mounted = false;
+            window.clearTimeout(immediateRecheck);
             window.clearInterval(interval);
         };
     }, [onConnect, onDisconnect, toast, walletAddress]);
@@ -133,6 +145,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                 className="btn btn-primary animate-glow"
                 onClick={handleConnect}
                 disabled={isConnecting}
+                aria-busy={isConnecting}
             >
                 {isConnecting ? <Loader2 size={18} className="spin" style={{ animation: 'spin 1s linear infinite' }} /> : <Wallet size={18} />}
                 {isConnecting ? 'Connecting...' : 'Connect Freighter'}

@@ -17,6 +17,7 @@ const Navbar: React.FC<NavbarProps> = ({
 }) => {
   return (
     <nav
+      aria-label="Primary"
       style={{
         position: "fixed",
         top: 0,

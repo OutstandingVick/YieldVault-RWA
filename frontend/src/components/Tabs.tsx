@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
 import "./Tabs.css";
 
 interface TabsContextType {
@@ -37,10 +36,14 @@ export function Tabs({
   children,
   className = "",
 }: TabsProps) {
-  const [searchParams, setSearchParams] = useSearchParams();
   const [internalValue, setInternalValue] = useState(defaultValue || "");
 
-  const urlValue = syncWithUrl ? searchParams.get(urlParam) : null;
+  const [urlValue, setUrlValue] = useState<string | null>(() => {
+    if (!syncWithUrl || typeof window === "undefined") {
+      return null;
+    }
+    return new URLSearchParams(window.location.search).get(urlParam);
+  });
   const activeValue =
     controlledValue !== undefined
       ? controlledValue
@@ -49,20 +52,31 @@ export function Tabs({
       : internalValue;
 
   useEffect(() => {
-    // If we're syncing with URL but the param isn't there, and we have a defaultValue,
-    // let's set the default value in the URL implicitly, or just let activeValue handle it.
-    // Setting it explicitly ensures deep links are predictable.
-    if (syncWithUrl && !urlValue && defaultValue) {
-      setSearchParams(
-        (prev) => {
-          const newParams = new URLSearchParams(prev);
-          newParams.set(urlParam, defaultValue);
-          return newParams;
-        },
-        { replace: true }
-      );
+    if (!syncWithUrl || typeof window === "undefined") {
+      return;
     }
-  }, [syncWithUrl, urlValue, defaultValue, urlParam, setSearchParams]);
+
+    const handlePopState = () => {
+      setUrlValue(new URLSearchParams(window.location.search).get(urlParam));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [syncWithUrl, urlParam]);
+
+  useEffect(() => {
+    if (!syncWithUrl || typeof window === "undefined") {
+      return;
+    }
+    if (!urlValue && defaultValue) {
+      const params = new URLSearchParams(window.location.search);
+      params.set(urlParam, defaultValue);
+      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+      setUrlValue(defaultValue);
+    }
+  }, [syncWithUrl, urlValue, defaultValue, urlParam]);
 
   const handleValueChange = (newValue: string) => {
     if (controlledValue === undefined) {
@@ -70,14 +84,10 @@ export function Tabs({
     }
 
     if (syncWithUrl) {
-      setSearchParams(
-        (prev) => {
-          const newParams = new URLSearchParams(prev);
-          newParams.set(urlParam, newValue);
-          return newParams;
-        },
-        { replace: true }
-      );
+      const params = new URLSearchParams(window.location.search);
+      params.set(urlParam, newValue);
+      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+      setUrlValue(newValue);
     }
 
     if (onValueChange) {
