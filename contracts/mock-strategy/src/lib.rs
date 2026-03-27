@@ -38,8 +38,12 @@ impl MockKoreanSovereignStrategy {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Vault, &vault);
-        env.storage().instance().set(&DataKey::BaseYield, &base_yield);
-        env.storage().instance().set(&DataKey::StepYield, &step_yield);
+        env.storage()
+            .instance()
+            .set(&DataKey::BaseYield, &base_yield);
+        env.storage()
+            .instance()
+            .set(&DataKey::StepYield, &step_yield);
         env.storage().instance().set(&DataKey::Epoch, &0u32);
 
         Ok(())
@@ -49,13 +53,25 @@ impl MockKoreanSovereignStrategy {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
-        env.storage().instance().set(&DataKey::BaseYield, &base_yield);
-        env.storage().instance().set(&DataKey::StepYield, &step_yield);
+        env.storage()
+            .instance()
+            .set(&DataKey::BaseYield, &base_yield);
+        env.storage()
+            .instance()
+            .set(&DataKey::StepYield, &step_yield);
     }
 
     pub fn preview_next_yield(env: Env) -> i128 {
-        let base: i128 = env.storage().instance().get(&DataKey::BaseYield).unwrap_or(0);
-        let step: i128 = env.storage().instance().get(&DataKey::StepYield).unwrap_or(0);
+        let base: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::BaseYield)
+            .unwrap_or(0);
+        let step: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StepYield)
+            .unwrap_or(0);
         let epoch: u32 = env.storage().instance().get(&DataKey::Epoch).unwrap_or(0);
 
         base + step * (epoch as i128)
