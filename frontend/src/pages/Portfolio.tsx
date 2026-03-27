@@ -4,7 +4,14 @@ import {
   DataTable,
   type DataTableColumn,
 } from "../components/DataTable";
-import type { PortfolioHolding } from "../lib/portfolioApi";
+import PageHeader from "../components/PageHeader";
+import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
+import CopyButton from "../components/CopyButton";
+import { normalizeApiError, type ApiError } from "../lib/api";
+import {
+  getPortfolioHoldings,
+  type PortfolioHolding,
+} from "../lib/portfolioApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
@@ -35,6 +42,18 @@ const columns: DataTableColumn<PortfolioHolding>[] = [
         <div style={{ fontWeight: 600 }}>{row.asset}</div>
         <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
           {row.vaultName}
+        </div>
+        <div
+          className="copy-field"
+          style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
+        >
+          <span>Position ID:</span>
+          <span className="copy-field-value copy-field-value-mono">{row.id}</span>
+          <CopyButton
+            value={row.id}
+            label="position ID"
+            successDescription={`Position ID ${row.id} has been copied to your clipboard.`}
+          />
         </div>
       </div>
     ),
@@ -96,9 +115,10 @@ const columns: DataTableColumn<PortfolioHolding>[] = [
 ];
 
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
-  const { data: holdings = [], isLoading, error: queryError } = usePortfolioHoldings(walletAddress);
-
-  const error = queryError ? normalizeApiError(queryError) : null;
+  const toast = useToast();
+  const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
+  const [error, setError] = useState<ApiError | ValidationError | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const { state: urlState, setSearch, setSort, setPage, setPageSize, setFilters, reset } = useUrlState<{ status: string, search: string }>({
     defaultSortBy: "valueUsd",
@@ -114,7 +134,59 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
   useServerDataTable({ state });
 
-  const filteredHoldings = useMemo(() => {
+  useEffect(() => {
+    if (!walletAddress) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadHoldings = async () => {
+      setIsLoading(true);
+
+      try {
+        const response = await getPortfolioHoldings({
+          walletAddress,
+          status: urlState.filters.status || "all",
+        });
+        if (!isMounted) {
+          return;
+        }
+        setHoldings(response);
+        setError(null);
+      } catch (unknownError) {
+        if (!isMounted) {
+          return;
+        }
+        if (isValidationError(unknownError)) {
+          setError(unknownError);
+          toast.error({
+            title: "Validation failed",
+            description: unknownError.userMessage,
+          });
+        } else {
+          const nextError = normalizeApiError(unknownError);
+          setError(nextError);
+          toast.error({
+            title: "Portfolio sync failed",
+            description: nextError.userMessage,
+          });
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadHoldings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [toast, walletAddress, urlState.filters.status]);
+
+  const filteredHoldings = React.useMemo(() => {
     if (!urlState.filters.status || urlState.filters.status === "all") {
       return holdings;
     }
@@ -152,14 +224,32 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
   return (
     <div className="glass-panel" style={{ padding: "32px" }}>
-      <header style={{ textAlign: "center", marginBottom: "48px" }}>
-        <h1 style={{ fontSize: "2.5rem", marginBottom: "16px" }}>
-          Your <span className="text-gradient">Portfolio</span>
-        </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "1.1rem" }}>
-          Overview of your deposited real-world assets.
-        </p>
-      </header>
+      <PageHeader
+        title={
+          <>
+            Your <span className="text-gradient">Portfolio</span>
+          </>
+        }
+        description="Overview of your deposited real-world assets."
+        breadcrumbs={[
+          { label: "Home", href: "/" },
+          { label: "Portfolio" },
+        ]}
+        statusChips={
+          walletAddress
+            ? [
+                {
+                  label: `${holdings.length} Holdings`,
+                  variant: "cyan" as const,
+                },
+                {
+                  label: isLoading ? "Syncing..." : "Live",
+                  variant: (isLoading ? "warning" : "success") as const,
+                },
+              ]
+            : undefined
+        }
+      />
 
       {!walletAddress ? (
         <div style={{ textAlign: "center", padding: "48px" }}>
