@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useVault } from "../context/VaultContext";
