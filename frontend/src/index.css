@@ -783,3 +783,47 @@ button {
     width: auto;
   }
 }
+
+/* Session Expired Overlay */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.session-expired-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.session-expired-modal {
+  max-width: 480px;
+  width: 100%;
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  animation: fadeInScale 220ms ease-out both;
+  border-color: var(--border-error);
+  box-shadow: 0 0 40px rgba(255, 50, 50, 0.08), var(--shadow-glass);
+}
+
+@media (max-width: 480px) {
+  .session-expired-modal {
+    padding: 28px 20px;
+  }
+}

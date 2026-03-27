@@ -1,19 +1,22 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
 import { VaultProvider } from "./context/VaultContext";
-import { ToastProvider } from "./context/ToastContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
+import SessionExpiredModal from "./components/SessionExpiredModal";
 import "./index.css";
 
 import * as Sentry from "@sentry/react";
 import { fetchUsdcBalance } from "./lib/stellarAccount";
+import { createApiClient } from "./lib/api";
 import ErrorFallback from "./components/ErrorFallback";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
@@ -49,18 +52,124 @@ const LoadingPage = () => (
   </div>
 );
 
+/**
+ * Inner app shell — has access to AuthContext and Router context.
+ * Registers the 401/403 error interceptor once and conditionally
+ * renders SessionExpiredModal.
+ */
+function AppShell({
+  walletAddress,
+  usdcBalance,
+  onConnect,
+  onDisconnect,
+}: {
+  walletAddress: string | null;
+  usdcBalance: number;
+  onConnect: (address: string) => void;
+  onDisconnect: () => void;
+}) {
+  const { sessionState, intendedPath, setSessionExpired, clearSessionExpired } =
+    useAuth();
+  const location = useLocation();
+  // Stable ref to avoid re-registering the interceptor on every render
+  const interceptorRegistered = useRef(false);
+
+  useEffect(() => {
+    if (interceptorRegistered.current) return;
+    interceptorRegistered.current = true;
+
+    // Create a shared client instance used for interceptor registration.
+    // Individual API modules create their own clients; this interceptor is
+    // attached to the global singleton exported from api/index.
+    const client = createApiClient();
+    const unsubscribe = client.useError((error) => {
+      if (error.code === "AUTH_ERROR") {
+        setSessionExpired(location.pathname);
+      }
+      return error;
+    });
+
+    return () => {
+      unsubscribe();
+      interceptorRegistered.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleReconnect = async () => {
+    // Trigger wallet reconnect; on success clear expired state
+    // Optional: navigate to intendedPath after reconnect
+    try {
+      const { setAllowed } = await import("@stellar/freighter-api");
+      const { discoverConnectedAddress } = await import("./lib/stellarAccount");
+      await setAllowed();
+      const discoveredAddress = await discoverConnectedAddress();
+      if (discoveredAddress) {
+        onConnect(discoveredAddress);
+        clearSessionExpired();
+      }
+    } catch {
+      // Wallet errors are surfaced by WalletConnect; silently ignore here
+    }
+  };
+
+  const handleDismiss = () => {
+    clearSessionExpired();
+    // Navigate home to avoid stale protected views
+    window.location.href = "/";
+  };
+
+  return (
+    <div className="app-container">
+      <Navbar
+        walletAddress={walletAddress}
+        onConnect={onConnect}
+        onDisconnect={onDisconnect}
+      />
+      <main className="container" style={{ marginTop: "100px", paddingBottom: "60px" }}>
+        <Suspense fallback={<LoadingPage />}>
+          <SentryRoutes>
+            <Route
+              path="/"
+              element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
+            />
+            <Route
+              path="/portfolio"
+              element={<Portfolio walletAddress={walletAddress} />}
+            />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route
+              path="/transactions"
+              element={<TransactionHistory walletAddress={walletAddress} />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </SentryRoutes>
+        </Suspense>
+      </main>
+
+      {sessionState === "expired" && (
+        <SessionExpiredModal
+          intendedPath={intendedPath}
+          onReconnect={handleReconnect}
+          onDismiss={handleDismiss}
+        />
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState(0);
 
-  const handleConnect = async (address: string) => {
+  const handleConnect = useCallback(async (address: string) => {
     setWalletAddress(address);
-  };
+  }, []);
 
-  const handleDisconnect = () => {
+  const handleDisconnect = useCallback(() => {
     setWalletAddress(null);
     setUsdcBalance(0);
-  };
+  }, []);
 
   useEffect(() => {
     const loadBalance = async () => {
@@ -90,76 +199,18 @@ function App() {
       <ThemeProvider>
         <ToastProvider>
           <VaultProvider>
-        <VaultProvider>
-          <Router>
-            <div className="app-container">
-              <Navbar
-                walletAddress={walletAddress}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-              />
-              <main
-                className="container"
-                style={{ marginTop: "100px", paddingBottom: "60px" }}
-              >
-                <Suspense fallback={<LoadingPage />}>
-                  {/* Replaced Routes with SentryRoutes to capture performance events */}
-                  <SentryRoutes>
-                    <Route
-                      path="/"
-                      element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
-                    />
-                    <Route
-                      path="/portfolio"
-                      element={<Portfolio walletAddress={walletAddress} />}
-                    />
-                    <Route path="/analytics" element={<Analytics />} />
-                    <Route
-                      path="/transactions"
-                      element={
-                        <TransactionHistory walletAddress={walletAddress} />
-                      }
-                    />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </SentryRoutes>
-                </Suspense>
-              </main>
-            </div>
-          </Router>
-          <ToastProvider>
-            <Router>
-              <div className="app-container">
-                <Navbar
+            <AuthProvider>
+              <Router>
+                <AppShell
                   walletAddress={walletAddress}
+                  usdcBalance={usdcBalance}
                   onConnect={handleConnect}
                   onDisconnect={handleDisconnect}
                 />
-                <main
-                  className="container"
-                  style={{ marginTop: "100px", paddingBottom: "60px" }}
-                >
-                  <Suspense fallback={<LoadingPage />}>
-                    {/* Replaced Routes with SentryRoutes to capture performance events */}
-                    <SentryRoutes>
-                      <Route
-                        path="/"
-                        element={<Home walletAddress={walletAddress} />}
-                      />
-                      <Route
-                        path="/portfolio"
-                        element={<Portfolio walletAddress={walletAddress} />}
-                      />
-                      <Route path="/analytics" element={<Analytics />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </SentryRoutes>
-                  </Suspense>
-                </main>
-              </div>
-            </Router>
+              </Router>
+            </AuthProvider>
           </VaultProvider>
         </ToastProvider>
-          </ToastProvider>
-        </VaultProvider>
       </ThemeProvider>
     </Sentry.ErrorBoundary>
   );
