@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import {
   DataTable,
@@ -15,7 +15,8 @@ import {
 import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
-import { useToast } from "../context/ToastContext";
+import { usePortfolioHoldings } from "../hooks/usePortfolioData";
+import { normalizeApiError } from "../lib/api";
 
 interface PortfolioProps {
   walletAddress: string | null;
