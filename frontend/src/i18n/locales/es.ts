@@ -67,5 +67,18 @@ export const es = {
     title: "Atajos de teclado",
     close: "Cerrar",
     hint: "Presiona Esc para cerrar este diálogo",
+  refresh: {
+    live: "En vivo",
+    stopped: "Detenido",
+    pause: "Pausar",
+    resume: "Reanudar",
+    refreshNow: "Actualizar",
+    refreshing: "Actualizando...",
+    justNow: "Ahora",
+    oneMinuteAgo: "Hace 1 min",
+    minutesAgo: "min atrás",
+    pausedHidden: "Pausado (pestaña oculta)",
+    pausedOffline: "Pausado (sin conexión)",
+    pausedManual: "Pausado",
   },
 } as const;
