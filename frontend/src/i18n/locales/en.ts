@@ -63,6 +63,10 @@ export const en = {
     next: "Next",
     sortBy: "Sort by",
   },
+  shortcuts: {
+    title: "Keyboard Shortcuts",
+    close: "Close",
+    hint: "Press Esc to close this dialog",
   refresh: {
     live: "Live",
     stopped: "Stopped",
