@@ -82,4 +82,10 @@ export const en = {
     pausedOffline: "Paused (offline)",
     pausedManual: "Paused",
   },
+  timeline: {
+    loading: "Loading activity...",
+    empty: "No activity to display",
+    today: "Today",
+    yesterday: "Yesterday",
+  },
 } as const;
