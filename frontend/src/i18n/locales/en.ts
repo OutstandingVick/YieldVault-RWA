@@ -67,6 +67,7 @@ export const en = {
     title: "Keyboard Shortcuts",
     close: "Close",
     hint: "Press Esc to close this dialog",
+  },
   refresh: {
     live: "Live",
     stopped: "Stopped",
