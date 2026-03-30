@@ -82,6 +82,7 @@ describe('WalletConnect', () => {
         );
 
         expect(screen.getByText(expectedAddress)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Copy wallet address/i })).toBeInTheDocument();
     });
 
     it('calls onDisconnect when the disconnect button is clicked', () => {
@@ -101,6 +102,11 @@ describe('WalletConnect', () => {
 
     it('polls wallet permissions on an interval', async () => {
         vi.useFakeTimers();
+    it('handles wallet disconnects gracefully during polling', async () => {
+        // Helper to flush all pending promises
+        const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+        vi.useFakeTimers({ shouldAdvanceTime: false });
         mockedFreighter.isAllowed
             .mockResolvedValueOnce({ isAllowed: true })
             .mockResolvedValueOnce({ isAllowed: false })
@@ -123,4 +129,16 @@ describe('WalletConnect', () => {
 
         expect(mockedFreighter.isAllowed.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
+        // Advance timers by 0 to flush the initial synchronous setup,
+        // then flush microtasks from the async calls
+        vi.advanceTimersByTime(0);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
+
+        // Advance past the 10s polling interval
+        await vi.advanceTimersByTimeAsync(10001);
+
+        expect(mockOnDisconnect).toHaveBeenCalled();
+    }, 20000);
 });

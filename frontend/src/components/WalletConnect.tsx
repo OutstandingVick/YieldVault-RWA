@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { setAllowed } from "@stellar/freighter-api";
+import React, { useState, useEffect } from "react";
+import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
 import { Loader2, LogOut, Wallet } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
 import { useToast } from '../context/ToastContext';
+import { useTranslation } from '../i18n';
+import CopyButton from './CopyButton';
 import { discoverConnectedAddress } from "../lib/stellarAccount";
 
 interface WalletConnectProps {
@@ -15,6 +19,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
     const [isConnecting, setIsConnecting] = useState(false);
     const announcedAddressRef = useRef<string | null>(null);
     const toast = useToast();
+    const { t } = useTranslation();
 
     if (walletAddress && announcedAddressRef.current !== walletAddress) {
         announcedAddressRef.current = walletAddress;
@@ -61,6 +66,17 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
         setIsConnecting(true);
         try {
             await setAllowed();
+            const allowed = await isAllowed();
+            if (allowed.isAllowed) {
+                const userInfo = await getAddress();
+                if (userInfo.address) {
+                    onConnect(userInfo.address);
+                    toast.success({
+                        title: t('toast.walletConnected.title'),
+                        description: t('toast.walletConnected.description'),
+                    });
+                }
+            }
             const discoveredAddress = await discoverConnectedAddress();
             if (discoveredAddress) {
                 onConnect(discoveredAddress);
@@ -70,15 +86,15 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                 });
             } else {
                 toast.warning({
-                    title: "Wallet permission required",
-                    description: "Freighter did not return a public key for this session.",
+                    title: t('toast.walletPermissionRequired.title'),
+                    description: t('toast.walletPermissionRequired.description'),
                 });
             }
         } catch (e: unknown) {
             console.error(e);
             toast.error({
-                title: "Wallet connection failed",
-                description: "Ensure Freighter is installed, unlocked, and approved for this site.",
+                title: t('toast.walletConnectionFailed.title'),
+                description: t('toast.walletConnectionFailed.description'),
             });
         } finally {
             setIsConnecting(false);
@@ -105,7 +121,16 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     }}
                 >
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--accent-cyan)', boxShadow: '0 0 8px var(--accent-cyan)' }} />
-                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{formatAddress(walletAddress)}</span>
+                    <div className="copy-field">
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }} title={walletAddress}>
+                            {formatAddress(walletAddress)}
+                        </span>
+                        <CopyButton
+                            value={walletAddress}
+                            label="wallet address"
+                            successDescription="The full wallet address has been copied to your clipboard."
+                        />
+                    </div>
                 </div>
                 <div
                     className="glass-panel"
@@ -119,7 +144,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     }}
                     title={networkConfig.rpcUrl}
                 >
-                    RPC: {hasCustomRpcConfig ? 'Custom' : 'Default'}
+                    {t('wallet.rpcPrefix')} {hasCustomRpcConfig ? t('wallet.rpcCustom') : t('wallet.rpcDefault')}
                 </div>
                 <button
                     className="btn btn-outline"
@@ -127,11 +152,11 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     onClick={() => {
                         onDisconnect();
                         toast.info({
-                            title: "Wallet disconnected",
-                            description: "You can reconnect any time to continue managing vault positions.",
+                            title: t('toast.walletDisconnected.title'),
+                            description: t('toast.walletDisconnected.description'),
                         });
                     }}
-                    aria-label="Disconnect Wallet"
+                    aria-label={t('wallet.disconnectAria')}
                 >
                     <LogOut size={18} />
                 </button>
@@ -148,7 +173,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                 aria-busy={isConnecting}
             >
                 {isConnecting ? <Loader2 size={18} className="spin" style={{ animation: 'spin 1s linear infinite' }} /> : <Wallet size={18} />}
-                {isConnecting ? 'Connecting...' : 'Connect Freighter'}
+                {isConnecting ? t('wallet.connecting') : t('wallet.connectFreighter')}
             </button>
             <style>{`
         @keyframes spin { 100% { transform: rotate(360deg); } }

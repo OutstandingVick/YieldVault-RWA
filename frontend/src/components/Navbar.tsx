@@ -1,13 +1,15 @@
-import React from "react";
-import { NavLink } from "react-router-dom";
-import WalletConnect from "./WalletConnect";
-import ThemeToggle from "./ThemeToggle";
-import { Layers } from "./icons";
+import { NavLink } from 'react-router-dom';
+import WalletConnect from './WalletConnect';
+import ThemeToggle from './ThemeToggle';
+import { Layers } from './icons';
+import { useTranslation } from '../i18n';
 
 interface NavbarProps {
-  walletAddress: string | null;
-  onConnect: (address: string) => void;
-  onDisconnect: () => void;
+    currentPath: '/' | '/analytics' | '/portfolio';
+    onNavigate: (path: '/' | '/analytics' | '/portfolio') => void;
+    walletAddress: string | null;
+    onConnect: (address: string) => void;
+    onDisconnect: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
@@ -15,6 +17,7 @@ const Navbar: React.FC<NavbarProps> = ({
   onConnect,
   onDisconnect,
 }) => {
+  const { t } = useTranslation();
   return (
     <nav
       aria-label="Primary"
@@ -52,15 +55,17 @@ const Navbar: React.FC<NavbarProps> = ({
             <span
               style={{
                 fontFamily: "var(--font-display)",
-                fontWeight: 700,
-                fontSize: "1.25rem",
+                fontWeight: "var(--font-bold)",
+                fontSize: "var(--text-xl)",
                 letterSpacing: "-0.02em",
                 color: "var(--text-primary)",
                 marginLeft: "8px",
               }}
             >
-              YieldVault{" "}
-              <span style={{ color: "var(--accent-cyan)" }}>RWA</span>
+              {t("nav.brand.primary")}{" "}
+              <span style={{ color: "var(--accent-cyan)" }}>
+                {t("nav.brand.accent")}
+              </span>
             </span>
           </NavLink>
 
@@ -72,11 +77,11 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
-              Vaults
+              {t("nav.vaults")}
             </NavLink>
             <NavLink
               to="/portfolio"
@@ -85,11 +90,11 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
-              Portfolio
+              {t("nav.portfolio")}
             </NavLink>
             <NavLink
               to="/analytics"
@@ -98,39 +103,17 @@ const Navbar: React.FC<NavbarProps> = ({
                   ? "var(--accent-cyan)"
                   : "var(--text-secondary)",
                 textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
+                fontWeight: "var(--font-medium)",
+                fontSize: "var(--text-base)",
               })}
             >
-              Analytics
-            </NavLink>
-            <NavLink
-              to="/transactions"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: 500,
-                fontSize: "0.95rem",
-              })}
-            >
-              Transactions
+              {t("nav.analytics")}
             </NavLink>
           </div>
         </div>
-
-        <div className="flex items-center gap-md">
-          <ThemeToggle />
-          <WalletConnect
-            walletAddress={walletAddress}
-            onConnect={onConnect}
-            onDisconnect={onDisconnect}
-          />
-        </div>
-      </div>
-    </nav>
-  );
+            </div>
+        </nav>
+    );
 };
 
 export default Navbar;

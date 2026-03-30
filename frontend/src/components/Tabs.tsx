@@ -27,11 +27,11 @@ interface TabsProps {
   className?: string;
 }
 
-export function Tabs({
+/** Inner component that uses useSearchParams — only rendered when syncWithUrl=true */
+function TabsWithUrl({
   defaultValue,
   value: controlledValue,
   onValueChange,
-  syncWithUrl = false,
   urlParam = "tab",
   children,
   className = "",
@@ -44,10 +44,15 @@ export function Tabs({
     }
     return new URLSearchParams(window.location.search).get(urlParam);
   });
+}: Omit<TabsProps, "syncWithUrl">) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [internalValue, setInternalValue] = useState(defaultValue || "");
+
+  const urlValue = searchParams.get(urlParam);
   const activeValue =
     controlledValue !== undefined
       ? controlledValue
-      : syncWithUrl && urlValue
+      : urlValue
       ? urlValue
       : internalValue;
 
@@ -77,6 +82,17 @@ export function Tabs({
       setUrlValue(defaultValue);
     }
   }, [syncWithUrl, urlValue, defaultValue, urlParam]);
+    if (!urlValue && defaultValue) {
+      setSearchParams(
+        (prev) => {
+          const newParams = new URLSearchParams(prev);
+          newParams.set(urlParam, defaultValue);
+          return newParams;
+        },
+        { replace: true }
+      );
+    }
+  }, [urlValue, defaultValue, urlParam, setSearchParams]);
 
   const handleValueChange = (newValue: string) => {
     if (controlledValue === undefined) {
@@ -88,7 +104,14 @@ export function Tabs({
       params.set(urlParam, newValue);
       window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
       setUrlValue(newValue);
-    }
+    setSearchParams(
+      (prev) => {
+        const newParams = new URLSearchParams(prev);
+        newParams.set(urlParam, newValue);
+        return newParams;
+      },
+      { replace: true }
+    );
 
     if (onValueChange) {
       onValueChange(newValue);
@@ -102,6 +125,47 @@ export function Tabs({
       </div>
     </TabsContext.Provider>
   );
+}
+
+/** Inner component for tabs without URL sync */
+function TabsWithoutUrl({
+  defaultValue,
+  value: controlledValue,
+  onValueChange,
+  children,
+  className = "",
+}: Omit<TabsProps, "syncWithUrl" | "urlParam">) {
+  const [internalValue, setInternalValue] = useState(defaultValue || "");
+
+  const activeValue =
+    controlledValue !== undefined ? controlledValue : internalValue;
+
+  const handleValueChange = (newValue: string) => {
+    if (controlledValue === undefined) {
+      setInternalValue(newValue);
+    }
+    if (onValueChange) {
+      onValueChange(newValue);
+    }
+  };
+
+  return (
+    <TabsContext.Provider value={{ value: activeValue, onValueChange: handleValueChange }}>
+      <div className={`tabs-root ${className}`} data-state={activeValue}>
+        {children}
+      </div>
+    </TabsContext.Provider>
+  );
+}
+
+export function Tabs({
+  syncWithUrl = false,
+  ...props
+}: TabsProps) {
+  if (syncWithUrl) {
+    return <TabsWithUrl {...props} />;
+  }
+  return <TabsWithoutUrl {...props} />;
 }
 
 export function TabsList({ children, className = "", style }: { children: ReactNode; className?: string; style?: React.CSSProperties }) {
@@ -125,7 +189,7 @@ export function TabsTrigger({ value, children, className = "" }: { value: string
     const parent = e.currentTarget.closest('[role="tablist"]');
     if (!parent) return;
 
-    const tabs = Array.from(parent.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    const tabs = Array.from(parent.querySelectorAll('button[data-value]')) as HTMLButtonElement[];
     const index = tabs.indexOf(e.currentTarget);
     if (index === -1) return;
 
@@ -149,13 +213,10 @@ export function TabsTrigger({ value, children, className = "" }: { value: string
 
   return (
     <button
-      role="tab"
-      aria-selected={isActive}
-      aria-controls={`tabpanel-${value}`}
-      id={`tab-${value}`}
+      type="button"
+      aria-pressed={isActive}
       data-state={isActive ? "active" : "inactive"}
       data-value={value}
-      tabIndex={isActive ? 0 : -1}
       className={`tabs-trigger ${isActive ? "active" : ""} ${className}`}
       onClick={() => onValueChange(value)}
       onKeyDown={handleKeyDown}
@@ -173,9 +234,6 @@ export function TabsContent({ value, children, className = "" }: { value: string
 
   return (
     <div
-      role="tabpanel"
-      id={`tabpanel-${value}`}
-      aria-labelledby={`tab-${value}`}
       data-state={isActive ? "active" : "inactive"}
       className={`tabs-content ${className}`}
       tabIndex={0}
