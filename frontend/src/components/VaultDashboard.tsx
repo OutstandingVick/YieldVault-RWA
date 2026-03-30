@@ -109,26 +109,26 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     const value = Number(amount);
 
     if (!walletAddress) {
-      toast.warning({
-        title: "Wallet required",
-        description: "Connect your wallet before submitting a transaction.",
-      });
+        toast.warning({
+          title: "Wallet required",
+          description: "Connect your wallet before submitting a transaction.",
+        });
       return;
     }
 
     if (!amount || Number.isNaN(value) || value <= 0) {
-      toast.warning({
-        title: "Enter a valid amount",
-        description: "Choose a valid USDC amount before submitting the transaction.",
-      });
+        toast.warning({
+          title: "Enter a valid amount",
+          description: "Choose a valid USDC amount before submitting the transaction.",
+        });
       return;
     }
 
     if (actionType === "withdraw" && value > availableBalance) {
-      toast.warning({
-        title: "Insufficient balance",
-        description: "The withdrawal amount exceeds your available USDC balance.",
-      });
+        toast.warning({
+          title: "Insufficient balance",
+          description: "The withdrawal amount exceeds your available USDC balance.",
+        });
       return;
     }
 
@@ -140,13 +140,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       );
       setAmount("");
       setIsProcessing(null);
-      toast.success({
-        title: actionType === "deposit" ? "Deposit queued" : "Withdrawal queued",
-        description:
-          actionType === "deposit"
-            ? `${value.toFixed(2)} USDC has been added to your pending vault activity.`
-            : `${value.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
-      });
+        toast.success({
+          title: actionType === "deposit" ? "Deposit queued" : "Withdrawal queued",
+          description:
+            actionType === "deposit"
+              ? `${value.toFixed(2)} USDC has been added to your pending vault activity.`
+              : `${value.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
+        });
     }, 2000);
   };
 

@@ -43,12 +43,12 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
             }
 
             if (walletAddress) {
-                onDisconnect();
-                toast.info({
-                    title: "Wallet disconnected",
-                    description: "Freighter is no longer connected to this session.",
-                });
-            }
+              onDisconnect();
+              toast.info({
+                  title: "Wallet disconnected",
+                  description: "Freighter is no longer connected to this session.",
+              });
+              }
         };
 
         syncConnection();
@@ -70,31 +70,31 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
             if (allowed.isAllowed) {
                 const userInfo = await getAddress();
                 if (userInfo.address) {
-                    onConnect(userInfo.address);
-                    toast.success({
-                        title: t('toast.walletConnected.title'),
-                        description: t('toast.walletConnected.description'),
-                    });
+                  onConnect(userInfo.address);
+                  toast.success({
+                    title: t('toast.walletConnected.title'),
+                    description: t('toast.walletConnected.description'),
+                  });
                 }
             }
             const discoveredAddress = await discoverConnectedAddress();
             if (discoveredAddress) {
-                onConnect(discoveredAddress);
-                toast.success({
-                    title: "Wallet connected",
-                    description: "Freighter is now connected to your YieldVault session.",
-                });
+              onConnect(discoveredAddress);
+              toast.success({
+                title: "Wallet connected",
+                description: "Freighter is now connected to your YieldVault session.",
+              });
             } else {
-                toast.warning({
-                    title: t('toast.walletPermissionRequired.title'),
-                    description: t('toast.walletPermissionRequired.description'),
-                });
+              toast.warning({
+                title: t('toast.walletPermissionRequired.title'),
+                description: t('toast.walletPermissionRequired.description'),
+              });
             }
         } catch (e: unknown) {
-            console.error(e);
-            toast.error({
-                title: t('toast.walletConnectionFailed.title'),
-                description: t('toast.walletConnectionFailed.description'),
+          console.error(e);
+          toast.error({
+            title: t('toast.walletConnectionFailed.title'),
+            description: t('toast.walletConnectionFailed.description'),
             });
         } finally {
             setIsConnecting(false);
@@ -152,8 +152,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     onClick={() => {
                         onDisconnect();
                         toast.info({
-                            title: t('toast.walletDisconnected.title'),
-                            description: t('toast.walletDisconnected.description'),
+                          title: t('toast.walletDisconnected.title'),
+                          description: t('toast.walletDisconnected.description'),
                         });
                     }}
                     aria-label={t('wallet.disconnectAria')}
