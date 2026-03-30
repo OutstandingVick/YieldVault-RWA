@@ -1,18 +1,24 @@
 #![no_std]
 
+pub mod benji_strategy;
 #[cfg(test)]
 mod event_tests;
+pub mod external_calls;
 #[cfg(test)]
 mod fuzz_math;
-pub mod strategy;
-pub mod benji_strategy;
+pub mod oracle;
+#[cfg(test)]
+mod oracle_tests;
 pub mod permissions;
-pub mod external_calls;
+pub mod strategy;
 
+use crate::oracle::{
+    price_data_scaled_price, PriceData, DEFAULT_HEARTBEAT_SECONDS, MAX_PRICE_DEVIATION_BPS,
+};
+use crate::strategy::StrategyClient;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
 };
-use crate::strategy::StrategyClient;
 
 const MAX_PAGE_SIZE: u32 = 50;
 
@@ -59,6 +65,10 @@ pub enum DataKey {
     ShareBalance(Address),
     ShipmentByStatus(ShipmentStatus),
     ShipmentStatusOf(u64),
+    PriceOracle,
+    PriceOracleHeartbeat,
+    LastValidatedPrice,
+    OracleEnabled,
 }
 
 #[contracttype]
@@ -80,6 +90,17 @@ pub enum VaultError {
     ArithmeticError = 4,
     InsufficientAssets = 5,
     ContractPaused = 6,
+    PriceNotFound = 7,
+    PriceStale = 8,
+    PriceZero = 9,
+    PriceNegative = 10,
+    PriceOverflow = 11,
+    PriceUnderflow = 12,
+    InvalidDecimals = 13,
+    TimestampInFuture = 14,
+    HeartbeatExceeded = 15,
+    PriceDeviationExceeded = 16,
+    OracleNotSet = 17,
 }
 
 #[contract]
@@ -126,10 +147,8 @@ impl YieldVault {
         env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
         env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
 
-        env.events().publish(
-            (symbol_short!("vault_initialized"), admin.clone()),
-            (token,),
-        );
+        env.events()
+            .publish((symbol_short!("vault_ini"), admin.clone()), (token,));
 
         Ok(())
     }
@@ -139,10 +158,8 @@ impl YieldVault {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage().instance().set(&DataKey::Strategy, &strategy);
-        env.events().publish(
-            (symbol_short!("strategy_set"), admin),
-            (strategy,),
-        );
+        env.events()
+            .publish((symbol_short!("strat_set"), admin), (strategy,));
     }
 
     /// Read the active strategy address.
@@ -157,10 +174,8 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
         state.is_paused = paused;
         env.storage().instance().set(&DataKey::State, &state);
-        env.events().publish(
-            (symbol_short!("vault_paused"), admin),
-            (paused,),
-        );
+        env.events()
+            .publish((symbol_short!("vault_psd"), admin), (paused,));
     }
 
     pub fn is_paused(env: Env) -> bool {
@@ -188,7 +203,11 @@ impl YieldVault {
 
     /// Read the total underlying assets represented by the vault.
     pub fn total_assets(env: Env) -> i128 {
-        let idle_assets = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+        let idle_assets = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
 
         let strategy_assets = if let Some(strategy_addr) = Self::strategy(env.clone()) {
             let strategy_client = StrategyClient::new(&env, &strategy_addr);
@@ -221,16 +240,138 @@ impl YieldVault {
             .unwrap()
     }
 
+    pub fn set_price_oracle(env: Env, oracle: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::PriceOracle, &oracle);
+        env.events()
+            .publish((symbol_short!("ora_set"), admin), (oracle,));
+    }
+
+    pub fn price_oracle(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::PriceOracle)
+    }
+
+    pub fn set_oracle_enabled(env: Env, enabled: bool) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::OracleEnabled, &enabled);
+        env.events()
+            .publish((symbol_short!("ora_enbld"), admin), (enabled,));
+    }
+
+    pub fn is_oracle_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::OracleEnabled)
+            .unwrap_or(false)
+    }
+
+    pub fn set_oracle_heartbeat(env: Env, heartbeat_seconds: u64) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        if heartbeat_seconds == 0 {
+            panic!("heartbeat must be > 0");
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::PriceOracleHeartbeat, &heartbeat_seconds);
+        env.events()
+            .publish((symbol_short!("ora_hb"), admin), (heartbeat_seconds,));
+    }
+
+    pub fn oracle_heartbeat(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::PriceOracleHeartbeat)
+            .unwrap_or(oracle::DEFAULT_HEARTBEAT_SECONDS)
+    }
+
+    fn validate_strategy_value_with_oracle(
+        env: &Env,
+        strategy_value: i128,
+        asset: &Address,
+    ) -> Result<i128, VaultError> {
+        if !Self::is_oracle_enabled(env.clone()) {
+            return Ok(strategy_value);
+        }
+
+        let oracle_addr = Self::price_oracle(env.clone()).ok_or(VaultError::OracleNotSet)?;
+        let heartbeat = Self::oracle_heartbeat(env.clone());
+        let current_time = env.ledger().timestamp();
+
+        let price_data =
+            Self::get_oracle_price(env, &oracle_addr, asset, &Self::token(env.clone()));
+
+        if price_data.1 > current_time {
+            return Err(VaultError::TimestampInFuture);
+        }
+
+        let age = current_time.saturating_sub(price_data.1);
+        if age > heartbeat {
+            return Err(VaultError::HeartbeatExceeded);
+        }
+
+        if price_data.0 <= 0 {
+            return Err(VaultError::PriceZero);
+        }
+
+        if price_data.0 < 0 {
+            return Err(VaultError::PriceNegative);
+        }
+
+        if price_data.2 > 30 {
+            return Err(VaultError::InvalidDecimals);
+        }
+
+        let last_price: Option<PriceData> =
+            env.storage().instance().get(&DataKey::LastValidatedPrice);
+
+        if let Some(last) = last_price {
+            let max_deviation_bps: i128 = MAX_PRICE_DEVIATION_BPS;
+            if last.0 > 0 {
+                let current_scaled = price_data_scaled_price(&price_data);
+                let last_scaled = price_data_scaled_price(&last);
+                let deviation = ((current_scaled - last_scaled).unsigned_abs() as i128)
+                    .checked_mul(10000)
+                    .ok_or(VaultError::PriceOverflow)?
+                    .checked_div(last_scaled)
+                    .ok_or(VaultError::PriceUnderflow)?;
+                if deviation > max_deviation_bps {
+                    return Err(VaultError::PriceDeviationExceeded);
+                }
+            }
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::LastValidatedPrice, &price_data);
+
+        Ok(strategy_value)
+    }
+
+    fn get_oracle_price(env: &Env, oracle: &Address, base: &Address, quote: &Address) -> PriceData {
+        use soroban_sdk::TryIntoVal;
+        let symbol = soroban_sdk::symbol_short!("price");
+        let args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::vec![
+            env,
+            base.clone().try_into_val(env).unwrap(),
+            quote.clone().try_into_val(env).unwrap()
+        ];
+        let result: PriceData = env.invoke_contract(oracle, &symbol, args);
+        result
+    }
+
     pub fn configure_korean_strategy(env: Env, strategy: Address) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage()
             .instance()
             .set(&DataKey::KoreanDebtStrategy, &strategy);
-        env.events().publish(
-            (symbol_short!("korean_strategy_configured"), admin),
-            (strategy,),
-        );
+        env.events()
+            .publish((symbol_short!("ko_strt"), admin), (strategy,));
     }
 
     pub fn accrue_korean_debt_yield(env: Env) -> i128 {
@@ -253,7 +394,7 @@ impl YieldVault {
         state.total_assets += harvested;
         env.storage().instance().set(&DataKey::State, &state);
         env.events().publish(
-            (symbol_short!("korean_yield_accrued"), admin),
+            (symbol_short!("ko_yield"), admin),
             (harvested, state.total_assets),
         );
 
@@ -269,10 +410,8 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::DaoThreshold, &threshold);
-        env.events().publish(
-            (symbol_short!("dao_threshold_set"), admin),
-            (threshold,),
-        );
+        env.events()
+            .publish((symbol_short!("dao_thr"), admin), (threshold,));
     }
 
     pub fn create_strategy_proposal(env: Env, proposer: Address, strategy: Address) -> u32 {
@@ -287,6 +426,7 @@ impl YieldVault {
             .instance()
             .set(&DataKey::ProposalNonce, &next_nonce);
 
+        let strategy_clone = strategy.clone();
         let proposal = StrategyProposal {
             strategy,
             yes_votes: 0,
@@ -297,8 +437,8 @@ impl YieldVault {
             .instance()
             .set(&DataKey::Proposal(next_nonce), &proposal);
         env.events().publish(
-            (symbol_short!("strategy_proposal_created"), proposer),
-            (next_nonce, strategy),
+            (symbol_short!("st_prop"), proposer),
+            (next_nonce, strategy_clone),
         );
         next_nonce
     }
@@ -344,7 +484,7 @@ impl YieldVault {
             .instance()
             .set(&DataKey::Vote(proposal_id, voter.clone()), &true);
         env.events().publish(
-            (symbol_short!("proposal_voted"), voter),
+            (symbol_short!("prp_vote"), voter),
             (proposal_id, support, weight),
         );
     }
@@ -379,7 +519,13 @@ impl YieldVault {
             .instance()
             .set(&DataKey::Proposal(proposal_id), &proposal);
         env.events().publish(
-            (symbol_short!("proposal_executed"), env.storage().instance().get(&DataKey::Admin).unwrap()),
+            (
+                symbol_short!("prp_exct"),
+                env.storage()
+                    .instance()
+                    .get::<DataKey, Address>(&DataKey::Admin)
+                    .unwrap(),
+            ),
             (proposal_id, proposal.strategy),
         );
     }
@@ -417,10 +563,8 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::ShipmentStatusOf(shipment_id), &status);
-        env.events().publish(
-            (symbol_short!("shipment_added"), admin),
-            (shipment_id, status),
-        );
+        env.events()
+            .publish((symbol_short!("shpmt_add"), admin), (shipment_id, status));
     }
 
     pub fn update_shipment_status(env: Env, shipment_id: u64, new_status: ShipmentStatus) {
@@ -459,7 +603,7 @@ impl YieldVault {
             .instance()
             .set(&DataKey::ShipmentStatusOf(shipment_id), &new_status);
         env.events().publish(
-            (symbol_short!("shipment_status_updated"), admin),
+            (symbol_short!("shpmt_up"), admin),
             (shipment_id, old_status, new_status),
         );
     }
@@ -573,26 +717,6 @@ impl YieldVault {
         ids.len()
     }
 
-    fn divest(env: Env, amount: i128) {
-        if amount <= 0 {
-            return;
-        }
-
-        if let Some(strategy_addr) = Self::strategy(env.clone()) {
-            let strategy_client = StrategyClient::new(&env, &strategy_addr);
-            strategy_client.withdraw(&amount);
-
-            let idle_assets = env
-                .storage()
-                .instance()
-                .get::<_, i128>(&DataKey::TotalAssets)
-                .unwrap_or(0);
-            env.storage()
-                .instance()
-                .set(&DataKey::TotalAssets, &(idle_assets + amount));
-        }
-    }
-
     /// Calculates the number of shares given an asset amount based on the current exchange rate.
     pub fn calculate_shares(env: Env, assets: i128) -> Result<i128, VaultError> {
         let ts = Self::total_shares(env.clone());
@@ -670,7 +794,7 @@ impl YieldVault {
         let token_client = token::Client::new(&env, &token_addr);
 
         let shares_to_mint = Self::calculate_shares(env.clone(), amount)?;
-        
+
         // Transfer assets from user to vault
         token_client.transfer(&user, &env.current_contract_address(), &amount);
 
@@ -679,11 +803,12 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::TotalAssets, &Self::checked_add(ta, amount)?);
-        
+
         let ts = Self::total_shares(env.clone());
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalShares, &Self::checked_add(ts, shares_to_mint)?);
+        env.storage().instance().set(
+            &DataKey::TotalShares,
+            &Self::checked_add(ts, shares_to_mint)?,
+        );
 
         let user_shares = Self::balance(env.clone(), user.clone());
         env.storage().instance().set(
@@ -694,7 +819,7 @@ impl YieldVault {
             (symbol_short!("deposit"), user.clone()),
             (amount, shares_to_mint),
         );
-        
+
         Ok(shares_to_mint)
     }
 
@@ -735,11 +860,19 @@ impl YieldVault {
         }
 
         // Check if vault has enough idle assets, otherwise divest from strategy
-        let mut idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+        let mut idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
         if idle_ta < assets_to_return {
             let needed = assets_to_return - idle_ta;
             Self::divest(env.clone(), needed);
-            idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+            idle_ta = env
+                .storage()
+                .instance()
+                .get::<_, i128>(&DataKey::TotalAssets)
+                .unwrap_or(0);
         }
 
         // Transfer assets from vault to user
@@ -747,19 +880,19 @@ impl YieldVault {
 
         // Update state
         let ta = Self::total_assets(env.clone());
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalAssets, &Self::checked_sub(ta, assets_to_return)?);
-        
+        env.storage().instance().set(
+            &DataKey::TotalAssets,
+            &Self::checked_sub(ta, assets_to_return)?,
+        );
+
         let ts = Self::total_shares(env.clone());
         env.storage()
             .instance()
             .set(&DataKey::TotalShares, &Self::checked_sub(ts, shares)?);
 
-        env.storage().instance().set(
-            &user_key,
-            &Self::checked_sub(user_shares, shares)?,
-        );
+        env.storage()
+            .instance()
+            .set(&user_key, &Self::checked_sub(user_shares, shares)?);
 
         env.events().publish(
             (symbol_short!("withdraw"), user),
@@ -778,22 +911,33 @@ impl YieldVault {
         let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
-        let mut idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        if idle_ta < amount { panic!("insufficient idle assets"); }
+        let mut idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        if idle_ta < amount {
+            panic!("insufficient idle assets");
+        }
 
         // Approve and deposit to strategy
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
-        token_client.approve(&env.current_contract_address(), &strategy_addr, &amount, &env.ledger().sequence());
-        
+        token_client.approve(
+            &env.current_contract_address(),
+            &strategy_addr,
+            &amount,
+            &env.ledger().sequence(),
+        );
+
         strategy_client.deposit(&amount);
 
         // Update idle assets
-        env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta - amount));
-        env.events().publish(
-            (symbol_short!("strategy_invested"), admin),
-            (strategy_addr, amount),
-        );
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(idle_ta - amount));
+        env.events()
+            .publish((symbol_short!("strt_inv"), admin), (strategy_addr, amount));
         Ok(())
     }
 
@@ -809,12 +953,16 @@ impl YieldVault {
         strategy_client.withdraw(&amount);
 
         // The strategy contract should have transferred funds back to the vault
-        let idle_ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAssets, &(idle_ta + amount));
-        env.events().publish(
-            (symbol_short!("strategy_divested"),),
-            (strategy_addr, amount),
-        );
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(idle_ta + amount));
+        env.events()
+            .publish((symbol_short!("strt_div"),), (strategy_addr, amount));
     }
 
     /// Admin function to distribute realized yield into the vault.
@@ -839,15 +987,21 @@ impl YieldVault {
             .get::<_, i128>(&DataKey::TotalAssets)
             .unwrap_or(0);
         // Update total assets state
-        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
+        let ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &(ta + amount));
 
         let mut state = Self::get_state(&env);
         state.total_assets += amount;
         env.storage().instance().set(&DataKey::State, &state);
 
         env.events().publish(
-            (symbol_short!("yield_distributed"), admin),
+            (symbol_short!("yld_dist"), admin),
             (amount, state.total_assets, state.total_shares),
         );
     }
@@ -868,10 +1022,8 @@ impl YieldVault {
             .instance()
             .set(&DataKey::TotalAssets, &Self::checked_add(ta, amount)?);
 
-        env.events().publish(
-            (symbol_short!("yield_reported"), strategy),
-            (amount,),
-        );
+        env.events()
+            .publish((symbol_short!("yld_rptd"), strategy), (amount,));
 
         Ok(())
     }

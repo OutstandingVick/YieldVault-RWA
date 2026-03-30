@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod mock_oracle;
+
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
 
 #[contracttype]
