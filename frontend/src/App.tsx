@@ -18,8 +18,8 @@ import ShortcutHelpModal from "./components/ShortcutHelpModal";
 import "./index.css";
 
 import * as Sentry from "@sentry/react";
-import { fetchUsdcBalance } from "./lib/stellarAccount";
 import { useTranslation } from "./i18n";
+import { useUsdcBalance } from "./hooks/useBalanceData";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -67,7 +67,7 @@ const AppErrorFallback = () => {
 
 function AppContent() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState(0);
+  const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
 
   const handleConnect = (address: string) => {
     setWalletAddress(address);
@@ -75,7 +75,6 @@ function AppContent() {
 
   const handleDisconnect = () => {
     setWalletAddress(null);
-    setUsdcBalance(0);
   };
 
   useEffect(() => {
@@ -159,13 +158,24 @@ function AppContent() {
             <SentryRoutes>
               <Route
                 path="/"
-                element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
+                element={
+                  <Home
+                    walletAddress={walletAddress}
+                    usdcBalance={usdcBalance}
+                  />
+                }
               />
               <Route
                 path="/portfolio"
-                element={<Portfolio walletAddress={walletAddress} />}
+                element={
+                  <Portfolio
+                    walletAddress={walletAddress}
+                    usdcBalance={usdcBalance}
+                  />
+                }
               />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/settings" element={<div>Settings Page</div>} />
               <Route path="/ui-kit" element={<UIPreview />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </SentryRoutes>
