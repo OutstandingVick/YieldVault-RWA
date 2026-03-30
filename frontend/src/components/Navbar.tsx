@@ -20,6 +20,7 @@ const Navbar: React.FC<NavbarProps> = ({
   const { t } = useTranslation();
   return (
     <nav
+      aria-label="Primary"
       style={{
         position: "fixed",
         top: 0,
