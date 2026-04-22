@@ -6,12 +6,44 @@ const ShortcutHelpModal: React.FC = () => {
   const { shortcuts, isHelpModalOpen, closeHelpModal, formatShortcut } = useKeyboardShortcutContext();
   const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (isHelpModalOpen && modalRef.current) {
+      previousFocusRef.current = document.activeElement as HTMLElement;
       modalRef.current.focus();
     }
+
+    return () => {
+      previousFocusRef.current?.focus();
+    };
   }, [isHelpModalOpen]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || !modalRef.current) {
+      return;
+    }
+
+    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusable[0];
+    const lastElement = focusable[focusable.length - 1];
+    const activeElement = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey && activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
 
   if (!isHelpModalOpen) return null;
 
@@ -51,6 +83,7 @@ const ShortcutHelpModal: React.FC = () => {
       <div
         ref={modalRef}
         tabIndex={-1}
+        onKeyDown={handleKeyDown}
         style={{
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-glass)',
