@@ -1315,3 +1315,303 @@ button {
   background: var(--border-glass);
   margin: 16px 0;
 }
+
+/* ── Print Styles ──────────────────────────────────────────────────────── */
+@media print {
+  :root {
+    --bg-main: #ffffff !important;
+    --bg-surface: #ffffff !important;
+    --bg-muted: #f8fafc !important;
+    --text-primary: #0f172a !important;
+    --text-secondary: #475569 !important;
+    --text-tertiary: #64748b !important;
+    --border-glass: #e2e8f0 !important;
+    --accent-cyan: #0284c7 !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 15mm 20mm;
+  }
+
+  html, body {
+    background: white !important;
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+
+  body {
+    background-image: none !important;
+    margin: 0;
+    padding: 0;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  #root {
+    max-width: none;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+  }
+
+  .glass-panel {
+    background: white !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 16px !important;
+    margin: 0 !important;
+  }
+
+  .app-main {
+    margin-top: 0;
+    padding-bottom: 0;
+  }
+
+  .no-print,
+  .nav,
+  .nav-link,
+  nav,
+  .navbar,
+  .btn,
+  button,
+  .pagination-container,
+  .pagination-controls-wrapper,
+  .pagination-size-selector,
+  .portfolio-toolbar-controls,
+  select,
+  .input-wrapper,
+  .copy-button,
+  .toast-viewport,
+  [role="navigation"],
+  [aria-label="navigation"],
+  .wallet-connect-button,
+  .page-header-actions,
+  .portfolio-toolbar-controls {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-hide {
+    display: none !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: #0f172a !important;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  h1 {
+    font-size: 22pt;
+  }
+
+  h2 {
+    font-size: 16pt;
+  }
+
+  h3 {
+    font-size: 13pt;
+  }
+
+  .page-header {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #0284c7;
+  }
+
+  .text-gradient {
+    background: none !important;
+    -webkit-text-fill-color: #0284c7 !important;
+    color: #0284c7 !important;
+  }
+
+  .tag {
+    border: 1px solid #0284c7 !important;
+    color: #0284c7 !important;
+  }
+
+  .data-table {
+    font-size: 9pt;
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  .data-table thead {
+    display: table-header-group;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .data-table th {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 600;
+  }
+
+  .data-table tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  .data-table-row {
+    display: table-row;
+  }
+
+  .data-table-row::before {
+    display: none;
+  }
+
+  a {
+    color: #0284c7 !important;
+    text-decoration: none !important;
+  }
+
+  a[href]::after {
+    content: none !important;
+  }
+
+  .report-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #0284c7;
+  }
+
+  .report-footer {
+    display: flex !important;
+    justify-content: space-between;
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 9pt;
+    color: #64748b;
+  }
+
+  .report-title {
+    font-size: 18pt;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .report-date {
+    font-size: 10pt;
+    color: #64748b;
+  }
+
+  .print-container {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .print-break-inside-avoid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .print-break-before-always {
+    page-break-before: always;
+    break-before: always;
+  }
+
+  .print-break-after-auto {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .compact-mode .glass-panel {
+    padding: 12px !important;
+  }
+
+  .compact-mode .data-table th,
+  .compact-mode .data-table td {
+    padding: 6px 8px !important;
+  }
+
+  .analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .analytics-grid .glass-panel {
+    padding: 16px !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .analytics-grid .glass-panel div:first-child {
+    font-size: 10pt;
+  }
+
+  .analytics-grid .glass-panel div:nth-child(2) {
+    font-size: 20pt;
+    font-weight: 700;
+  }
+
+  .transaction-report .glass-panel {
+    padding: 16px !important;
+  }
+
+  .transaction-report .portfolio-toolbar {
+    display: none;
+  }
+
+  .transaction-report .text-body-sm {
+    font-size: 10pt;
+    color: #64748b;
+  }
+}
+
+/* Print-only elements (hidden on screen, shown in print) */
+.print-only {
+  display: none;
+}
+
+/* Print-visible utility */
+@media print {
+  .print-visible {
+    visibility: visible;
+  }
+}
+
+/* Report page wrapper class */
+.report-page {
+  position: relative;
+}
+
+/* Print trigger button */
+.print-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media print {
+  .print-trigger {
+    display: none !important;
+  }
+}
