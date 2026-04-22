@@ -30,6 +30,24 @@ export const en = {
     rpcCustom: "Custom",
     rpcDefault: "Default",
     disconnectAria: "Disconnect Wallet",
+    status: {
+      connected: "Connected",
+      connecting: "Connecting to wallet...",
+      disconnected: "Not connected",
+      error: "Connection error",
+    },
+    error: {
+      notInstalled: "Freighter wallet extension not detected. Install Freighter to proceed.",
+      notAllowed: "Freighter permission denied. Approve access in the extension.",
+      noAddress: "Unable to retrieve wallet address. Check Freighter permissions.",
+      generic: "Connection failed. Ensure Freighter is unlocked and approved.",
+    },
+    tooltip: {
+      connectedStatus: "Wallet connected and ready to use",
+      disconnectedStatus: "Connect your Freighter wallet to proceed",
+      connectingStatus: "Establishing connection...",
+      errorStatus: "Connection failed - try again or check Freighter",
+    },
   },
   toast: {
     walletConnected: {
