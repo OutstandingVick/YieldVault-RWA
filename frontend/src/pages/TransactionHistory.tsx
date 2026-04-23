@@ -277,6 +277,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 rows={rows}
                 rowKey={(row) => row.id}
                 emptyMessage={emptyMessage}
+                isLoading={isLoading}
+                skeletonRows={state.pageSize}
                 sortBy={state.sortBy}
                 sortDirection={state.sortDirection}
                 onSortChange={setSort}

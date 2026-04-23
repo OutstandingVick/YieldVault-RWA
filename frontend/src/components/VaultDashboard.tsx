@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon, AlertTriangle, Info, Loader2 } from "./icons";
+import Skeleton from "./Skeleton";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
 import VaultPerformanceChart from "./VaultPerformanceChart";
@@ -159,7 +160,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             <div style={{ textAlign: "right" }}>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Current APY</div>
               <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
-                {formattedApy}
+                {isLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
               </div>
             </div>
           </div>
@@ -176,7 +177,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 </span>
               </div>
               <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>
-                {formattedTvl}
+                {isLoading ? <Skeleton width="140px" height="1.5rem" /> : formattedTvl}
               </div>
             </div>
             <div>

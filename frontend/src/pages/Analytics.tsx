@@ -3,7 +3,7 @@ import { Activity } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
-import ViewState from "../components/ViewState";
+import Skeleton from "../components/Skeleton";
 
 const Analytics: React.FC = () => {
     const { formattedTvl, summary, error, isLoading } = useVault();
@@ -11,12 +11,6 @@ const Analytics: React.FC = () => {
     return (
         <div className="glass-panel" style={{ padding: '32px' }}>
             {error && <ApiStatusBanner error={error} />}
-            {isLoading && !error && (
-                <ViewState
-                    title="Loading analytics"
-                    description="Preparing current pool health and performance metrics."
-                />
-            )}
 
             <PageHeader
                 title={<span className="text-gradient">Project Analytics</span>}
@@ -42,17 +36,23 @@ const Analytics: React.FC = () => {
                             {isLoading ? "SYNCING" : "LIVE"}
                         </span>
                     </div>
-                    <div style={{ fontSize: 'var(--text-4xl)', fontWeight: 'var(--font-semibold)' }}>{formattedTvl}</div>
+                    <div style={{ fontSize: 'var(--text-4xl)', fontWeight: 'var(--font-semibold)' }}>
+                        {isLoading ? <Skeleton width="180px" height="2.5rem" /> : formattedTvl}
+                    </div>
                     <div className="text-caption" style={{ color: 'var(--accent-cyan)', marginTop: '8px' }}>+{summary.monthlyGrowthPct}% this month</div>
                 </div>
                 <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'var(--bg-muted)' }}>
                     <div className="text-body-sm" style={{ color: 'var(--text-secondary)' }}>Vault Participants</div>
-                    <div style={{ fontSize: 'var(--text-4xl)', fontWeight: 'var(--font-semibold)' }}>{summary.participantCount.toLocaleString('en-US')}</div>
+                    <div style={{ fontSize: 'var(--text-4xl)', fontWeight: 'var(--font-semibold)' }}>
+                        {isLoading ? <Skeleton width="120px" height="2.5rem" /> : summary.participantCount.toLocaleString('en-US')}
+                    </div>
                     <div className="text-caption" style={{ color: 'var(--accent-cyan)', marginTop: '8px' }}>+82 new users</div>
                 </div>
                 <div className="glass-panel" style={{ flex: '1 1 300px', padding: '24px', background: 'var(--bg-muted)' }}>
                     <div className="text-body-sm" style={{ color: 'var(--text-secondary)' }}>Strategy Stability</div>
-                    <div style={{ fontSize: 'var(--text-4xl)', fontWeight: 'var(--font-semibold)' }}>{summary.strategyStabilityPct}%</div>
+                    <div style={{ fontSize: 'var(--text-4xl)', fontWeight: 'var(--font-semibold)' }}>
+                        {isLoading ? <Skeleton width="100px" height="2.5rem" /> : `${summary.strategyStabilityPct}%`}
+                    </div>
                     <div className="text-caption" style={{ color: 'var(--accent-cyan)', marginTop: '8px' }}>Tracking Sovereign Bonds</div>
                 </div>
             </div>
