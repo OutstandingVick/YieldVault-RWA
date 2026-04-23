@@ -46,6 +46,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const availableBalance = walletAddress ? usdcBalance : 0;
   const strategy = summary.strategy;
+  const enteredAmount = Number(amount);
+  const isValidAmount = Number.isFinite(enteredAmount) && enteredAmount > 0;
+  const managementFeeBps = 35;
+  const estimatedFee = isValidAmount ? (enteredAmount * managementFeeBps) / 10_000 : 0;
+  const estimatedNetAmount = isValidAmount ? Math.max(enteredAmount - estimatedFee, 0) : 0;
 
   const handleTransaction = async (actionType: "deposit" | "withdraw") => {
     const value = Number(amount);
@@ -229,6 +234,28 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   </div>
                 </div>
 
+                <div className="glass-panel" style={{ padding: "14px 16px", background: "rgba(0, 0, 0, 0.15)", marginBottom: "16px" }}>
+                  <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem" }}>Estimated protocol fee</span>
+                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                      {isValidAmount ? `${estimatedFee.toFixed(4)} USDC` : "0.0000 USDC"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                      {tab === "deposit" ? "Estimated net deposit" : "Estimated net withdrawal"}
+                    </span>
+                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                      {isValidAmount ? `${estimatedNetAmount.toFixed(4)} USDC` : "0.0000 USDC"}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: "6px", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
+                    Network fee: {summary.networkFeeEstimate}
+                  </div>
+                </div>
+
+                <button className="btn btn-primary" style={{ width: "100%", padding: "16px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
+                  {isProcessing === tab ? "Processing Transaction..." : tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"}
                 <button className="btn btn-primary" style={{ width: "100%", padding: "16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
                   {isProcessing === tab ? (
                     <>
