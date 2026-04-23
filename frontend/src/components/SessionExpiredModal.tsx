@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Lock, Wallet, Home } from "lucide-react";
 
@@ -13,6 +13,49 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
   onReconnect,
   onDismiss,
 }) => {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    requestAnimationFrame(() => {
+      const firstInteractive = modalRef.current?.querySelector<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      firstInteractive?.focus();
+    });
+
+    return () => {
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || !modalRef.current) {
+      return;
+    }
+
+    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusable[0];
+    const lastElement = focusable[focusable.length - 1];
+    const activeElement = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey && activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
+
   return createPortal(
     <div
       className="session-expired-overlay"
@@ -21,7 +64,11 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
       aria-labelledby="session-expired-title"
       aria-describedby="session-expired-desc"
     >
-      <div className="session-expired-modal glass-panel">
+      <div
+        ref={modalRef}
+        className="session-expired-modal glass-panel"
+        onKeyDown={handleKeyDown}
+      >
         <div
           style={{
             background: "var(--bg-error)",

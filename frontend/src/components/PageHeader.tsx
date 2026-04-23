@@ -1,6 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "./icons";
+import Badge, { BadgeColor } from "./Badge";
+import { usePageHeadingFocus } from "../hooks/usePageHeadingFocus";
 import Badge from "./Badge";
 import type { BadgeColor } from "./Badge";
 
@@ -48,6 +50,8 @@ const PageHeader: React.FC<PageHeaderProps> = ({
   actions,
   centered = true,
 }) => {
+  const headingRef = usePageHeadingFocus<HTMLHeadingElement>();
+
   return (
     <header
       className="page-header"
@@ -136,6 +140,9 @@ const PageHeader: React.FC<PageHeaderProps> = ({
         }}
       >
         <h1
+          ref={headingRef}
+          tabIndex={-1}
+          data-page-heading="true"
           style={{
             fontSize: "2.5rem",
             display: "flex",

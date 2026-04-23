@@ -1,10 +1,21 @@
 import React from "react";
 import { Button, Input, Card, Table, Thead, Tbody, Tr, Th, Td } from "../components/ui";
+import { usePageHeadingFocus } from "../hooks/usePageHeadingFocus";
 
 const UIPreview: React.FC = () => {
+  const headingRef = usePageHeadingFocus<HTMLHeadingElement>();
+
   return (
     <div className="ui-preview-page">
-      <h1 className="text-gradient" style={{ marginBottom: "40px" }}>UI Component Kit</h1>
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        data-page-heading="true"
+        className="text-gradient"
+        style={{ marginBottom: "40px" }}
+      >
+        UI Component Kit
+      </h1>
 
       <section style={{ marginBottom: "60px" }}>
         <h2>Buttons</h2>
