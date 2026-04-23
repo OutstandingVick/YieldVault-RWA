@@ -1,6 +1,5 @@
 import type { ApiError, ValidationError } from "../lib/api";
 import type { FC } from "react";
-import type { ApiError } from "../lib/api";
 import { useTranslation } from "../i18n";
 
 interface ApiStatusBannerProps {

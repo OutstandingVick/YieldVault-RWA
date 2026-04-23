@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import "./Tabs.css";
 
 interface TabsContextType {
@@ -27,7 +28,6 @@ interface TabsProps {
   className?: string;
 }
 
-/** Inner component that uses useSearchParams — only rendered when syncWithUrl=true */
 function TabsWithUrl({
   defaultValue,
   value: controlledValue,
@@ -35,53 +35,16 @@ function TabsWithUrl({
   urlParam = "tab",
   children,
   className = "",
-}: TabsProps) {
-  const [internalValue, setInternalValue] = useState(defaultValue || "");
-
-  const [urlValue, setUrlValue] = useState<string | null>(() => {
-    if (!syncWithUrl || typeof window === "undefined") {
-      return null;
-    }
-    return new URLSearchParams(window.location.search).get(urlParam);
-  });
 }: Omit<TabsProps, "syncWithUrl">) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [internalValue, setInternalValue] = useState(defaultValue || "");
 
   const urlValue = searchParams.get(urlParam);
-  const activeValue =
-    controlledValue !== undefined
-      ? controlledValue
-      : urlValue
-      ? urlValue
-      : internalValue;
+  const activeValue = controlledValue !== undefined 
+    ? controlledValue 
+    : (urlValue || internalValue);
 
   useEffect(() => {
-    if (!syncWithUrl || typeof window === "undefined") {
-      return;
-    }
-
-    const handlePopState = () => {
-      setUrlValue(new URLSearchParams(window.location.search).get(urlParam));
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [syncWithUrl, urlParam]);
-
-  useEffect(() => {
-    if (!syncWithUrl || typeof window === "undefined") {
-      return;
-    }
-    if (!urlValue && defaultValue) {
-      const params = new URLSearchParams(window.location.search);
-      params.set(urlParam, defaultValue);
-      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
-      setUrlValue(defaultValue);
-    }
-  }, [syncWithUrl, urlValue, defaultValue, urlParam]);
     if (!urlValue && defaultValue) {
       setSearchParams(
         (prev) => {
@@ -98,12 +61,7 @@ function TabsWithUrl({
     if (controlledValue === undefined) {
       setInternalValue(newValue);
     }
-
-    if (syncWithUrl) {
-      const params = new URLSearchParams(window.location.search);
-      params.set(urlParam, newValue);
-      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
-      setUrlValue(newValue);
+    
     setSearchParams(
       (prev) => {
         const newParams = new URLSearchParams(prev);
@@ -127,7 +85,6 @@ function TabsWithUrl({
   );
 }
 
-/** Inner component for tabs without URL sync */
 function TabsWithoutUrl({
   defaultValue,
   value: controlledValue,
@@ -137,8 +94,7 @@ function TabsWithoutUrl({
 }: Omit<TabsProps, "syncWithUrl" | "urlParam">) {
   const [internalValue, setInternalValue] = useState(defaultValue || "");
 
-  const activeValue =
-    controlledValue !== undefined ? controlledValue : internalValue;
+  const activeValue = controlledValue !== undefined ? controlledValue : internalValue;
 
   const handleValueChange = (newValue: string) => {
     if (controlledValue === undefined) {
@@ -158,10 +114,7 @@ function TabsWithoutUrl({
   );
 }
 
-export function Tabs({
-  syncWithUrl = false,
-  ...props
-}: TabsProps) {
+export function Tabs({ syncWithUrl = false, ...props }: TabsProps) {
   if (syncWithUrl) {
     return <TabsWithUrl {...props} />;
   }
@@ -170,12 +123,7 @@ export function Tabs({
 
 export function TabsList({ children, className = "", style }: { children: ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
-    <div
-      role="tablist"
-      aria-orientation="horizontal"
-      className={`tabs-list ${className}`}
-      style={style}
-    >
+    <div role="tablist" aria-orientation="horizontal" className={`tabs-list ${className}`} style={style}>
       {children}
     </div>
   );
@@ -208,13 +156,16 @@ export function TabsTrigger({ value, children, className = "" }: { value: string
 
     e.preventDefault();
     tabs[nextIndex].focus();
-    onValueChange(tabs[nextIndex].dataset.value!);
+    onValueChange(tabs[nextIndex].getAttribute('data-value')!);
   };
 
   return (
     <button
       type="button"
-      aria-pressed={isActive}
+      role="tab"
+      aria-selected={isActive}
+      aria-controls={`panel-${value}`}
+      id={`tab-${value}`}
       data-state={isActive ? "active" : "inactive"}
       data-value={value}
       className={`tabs-trigger ${isActive ? "active" : ""} ${className}`}
@@ -234,6 +185,9 @@ export function TabsContent({ value, children, className = "" }: { value: string
 
   return (
     <div
+      role="tabpanel"
+      id={`panel-${value}`}
+      aria-labelledby={`tab-${value}`}
       data-state={isActive ? "active" : "inactive"}
       className={`tabs-content ${className}`}
       tabIndex={0}

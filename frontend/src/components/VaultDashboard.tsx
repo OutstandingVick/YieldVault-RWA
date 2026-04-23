@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useVault } from "../context/VaultContext";
@@ -10,6 +11,8 @@ import { FormField, SubmitButton } from "../forms";
 import CopyButton from "./CopyButton";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 import TransactionStatus, { type ActionStatus } from "./TransactionStatus";
+import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
+import CopyButton from "./CopyButton";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
@@ -45,6 +48,25 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const depositMutation = useDepositMutation();
   const withdrawMutation = useWithdrawMutation();
   const isBusy = depositMutation.isPending || withdrawMutation.isPending;
+
+  useEffect(() => {
+    const handleTrigger = () => {
+      setActiveTab("deposit");
+      setTimeout(() => {
+        const input = document.querySelector('.input-field') as HTMLInputElement | null;
+        if (input) input.focus();
+      }, 0);
+    };
+    window.addEventListener('TRIGGER_DEPOSIT', handleTrigger);
+    return () => window.removeEventListener('TRIGGER_DEPOSIT', handleTrigger);
+  }, []);
+
+  const isProcessing = depositMutation.isPending
+    ? "deposit"
+    : withdrawMutation.isPending
+      ? "withdraw"
+      : null;
+
   const availableBalance = walletAddress ? usdcBalance : 0;
 
   useEffect(() => {
@@ -63,6 +85,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       toast.warning({
         title: "Wallet required",
         description: "Connect your wallet before submitting an action.",
+        description: "Connect your wallet before submitting a transaction.",
       });
       return;
     }
@@ -70,6 +93,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       toast.warning({
         title: "Invalid amount",
         description: "Enter a valid USDC amount greater than zero.",
+        title: "Enter a valid amount",
+        description: "Choose a valid USDC amount before submitting the transaction.",
       });
       return;
     }
@@ -77,6 +102,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       toast.warning({
         title: "Insufficient balance",
         description: "Reduce the withdrawal amount or add more USDC.",
+        description: "The withdrawal amount exceeds your available USDC balance.",
       });
       return;
     }
@@ -121,10 +147,16 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         description: `${errorMessage} Please review wallet approvals, network connectivity, and retry.`,
         txHash,
         actionLabel: actionType,
+        title: actionType === "deposit" ? "Deposit Successful" : "Withdrawal Successful",
+        description: actionType === "deposit" 
+          ? `${value.toFixed(2)} USDC has been deposited into the vault.`
+          : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
       });
       toast.error({
         title: "Transaction failed",
         description: errorMessage,
+        title: "Transaction Failed",
+        description: err.message || "An error occurred during the transaction.",
       });
     }
   };
@@ -137,18 +169,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         <div className="glass-panel" style={{ padding: "32px" }}>
           {error ? <ApiStatusBanner error={error} /> : null}
 
+          {error && <ApiStatusBanner error={error} />}
           <div className="vault-stats-header flex justify-between items-center" style={{ marginBottom: "24px" }}>
             <div>
-              <h2 style={{ fontSize: "1.5rem", marginBottom: "4px" }}>
-                Global RWA Yield Fund
-              </h2>
-              <span
-                className="tag"
-                style={{
-                  background: "rgba(255, 255, 255, 0.05)",
-                  color: "var(--text-secondary)",
-                }}
-              >
+              <h2 style={{ fontSize: "1.5rem", marginBottom: "4px" }}>Global RWA Yield Fund</h2>
+              <span className="tag" style={{ background: "rgba(255, 255, 255, 0.05)", color: "var(--text-secondary)" }}>
                 Tokens: USDC
               </span>
             </div>
@@ -164,6 +189,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   fontWeight: 700,
                 }}
               >
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Current APY</div>
+              <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
                 {formattedApy}
               </div>
             </div>
@@ -173,16 +200,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
           <div className="vault-stats-meta flex gap-xl" style={{ marginBottom: "32px" }}>
             <div>
-              <div
-                style={{
-                  color: "var(--text-secondary)",
-                  fontSize: "0.85rem",
-                  marginBottom: "4px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
                 Total Value Locked
                 <span
                   className="flex items-center gap-xs"
@@ -194,6 +212,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     letterSpacing: "0.05em",
                   }}
                 >
+                <span className="flex items-center gap-xs" style={{ color: "var(--accent-cyan)", fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />
                   {isLoading ? "Syncing" : "Live"}
                 </span>
@@ -203,9 +222,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               </div>
             </div>
             <div>
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "4px" }}>
-                Underlying Asset
-              </div>
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "4px" }}>Underlying Asset</div>
               <div className="flex items-center gap-sm">
                 <ShieldCheck size={16} color="var(--accent-cyan)" />
                 <span style={{ fontSize: "1.1rem", fontWeight: 500 }}>{summary.assetLabel}</span>
@@ -228,6 +245,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
             <div style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}>
               RPC: {hasCustomRpcConfig ? "Custom" : "Default"} - {networkConfig.rpcUrl}
+            <div style={{ marginTop: "12px", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+              Strategy: <span style={{ color: "var(--text-primary)" }}>{strategy.name}</span> ({strategy.issuer})
+            </div>
+            <div className="copy-field" style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}>
+              <span>Strategy ID:</span>
+              <span className="copy-field-value copy-field-value-mono">{strategy.id}</span>
+              <CopyButton value={strategy.id} label="strategy ID" />
             </div>
           </div>
         </div>
@@ -264,15 +288,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               </p>
             </div>
           ) : null}
+          {!walletAddress && (
+            <div className="wallet-overlay" style={{ position: "absolute", inset: 0, background: "var(--bg-overlay)", backdropFilter: "blur(8px)", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px", textAlign: "center" }}>
+              <WalletIcon size={48} color="var(--accent-cyan)" style={{ marginBottom: "16px", opacity: 0.8 }} />
+              <h3>Wallet Not Connected</h3>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Please connect your wallet to interact with the vault.</p>
+            </div>
+          )}
 
-          <Tabs
-            value={activeTab}
-            defaultValue="deposit"
-            onValueChange={(value) => {
-              setActiveTab(value as "deposit" | "withdraw");
-              setAmount("");
-            }}
-          >
+          <Tabs value={activeTab} defaultValue="deposit" onValueChange={(v) => setActiveTab(v as any)}>
             <TabsList style={{ marginBottom: "24px" }}>
               <TabsTrigger value="deposit">Deposit</TabsTrigger>
               <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
@@ -286,6 +310,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     void handleTransaction(tab);
                   }}
                 >
+                <div style={{ marginBottom: "24px" }}>
                   <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
                     <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
                       {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
@@ -327,6 +352,24 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     loadingLabel="Waiting for confirmation..."
                   />
                 </form>
+                      Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="input-group">
+                    <div className="input-wrapper">
+                      <span style={{ color: "var(--text-secondary)", paddingRight: "12px", borderRight: "1px solid var(--border-glass)", marginRight: "16px" }}>USDC</span>
+                      <input className="input-field" type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isProcessing !== null} />
+                      <button className="btn-max" onClick={() => setAmount(availableBalance.toFixed(2))} disabled={!walletAddress || availableBalance <= 0 || isProcessing !== null}>
+                        MAX
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button className="btn btn-primary" style={{ width: "100%", padding: "16px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
+                  {isProcessing === tab ? "Processing..." : tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"}
+                </button>
               </TabsContent>
             ))}
           </Tabs>
