@@ -1,7 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon, AlertTriangle, Info } from "./icons";
 import { useState, useEffect } from "react";
-import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon, Loader2 } from "./icons";
+import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon, Loader2, AlertTriangle, Info } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
@@ -9,10 +7,8 @@ import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
 import { FormField, SubmitButton } from "../forms";
-import CopyButton from "./CopyButton";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 import TransactionStatus, { type ActionStatus } from "./TransactionStatus";
-import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 import CopyButton from "./CopyButton";
 
 interface VaultDashboardProps {
@@ -100,6 +96,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const managementFeeBps = 35;
   const estimatedFee = isValidAmount ? (enteredAmount * managementFeeBps) / 10_000 : 0;
   const estimatedNetAmount = isValidAmount ? Math.max(enteredAmount - estimatedFee, 0) : 0;
+
+  const utilization = summary.depositCap ? (summary.tvl / summary.depositCap) * 100 : 0;
+  const isCapReached = summary.depositCap ? summary.tvl >= summary.depositCap : false;
+  const isCapWarning = summary.depositCap ? utilization >= 90 : false;
 
   const handleTransaction = async (actionType: "deposit" | "withdraw") => {
     const value = Number(amount);
@@ -284,85 +284,47 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       </div>
                     </div>
 
-                    <FormField
-                      label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
-                      name={`${tab}-amount`}
-                      type="number"
-                      placeholder="0.00"
-                      value={amount}
-                      onChange={(event) => setAmount(event.target.value)}
-                      disabled={isBusy || (tab === "deposit" && isCapReached)}
-                    />
-
-                    <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
-                      <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Asset: USDC</span>
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        onClick={() => setAmount(availableBalance.toFixed(2))}
-                        disabled={!walletAddress || availableBalance <= 0 || isBusy || (tab === "deposit" && isCapReached)}
-                      >
-                <div style={{ marginBottom: "24px" }}>
-                  <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
-                    <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                      {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
-                    </div>
-                    <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                      Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
+                    <div className="input-group">
+                      <div className="input-wrapper">
+                        <span style={{ color: "var(--text-secondary)", paddingRight: "12px", borderRight: "1px solid var(--border-glass)", marginRight: "16px" }}>USDC</span>
+                        <input className="input-field" type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isProcessing !== null || (tab === "deposit" && isCapReached)} />
+                        <button type="button" className="btn-max" onClick={() => setAmount(availableBalance.toFixed(2))} disabled={!walletAddress || availableBalance <= 0 || isProcessing !== null || (tab === "deposit" && isCapReached)}>
+                          MAX
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="input-group">
-                    <div className="input-wrapper">
-                      <span style={{ color: "var(--text-secondary)", paddingRight: "12px", borderRight: "1px solid var(--border-glass)", marginRight: "16px" }}>USDC</span>
-                      <input className="input-field" type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isProcessing !== null} />
-                      <button className="btn-max" onClick={() => setAmount(availableBalance.toFixed(2))} disabled={!walletAddress || availableBalance <= 0 || isProcessing !== null}>
-                        MAX
-                      </button>
+                  <div className="glass-panel" style={{ padding: "14px 16px", background: "rgba(0, 0, 0, 0.15)", marginBottom: "16px" }}>
+                    <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+                      <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem" }}>Estimated protocol fee</span>
+                      <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                        {isValidAmount ? `${estimatedFee.toFixed(4)} USDC` : "0.0000 USDC"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                        {tab === "deposit" ? "Estimated net deposit" : "Estimated net withdrawal"}
+                      </span>
+                      <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                        {isValidAmount ? `${estimatedNetAmount.toFixed(4)} USDC` : "0.0000 USDC"}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: "6px", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
+                      Network fee: {summary.networkFeeEstimate}
                     </div>
                   </div>
-
-                  <SubmitButton
-                    loading={isBusy && activeTab === tab}
-                    disabled={!walletAddress || isBusy || !amount || Number(amount) <= 0 || (tab === "deposit" && isCapReached)}
-                    label={tab === "deposit" ? (isCapReached ? "Vault is full" : "Approve & Deposit") : "Withdraw Funds"}
-                    loadingLabel="Waiting for confirmation..."
-                  />
+                  <button type="submit" className="btn btn-primary" style={{ width: "100%", padding: "16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }} disabled={isProcessing !== null || !amount || Number(amount) <= 0 || (tab === "deposit" && isCapReached)}>
+                    {isProcessing === tab ? (
+                      <>
+                        <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
+                        Processing Transaction...
+                      </>
+                    ) : (
+                      tab === "deposit" ? (isCapReached ? "Vault is full" : "Approve & Deposit") : "Withdraw Funds"
+                    )}
+                  </button>
                 </form>
-                </div>
-
-                <div className="glass-panel" style={{ padding: "14px 16px", background: "rgba(0, 0, 0, 0.15)", marginBottom: "16px" }}>
-                  <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
-                    <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem" }}>Estimated protocol fee</span>
-                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                      {isValidAmount ? `${estimatedFee.toFixed(4)} USDC` : "0.0000 USDC"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                      {tab === "deposit" ? "Estimated net deposit" : "Estimated net withdrawal"}
-                    </span>
-                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                      {isValidAmount ? `${estimatedNetAmount.toFixed(4)} USDC` : "0.0000 USDC"}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: "6px", color: "var(--text-secondary)", fontSize: "0.75rem" }}>
-                    Network fee: {summary.networkFeeEstimate}
-                  </div>
-                </div>
-
-                <button className="btn btn-primary" style={{ width: "100%", padding: "16px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
-                  {isProcessing === tab ? "Processing Transaction..." : tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"}
-                <button className="btn btn-primary" style={{ width: "100%", padding: "16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
-                  {isProcessing === tab ? (
-                    <>
-                      <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
-                      Processing Transaction...
-                    </>
-                  ) : (
-                    tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"
-                  )}
-                </button>
               </TabsContent>
             ))}
           </Tabs>

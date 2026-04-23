@@ -8,6 +8,7 @@ import { FeatureGate } from "./components/FeatureGate";
 import { FeatureFlagProvider } from "./context/FeatureFlagContext";
 import { useTranslation } from "./i18n";
 import { useUsdcBalance } from "./hooks/useBalanceData";
+import ErrorFallback from "./components/ErrorFallback";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -44,10 +45,7 @@ const LoadingPage = () => {
   );
 };
 
-const AppErrorFallback = () => {
-  const { t } = useTranslation();
-  return <p>{t("app.errorBoundary")}</p>;
-};
+// Removed simple fallback in favor of components/ErrorFallback
 
 function AppContent() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -118,7 +116,10 @@ function AppContent() {
 
 function App() {
   return (
-    <Sentry.ErrorBoundary fallback={<AppErrorFallback />} showDialog>
+    <Sentry.ErrorBoundary
+      fallback={(props) => <ErrorFallback {...props} />}
+      showDialog
+    >
       <FeatureFlagProvider>
         <AppContent />
       </FeatureFlagProvider>
