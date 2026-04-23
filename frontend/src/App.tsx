@@ -70,6 +70,7 @@ function AppContent() {
       <div className="app-container">
         <Navbar
           walletAddress={walletAddress}
+          usdcBalance={usdcBalance}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
         />

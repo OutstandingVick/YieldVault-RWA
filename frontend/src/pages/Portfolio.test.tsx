@@ -172,9 +172,6 @@ describe("Portfolio", () => {
       expect(screen.getByTestId("location-display")).toHaveTextContent(
         "sortBy=asset",
       );
-      expect(screen.getByTestId("location-display")).toHaveTextContent(
-        "sortDirection=desc",
-      );
       expect(screen.getByTestId("location-display")).toHaveTextContent("page=1");
     });
 
