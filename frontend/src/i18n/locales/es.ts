@@ -30,6 +30,24 @@ export const es = {
     rpcCustom: "Personalizado",
     rpcDefault: "Predeterminado",
     disconnectAria: "Desconectar billetera",
+    status: {
+      connected: "Conectado",
+      connecting: "Conectando a la billetera...",
+      disconnected: "No conectado",
+      error: "Error de conexión",
+    },
+    error: {
+      notInstalled: "Extensión de billetera Freighter no detectada. Instala Freighter para continuar.",
+      notAllowed: "Permiso de Freighter denegado. Aprueba el acceso en la extensión.",
+      noAddress: "No se pudo obtener la dirección de la billetera. Verifica los permisos de Freighter.",
+      generic: "Conexión fallida. Asegúrate de que Freighter esté desbloqueado y aprobado.",
+    },
+    tooltip: {
+      connectedStatus: "Billetera conectada y lista para usar",
+      disconnectedStatus: "Conecta tu billetera Freighter para continuar",
+      connectingStatus: "Estableciendo conexión...",
+      errorStatus: "Conexión fallida - intenta de nuevo o verifica Freighter",
+    },
   },
   toast: {
     walletConnected: {

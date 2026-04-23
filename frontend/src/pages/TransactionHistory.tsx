@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Printer } from "lucide-react";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -10,6 +11,9 @@ import {
   type ApiError, 
   type ValidationError 
 } from "../lib/api";
+import { PrintHeader, PrintFooter } from "../components/PrintReport";
+import { normalizeApiError, type ApiError } from "../lib/api";
+import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
 import {
   formatAmount,
   formatTimestamp,
@@ -166,7 +170,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       : "No transactions found for this wallet.";
 
   return (
-    <div className="glass-panel" style={{ padding: "32px" }}>
+    <div className="glass-panel transaction-report" style={{ padding: "32px" }}>
+      <PrintHeader
+        title="Transaction History Report"
+        subtitle="All deposits and withdrawals"
+      />
       <PageHeader
         title={
           <>
@@ -188,6 +196,18 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 {
                   label: isLoading ? "Loading..." : "Up to date",
                   variant: (isLoading ? "warning" : "success") as const,
+                },
+              ]
+            : undefined
+        }
+        actions={
+          walletAddress
+            ? [
+                {
+                  label: "Print",
+                  variant: "outline" as const,
+                  icon: <Printer size={18} />,
+                  onClick: () => window.print(),
                 },
               ]
             : undefined
@@ -291,7 +311,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             )}
           </section>
         </div>
+)}
+        </div>
       )}
+      <PrintFooter />
     </div>
   );
 };
