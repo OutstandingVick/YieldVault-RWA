@@ -92,13 +92,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const severity = {
-              🔴: 'High/Medium (Build Blocking)',
-              🟡: 'Low (Informational)',
-              ✅: 'No findings'
-            };
-            
-            let summary = '## 🔍 Slither Static Analysis Results\n\n';
+            let summary = '## Slither Static Analysis Results\n\n';
             summary += '**Severity Policy:**\n';
             summary += '- 🔴 High/Medium findings **BLOCK** the build\n';
             summary += '- 🟡 Low/Informational findings are **LOGGED** (non-blocking)\n\n';
