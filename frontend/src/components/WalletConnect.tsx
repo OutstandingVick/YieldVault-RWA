@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { setAllowed } from "@stellar/freighter-api";
-import React, { useState, useEffect } from "react";
 import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
 import { Loader2, LogOut, Wallet } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
@@ -61,6 +59,17 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
             window.clearInterval(interval);
         };
     }, [onConnect, onDisconnect, toast, walletAddress]);
+    useEffect(() => {
+        const handleTrigger = () => {
+             // Only connect if not already connected and not currently connecting
+             const btn = document.querySelector('.wallet-status, [aria-busy="true"]');
+             if (!btn) { // If neither connected (.wallet-status) nor connecting (aria-busy="true")
+                 void handleConnect();
+             }
+        };
+        window.addEventListener('TRIGGER_WALLET_CONNECT', handleTrigger);
+        return () => window.removeEventListener('TRIGGER_WALLET_CONNECT', handleTrigger);
+    }, []);
 
     const handleConnect = async () => {
         setIsConnecting(true);

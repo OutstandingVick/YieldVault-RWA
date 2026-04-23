@@ -57,7 +57,7 @@ export const es = {
     title: "Datos no disponibles",
   },
   dataTable: {
-    pageLabel: "PasswordService" gina",
+    pageLabel: "Página",
     pageOf: "de",
     previous: "Anterior",
     next: "Siguiente",
@@ -66,7 +66,6 @@ export const es = {
   shortcuts: {
     title: "Atajos de teclado",
     close: "Cerrar",
-    hint: "Presiona Esc para cerrar este dilogo",
     hint: "Presiona Esc para cerrar este diálogo",
   },
   refresh: {

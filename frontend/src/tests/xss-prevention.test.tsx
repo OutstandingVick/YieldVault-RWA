@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import FormField from '../forms/components/FormField';
 
@@ -213,8 +213,6 @@ describe('XSS Prevention - React JSX Rendering', () => {
 
 describe('XSS Prevention - Style Injection', () => {
   test('React style prop prevents CSS injection', () => {
-    const maliciousStyle = 'color: red; background: url(javascript:alert(1))';
-    
     // React style prop only accepts objects, not strings
     // This test verifies TypeScript prevents this at compile time
     const TestComponent = () => (
@@ -256,8 +254,6 @@ describe('XSS Prevention - URL Construction', () => {
 
 describe('XSS Prevention - Event Handlers', () => {
   test('event handlers cannot be injected via props', () => {
-    const maliciousOnClick = 'alert(1)';
-    
     // React event handlers must be functions, not strings
     const TestComponent = () => (
       <button onClick={() => {}}>Click</button>

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useKeyboardShortcuts, ShortcutDefinition, formatShortcut } from '../hooks/useKeyboardShortcuts';
+import { useKeyboardShortcuts, formatShortcut } from '../hooks/useKeyboardShortcuts';
+import type { ShortcutDefinition } from '../hooks/useKeyboardShortcuts';
 
 interface KeyboardShortcutContextValue {
   shortcuts: ShortcutDefinition[];
@@ -29,6 +30,7 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
   }, []);
 
   const shortcuts = useMemo<ShortcutDefinition[]>(() => [
+    // ── Navigation (single-letter, Gmail/GitHub style) ──
     {
       key: 'g',
       action: () => navigate('/'),
@@ -47,6 +49,35 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
       description: 'Go to Analytics',
       scope: 'Navigation'
     },
+    {
+      key: 't',
+      action: () => navigate('/transactions'),
+      description: 'Go to Transactions',
+      scope: 'Navigation'
+    },
+    // ── Actions (single-letter, no browser clashes) ──
+    {
+      key: 'd',
+      action: () => {
+        navigate('/');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('TRIGGER_DEPOSIT')), 100);
+      },
+      description: 'Open Deposit Form',
+      scope: 'Actions'
+    },
+    {
+      key: 'w',
+      action: () => window.dispatchEvent(new CustomEvent('TRIGGER_WALLET_CONNECT')),
+      description: 'Connect Wallet',
+      scope: 'Actions'
+    },
+    {
+      key: 's',
+      action: () => navigate('/settings'),
+      description: 'Open Settings',
+      scope: 'Actions'
+    },
+    // ── General ──
     {
       key: '?',
       shiftKey: true,
