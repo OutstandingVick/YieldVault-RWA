@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import Navbar from "./components/Navbar";
@@ -53,13 +53,13 @@ function AppContent() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
 
-  const handleConnect = (address: string) => {
+  const handleConnect = useCallback((address: string) => {
     setWalletAddress(address);
-  };
+  }, []);
 
-  const handleDisconnect = () => {
+  const handleDisconnect = useCallback(() => {
     setWalletAddress(null);
-  };
+  }, []);
 
 
   return (
@@ -89,10 +89,7 @@ function AppContent() {
               <Route
                 path="/portfolio"
                 element={
-                  <Portfolio
-                    walletAddress={walletAddress}
-                    usdcBalance={usdcBalance}
-                  />
+                  <Portfolio walletAddress={walletAddress} />
                 }
               />
               <Route

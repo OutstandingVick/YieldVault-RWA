@@ -8,16 +8,12 @@ import { MemoryRouter } from 'react-router-dom';
 describe('Navbar', () => {
     const mockOnConnect = vi.fn();
     const mockOnDisconnect = vi.fn();
-    const mockOnNavigate = vi.fn();
-
     it('renders the navbar with navigation links', () => {
         render(
             <MemoryRouter>
                 <ToastProvider>
                     <ThemeProvider>
                         <Navbar
-                            currentPath="/"
-                            onNavigate={mockOnNavigate}
                             walletAddress={null}
                             onConnect={mockOnConnect}
                             onDisconnect={mockOnDisconnect}
@@ -34,14 +30,12 @@ describe('Navbar', () => {
         expect(screen.getByText('Portfolio')).toBeInTheDocument();
     });
 
-    it('renders the wallet connect button', () => {
+    it('renders the wallet connect button', async () => {
         render(
             <MemoryRouter>
                 <ToastProvider>
                     <ThemeProvider>
                         <Navbar
-                            currentPath="/"
-                            onNavigate={mockOnNavigate}
                             walletAddress={null}
                             onConnect={mockOnConnect}
                             onDisconnect={mockOnDisconnect}
@@ -51,7 +45,7 @@ describe('Navbar', () => {
             </MemoryRouter>
         );
 
-        expect(screen.getByText(/Connect Freighter/i)).toBeInTheDocument();
+        expect(await screen.findByText(/Connect Freighter/i)).toBeInTheDocument();
     });
 
     it('shows the truncated wallet address when connected', () => {
@@ -62,8 +56,6 @@ describe('Navbar', () => {
                 <ToastProvider>
                     <ThemeProvider>
                         <Navbar
-                            currentPath="/portfolio"
-                            onNavigate={mockOnNavigate}
                             walletAddress={fullAddress}
                             onConnect={mockOnConnect}
                             onDisconnect={mockOnDisconnect}

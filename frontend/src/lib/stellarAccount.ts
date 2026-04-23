@@ -34,6 +34,30 @@ export async function discoverConnectedAddress(): Promise<string | null> {
   }
 }
 
+function isAutomatedTestEnv(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    (process.env.NODE_ENV === "test" || process.env.VITEST === "true")
+  );
+}
+
+/** Retries for extension injection / unlock race on cold page load. */
+export async function discoverConnectedAddressWithRetry(
+  options?: { attempts?: number; delaysMs?: number[] },
+): Promise<string | null> {
+  const isTest = isAutomatedTestEnv();
+  const attempts = options?.attempts ?? (isTest ? 1 : 3);
+  const delaysMs = options?.delaysMs ?? (isTest ? [0] : [0, 20, 60]);
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, delaysMs[i] ?? 200));
+    }
+    const addr = await discoverConnectedAddress();
+    if (addr) return addr;
+  }
+  return null;
+}
+
 export async function fetchUsdcBalance(
   walletAddress: string,
   rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || `https://${TESTNET_SOROBAN_RPC}`,
@@ -41,10 +65,18 @@ export async function fetchUsdcBalance(
   const horizonUrl = toHorizonUrl(rpcUrl);
   const ServerFactory = Horizon.Server as unknown as {
     new (url: string): {
-      accounts: () => { accountId: (id: string) => { call: () => Promise<{ balances: Array<Record<string, string>> }> } };
+      accounts: () => {
+        accountId: (id: string) => {
+          call: () => Promise<{ balances: Horizon.HorizonApi.BalanceLine[] }>;
+        };
+      };
     };
     (url: string): {
-      accounts: () => { accountId: (id: string) => { call: () => Promise<{ balances: Array<Record<string, string>> }> } };
+      accounts: () => {
+        accountId: (id: string) => {
+          call: () => Promise<{ balances: Horizon.HorizonApi.BalanceLine[] }>;
+        };
+      };
     };
   };
   const server = (() => {

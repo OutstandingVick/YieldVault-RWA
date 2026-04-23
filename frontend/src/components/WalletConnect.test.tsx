@@ -1,9 +1,10 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import WalletConnect from './WalletConnect';
 import * as freighter from '@stellar/freighter-api';
 import { ToastProvider } from '../context/ToastContext';
+import { WALLET_MANUAL_DISCONNECT_KEY } from '../lib/walletSession';
 
 
 // Mock freighter-api
@@ -28,6 +29,10 @@ describe('WalletConnect', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        sessionStorage.removeItem(WALLET_MANUAL_DISCONNECT_KEY);
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
+        mockedFreighter.getAddress.mockResolvedValue({ address: "" });
+        mockedFreighter.setAllowed.mockResolvedValue({ isAllowed: true });
     });
 
     afterEach(() => {
@@ -44,7 +49,7 @@ describe('WalletConnect', () => {
             />
         );
 
-        expect(screen.getByText(/Connect Freighter/i)).toBeInTheDocument();
+        expect(await screen.findByText(/Connect Freighter/i)).toBeInTheDocument();
     });
 
     it('shows loading state while connecting', async () => {
@@ -91,8 +96,8 @@ describe('WalletConnect', () => {
 
     it('shows error state when permission is denied', async () => {
         mockedFreighter.isAllowed.mockResolvedValueOnce({ isAllowed: false });
-        mockedFreighter.setAllowed.mockResolvedValue({});
-        mockedFreighter.getAddress.mockResolvedValue({ address: undefined });
+        mockedFreighter.setAllowed.mockResolvedValue({ isAllowed: false });
+        mockedFreighter.getAddress.mockResolvedValue({ address: "" });
 
         render(
             <WalletConnectWrapper 
@@ -200,13 +205,49 @@ describe('WalletConnect', () => {
         fireEvent.click(disconnectButton);
 
         expect(mockOnDisconnect).toHaveBeenCalled();
+        expect(sessionStorage.getItem(WALLET_MANUAL_DISCONNECT_KEY)).toBe('1');
+    });
+
+    it('auto-connects when Freighter is already permitted for this site', async () => {
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: true });
+        mockedFreighter.getAddress.mockResolvedValue({ address: 'GAUTOCONNECT123' });
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        await waitFor(() => {
+            expect(mockOnConnect).toHaveBeenCalledWith('GAUTOCONNECT123');
+        });
+    });
+
+    it('does not auto-connect when the user disconnected in this browser session', async () => {
+        sessionStorage.setItem(WALLET_MANUAL_DISCONNECT_KEY, '1');
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: true });
+        mockedFreighter.getAddress.mockResolvedValue({ address: 'GSHOULDNOTAPPEAR' });
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText(/Connect Freighter/i)).toBeInTheDocument();
+        });
+
+        expect(mockOnConnect).not.toHaveBeenCalled();
     });
 
     it('handles wallet disconnects gracefully during polling', async () => {
-        vi.useFakeTimers({ shouldAdvanceTime: false });
         mockedFreighter.isAllowed
             .mockResolvedValueOnce({ isAllowed: true })
-            .mockResolvedValueOnce({ isAllowed: false })
             .mockResolvedValue({ isAllowed: false });
         mockedFreighter.getAddress.mockResolvedValue({ address: 'GABC123' });
 
@@ -218,14 +259,15 @@ describe('WalletConnect', () => {
             />
         );
 
-        expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
-
-        act(() => {
-            vi.advanceTimersByTime(10000);
+        await waitFor(() => {
+            expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
         });
 
-        expect(mockedFreighter.isAllowed.mock.calls.length).toBeGreaterThanOrEqual(2);
-        
-        vi.useRealTimers();
+        await waitFor(
+            () => {
+                expect(mockedFreighter.isAllowed.mock.calls.length).toBeGreaterThanOrEqual(2);
+            },
+            { timeout: 5000, interval: 50 },
+        );
     });
 });
