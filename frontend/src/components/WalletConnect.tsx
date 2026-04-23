@@ -9,13 +9,14 @@ import { discoverConnectedAddress } from "../lib/stellarAccount";
 
 interface WalletConnectProps {
     walletAddress: string | null;
+    usdcBalance?: number;
     onConnect: (address: string) => void;
     onDisconnect: () => void;
 }
 
 type ConnectionErrorType = 'not-installed' | 'not-allowed' | 'no-address' | 'generic' | null;
 
-const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect, onDisconnect }) => {
+const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, usdcBalance = 0, onConnect, onDisconnect }) => {
     const [isConnecting, setIsConnecting] = useState(false);
     const [connectionError, setConnectionError] = useState<ConnectionErrorType>(null);
     const [showTooltip, setShowTooltip] = useState(false);
@@ -199,6 +200,21 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, onConnect,
                     title={networkConfig.rpcUrl}
                 >
                     {t('wallet.rpcPrefix')} {hasCustomRpcConfig ? t('wallet.rpcCustom') : t('wallet.rpcDefault')}
+                </div>
+                <div
+                    className="glass-panel"
+                    style={{
+                        padding: '8px 12px',
+                        borderRadius: '10px',
+                        border: '1px solid var(--border-glass)',
+                        fontSize: '0.75rem',
+                        color: 'var(--text-secondary)',
+                        minWidth: '130px',
+                        textAlign: 'right'
+                    }}
+                    aria-label="USDC wallet balance"
+                >
+                    USDC: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{usdcBalance.toFixed(2)}</span>
                 </div>
                 <button
                     className="btn btn-outline"

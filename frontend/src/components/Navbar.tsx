@@ -8,12 +8,14 @@ interface NavbarProps {
     currentPath: '/' | '/analytics' | '/portfolio';
     onNavigate: (path: '/' | '/analytics' | '/portfolio') => void;
     walletAddress: string | null;
+    usdcBalance?: number;
     onConnect: (address: string) => void;
     onDisconnect: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
   walletAddress,
+  usdcBalance = 0,
   onConnect,
   onDisconnect,
 }) => {
@@ -116,6 +118,7 @@ const Navbar: React.FC<NavbarProps> = ({
           <ThemeToggle />
           <WalletConnect
             walletAddress={walletAddress}
+            usdcBalance={usdcBalance}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
           />
