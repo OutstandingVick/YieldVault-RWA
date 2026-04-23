@@ -9,6 +9,7 @@ export {
   LogOut,
   Menu,
   Moon,
+  Printer,
   ShieldCheck,
   Sun,
   TrendingUp,
