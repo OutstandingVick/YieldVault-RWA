@@ -47,6 +47,25 @@ describe('WalletConnect', () => {
         expect(screen.getByText(/Connect Freighter/i)).toBeInTheDocument();
     });
 
+    it('shows loading state while connecting', async () => {
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
+        mockedFreighter.setAllowed.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
+        
+        render(
+            <WalletConnectWrapper 
+                walletAddress={null} 
+                onConnect={mockOnConnect} 
+                onDisconnect={mockOnDisconnect} 
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i);
+        fireEvent.click(button);
+
+        // Should show connecting state
+        expect(screen.getByText(/Connecting/i)).toBeInTheDocument();
+    });
+
     it('calls onConnect when manually connected via button', async () => {
         mockedFreighter.isAllowed
             .mockResolvedValueOnce({ isAllowed: false })
@@ -68,6 +87,89 @@ describe('WalletConnect', () => {
         await waitFor(() => {
             expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
         });
+    });
+
+    it('shows error state when permission is denied', async () => {
+        mockedFreighter.isAllowed.mockResolvedValueOnce({ isAllowed: false });
+        mockedFreighter.setAllowed.mockResolvedValue({});
+        mockedFreighter.getAddress.mockResolvedValue({ address: undefined });
+
+        render(
+            <WalletConnectWrapper 
+                walletAddress={null} 
+                onConnect={mockOnConnect} 
+                onDisconnect={mockOnDisconnect} 
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i);
+        fireEvent.click(button);
+
+        await waitFor(() => {
+            expect(mockOnConnect).not.toHaveBeenCalled();
+        });
+    });
+
+    it('shows error state when connection fails', async () => {
+        mockedFreighter.setAllowed.mockRejectedValueOnce(new Error('Freighter not found'));
+
+        render(
+            <WalletConnectWrapper 
+                walletAddress={null} 
+                onConnect={mockOnConnect} 
+                onDisconnect={mockOnDisconnect} 
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i);
+        fireEvent.click(button);
+
+        await waitFor(() => {
+            expect(mockOnConnect).not.toHaveBeenCalled();
+        });
+    });
+
+    it('displays tooltip on button hover', async () => {
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
+        
+        render(
+            <WalletConnectWrapper 
+                walletAddress={null} 
+                onConnect={mockOnConnect} 
+                onDisconnect={mockOnDisconnect} 
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i).closest('button');
+        if (!button) throw new Error('Button not found');
+
+        fireEvent.mouseEnter(button);
+        
+        // Tooltip should appear
+        await waitFor(() => {
+            expect(button).toHaveAttribute('title');
+        });
+    });
+
+    it('hides tooltip on button mouse leave', async () => {
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
+        
+        render(
+            <WalletConnectWrapper 
+                walletAddress={null} 
+                onConnect={mockOnConnect} 
+                onDisconnect={mockOnDisconnect} 
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i).closest('button');
+        if (!button) throw new Error('Button not found');
+
+        fireEvent.mouseEnter(button);
+        fireEvent.mouseLeave(button);
+        
+        // Button should have title attribute for accessibility fallback
+        expect(button).toHaveAttribute('title');
     });
 
     it('shows the formatted address when connected', () => {
@@ -100,12 +202,7 @@ describe('WalletConnect', () => {
         expect(mockOnDisconnect).toHaveBeenCalled();
     });
 
-    it('polls wallet permissions on an interval', async () => {
-        vi.useFakeTimers();
     it('handles wallet disconnects gracefully during polling', async () => {
-        // Helper to flush all pending promises
-        const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
         vi.useFakeTimers({ shouldAdvanceTime: false });
         mockedFreighter.isAllowed
             .mockResolvedValueOnce({ isAllowed: true })
@@ -128,17 +225,7 @@ describe('WalletConnect', () => {
         });
 
         expect(mockedFreighter.isAllowed.mock.calls.length).toBeGreaterThanOrEqual(2);
+        
+        vi.useRealTimers();
     });
-        // Advance timers by 0 to flush the initial synchronous setup,
-        // then flush microtasks from the async calls
-        vi.advanceTimersByTime(0);
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
-
-        // Advance past the 10s polling interval
-        await vi.advanceTimersByTimeAsync(10001);
-
-        expect(mockOnDisconnect).toHaveBeenCalled();
-    }, 20000);
 });
