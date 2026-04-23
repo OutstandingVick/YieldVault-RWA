@@ -41,10 +41,10 @@ export async function fetchUsdcBalance(
   const horizonUrl = toHorizonUrl(rpcUrl);
   const ServerFactory = Horizon.Server as unknown as {
     new (url: string): {
-      accounts: () => { accountId: (id: string) => { call: () => Promise<{ balances: Array<Record<string, string>> }> } };
+      accounts: () => { accountId: (id: string) => { call: () => Promise<{ balances: Horizon.HorizonApi.BalanceLine[] }> } };
     };
     (url: string): {
-      accounts: () => { accountId: (id: string) => { call: () => Promise<{ balances: Array<Record<string, string>> }> } };
+      accounts: () => { accountId: (id: string) => { call: () => Promise<{ balances: Horizon.HorizonApi.BalanceLine[] }> } };
     };
   };
   const server = (() => {

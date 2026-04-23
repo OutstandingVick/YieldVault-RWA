@@ -132,15 +132,15 @@ describe("VaultDashboard", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Processing Transaction.../i),
+        screen.getByText(/Waiting for confirmation\.\.\./i),
       ).toBeInTheDocument();
     });
 
     // Resolve the mocked API call
     resolveSubmit();
 
-    // Processing state should be visible after submitting.
-    expect(screen.getByText(/Processing Transaction.../i)).toBeInTheDocument();
+    // Loading state should be visible while mutation is pending.
+    expect(screen.getByText(/Waiting for confirmation\.\.\./i)).toBeInTheDocument();
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
@@ -182,6 +182,8 @@ describe("VaultDashboard", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
     }, { timeout: 3000 });
-    expect(screen.getByRole("alert")).toHaveTextContent("Failed to load vault data");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We could not reach the server. Check your connection and try again.",
+    );
   });
 });

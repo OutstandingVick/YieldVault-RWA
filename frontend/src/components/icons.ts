@@ -1,5 +1,6 @@
 export {
   Activity,
+  AlertTriangle,
   ChevronRight,
   AlertCircle,
   Check,
