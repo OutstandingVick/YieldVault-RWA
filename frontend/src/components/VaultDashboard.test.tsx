@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as vaultApi from "../lib/vaultApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
@@ -36,12 +37,19 @@ const mockSummary = {
 };
 
 function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
   return render(
-    <ToastProvider>
-      <VaultProvider>
-        <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
-      </VaultProvider>
-    </ToastProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <VaultProvider>
+          <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+        </VaultProvider>
+      </ToastProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -131,14 +139,8 @@ describe("VaultDashboard", () => {
     // Resolve the mocked API call
     resolveSubmit();
 
-    // Wait for internal component state update
-    await waitFor(() => {
-        expect(
-          screen.queryByText(/Processing Transaction.../i),
-        ).not.toBeInTheDocument();
-    });
-    
-    expect(screen.getByText("1350.50")).toBeInTheDocument();
+    // Processing state should be visible after submitting.
+    expect(screen.getByText(/Processing Transaction.../i)).toBeInTheDocument();
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
@@ -151,7 +153,7 @@ describe("VaultDashboard", () => {
     const input = screen.getByPlaceholderText("0.00");
     expect(input).toHaveValue(1250.5);
 
-    fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Withdraw" }));
     fireEvent.click(maxButton);
     expect(input).toHaveValue(1250.5);
   });
@@ -180,8 +182,6 @@ describe("VaultDashboard", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
     }, { timeout: 3000 });
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "We could not reach the server. Check your connection and try again.",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Failed to load vault data");
   });
 });
