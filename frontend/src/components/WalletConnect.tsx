@@ -7,11 +7,13 @@ import { useTranslation } from '../i18n';
 import CopyButton from './CopyButton';
 import { discoverConnectedAddress } from "../lib/stellarAccount";
 
+export type DisconnectReason = "manual" | "session-expired";
+
 interface WalletConnectProps {
     walletAddress: string | null;
     usdcBalance?: number;
     onConnect: (address: string) => void;
-    onDisconnect: () => void;
+    onDisconnect: (reason?: DisconnectReason) => void;
 }
 
 type ConnectionErrorType = 'not-installed' | 'not-allowed' | 'no-address' | 'generic' | null;
@@ -47,7 +49,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, usdcBalanc
             }
 
             if (walletAddress) {
-              onDisconnect();
+              onDisconnect("session-expired");
               toast.info({
                   title: "Wallet disconnected",
                   description: "Freighter is no longer connected to this session.",
@@ -221,7 +223,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, usdcBalanc
                     style={{ padding: '8px', borderRadius: '50%' }}
                     onClick={() => {
                         setConnectionError(null);
-                        onDisconnect();
+                        onDisconnect("manual");
                         toast.info({
                           title: t('toast.walletDisconnected.title'),
                           description: t('toast.walletDisconnected.description'),
