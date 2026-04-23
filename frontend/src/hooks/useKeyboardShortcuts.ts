@@ -13,9 +13,9 @@ export interface ShortcutDefinition {
 
 function isTextInput(element: Element | null): boolean {
   if (!element) return false;
-  const tagName = element.tagName.toLowerCase();
-  if (tagName === 'input' || tagName === 'textarea') return true;
-  if (element.getAttribute('contenteditable') === 'true') return true;
+  if (element instanceof HTMLInputElement) return true;
+  if (element instanceof HTMLTextAreaElement) return true;
+  if ((element as HTMLElement).isContentEditable) return true;
   return false;
 }
 
@@ -41,6 +41,7 @@ export function useKeyboardShortcuts(
     if (!enabled) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return;
       if (isTextInput(event.target as Element)) return;
 
       for (const shortcut of shortcutsRef.current) {

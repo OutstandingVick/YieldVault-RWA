@@ -1,24 +1,6 @@
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import React from "react";
 import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
-
-function formatTick(iso: string) {
-  const d = new Date(iso.includes("T") ? iso : `${iso}T12:00:00`);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(d);
-}
-
-const chartMargin = { top: 8, right: 12, left: 4, bottom: 8 };
 
 const VaultPerformanceChart: React.FC = () => {
   const { data = [] } = useVaultHistory();
@@ -46,70 +28,18 @@ const VaultPerformanceChart: React.FC = () => {
       >
         yvUSDC share price index (100 = baseline)
       </p>
-      <div className="vault-chart-canvas">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={chartMargin}>
-            <defs>
-              <linearGradient id="vaultPerfArea" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor="var(--accent-cyan)"
-                  stopOpacity={0.35}
-                />
-                <stop
-                  offset="100%"
-                  stopColor="var(--accent-cyan)"
-                  stopOpacity={0}
-                />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="var(--border-glass)"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatTick}
-              tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
-              axisLine={{ stroke: "var(--border-glass)" }}
-              tickLine={false}
-              minTickGap={24}
-            />
-            <YAxis
-              domain={["auto", "auto"]}
-              tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              width={44}
-              tickFormatter={(v: unknown) => (typeof v === "number" ? v.toFixed(1) : String(v))}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border-glass)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-primary)",
-                fontSize: "0.85rem",
-              }}
-              labelFormatter={(label: unknown) =>
-                typeof label === "string" ? formatTick(label) : String(label)
-              }
-              formatter={(value: unknown) => [
-                typeof value === "number" ? value.toFixed(3) : String(value),
-                "Index",
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke="var(--accent-cyan)"
-              strokeWidth={2}
-              fill="url(#vaultPerfArea)"
-              isAnimationActive={data.length > 0}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+      <div className="vault-chart-canvas" style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        background: 'rgba(0,0,0,0.2)',
+        borderRadius: '8px',
+        color: 'var(--text-secondary)'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <p>Chart temporarily disabled</p>
+          <p style={{ fontSize: '0.75rem' }}>Diagnosing Recharts 504 error...</p>
+        </div>
       </div>
     </div>
   );

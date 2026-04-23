@@ -111,9 +111,18 @@ const Navbar: React.FC<NavbarProps> = ({
             </NavLink>
           </div>
         </div>
-            </div>
-        </nav>
-    );
+
+        <div className="flex items-center gap-md">
+          <ThemeToggle />
+          <WalletConnect
+            walletAddress={walletAddress}
+            onConnect={onConnect}
+            onDisconnect={onDisconnect}
+          />
+        </div>
+      </div>
+    </nav>
+  );
 };
 
 export default Navbar;

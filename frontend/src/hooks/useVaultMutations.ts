@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryClient";
-import { PortfolioHolding } from "../lib/portfolioApi";
+import type { PortfolioHolding } from "../lib/portfolioApi";
 
 /**
  * Simulated deposit mutation with optimistic UI updates.
