@@ -57,7 +57,7 @@ jobs:
       # Run Slither with severity-based failure thresholds
       # ======================================================================
       - name: Run Slither analysis
-        uses: crytic/slither-action@latest
+        uses: crytic/slither-action@v0.4.2
         id: slither
         with:
           target: .
