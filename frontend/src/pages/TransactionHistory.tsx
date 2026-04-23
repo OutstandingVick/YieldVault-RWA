@@ -187,7 +187,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 },
                 {
                   label: isLoading ? "Loading..." : "Up to date",
-                  variant: (isLoading ? "warning" : "success") as const,
+                  variant: isLoading ? "warning" : "success",
                 },
               ]
             : undefined
