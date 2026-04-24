@@ -7,6 +7,7 @@ import ApiStatusBanner from "./ApiStatusBanner";
 import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
+import WithdrawalConfirmationModal from "./WithdrawalConfirmationModal";
 import { FormField, SubmitButton } from "../forms";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 import TransactionStatus, { type ActionStatus } from "./TransactionStatus";
@@ -134,6 +135,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<TransactionTab>("deposit");
   const [amount, setAmount] = useState("");
+  const [isProcessing, setIsProcessing] = useState<"deposit" | "withdraw" | null>(null);
+  const [pendingBalanceChange, setPendingBalanceChange] = useState(0);
+  const [showWithdrawalConfirm, setShowWithdrawalConfirm] = useState(false);
+  const [pendingWithdrawalAmount, setPendingWithdrawalAmount] = useState(0);
   const [touched, setTouched] =
     useState<Record<TransactionTab, boolean>>(INITIAL_TOUCHED_STATE);
 
@@ -238,8 +243,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
   };
 
+  const handleWithdrawalCancel = () => {
+    setShowWithdrawalConfirm(false);
+    setPendingWithdrawalAmount(0);
+  };
+
   return (
     <div className="vault-dashboard gap-lg">
+      <WithdrawalConfirmationModal
+        isOpen={showWithdrawalConfirm}
+        amount={pendingWithdrawalAmount}
+        estimatedFee={estimatedUsdcFee}
+        onConfirm={handleWithdrawalConfirm}
+        onCancel={handleWithdrawalCancel}
+        isProcessing={isProcessing === "withdraw"}
+      />
+
       <div className="vault-dashboard-stats">
         <div className="glass-panel" style={{ padding: "32px" }}>
           {error && (
@@ -432,7 +451,25 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       </div>
 
       <div className="vault-dashboard-actions">
-        <div className="glass-panel" style={{ padding: "32px", position: "relative", overflow: "hidden" }}>
+        <div
+          className="glass-panel"
+          style={{ padding: "32px", position: "relative", overflow: "hidden" }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              top: "-50px",
+              right: "-50px",
+              width: "150px",
+              height: "150px",
+              background: "var(--accent-purple)",
+              filter: "blur(80px)",
+              opacity: 0.2,
+              borderRadius: "50%",
+              pointerEvents: "none",
+            }}
+          />
+
           {!walletAddress && (
             <div
               className="wallet-overlay"
