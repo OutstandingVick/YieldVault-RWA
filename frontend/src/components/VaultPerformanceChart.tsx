@@ -8,8 +8,9 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from "recharts";
-import { TrendingUp, Activity } from "./icons";
+import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
+import Skeleton from "./Skeleton";
 
 type TimeRange = "7D" | "1M" | "3M" | "ALL";
 
@@ -103,10 +104,12 @@ const VaultPerformanceChart: React.FC = () => {
 
       <div style={{ flex: 1, minHeight: "260px", position: "relative" }}>
         {isLoading ? (
-          <div className="flex items-center justify-center" style={{ height: "100%", color: "var(--text-secondary)", fontSize: "0.9rem", gap: "10px" }}>
-            <Activity size={20} className="animate-pulse" />
-            Loading historical data...
-          </div>
+          <Skeleton
+            width="100%"
+            height="100%"
+            borderRadius="var(--radius-sm)"
+            style={{ minHeight: "260px" }}
+          />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
