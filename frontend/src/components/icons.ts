@@ -16,4 +16,6 @@ export {
   TrendingUp,
   Wallet,
   X,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
