@@ -5,6 +5,7 @@ export {
   AlertCircle,
   Check,
   Copy,
+  Info,
   Layers,
   Loader2,
   LogOut,
