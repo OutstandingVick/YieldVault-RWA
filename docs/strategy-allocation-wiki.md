@@ -170,8 +170,10 @@ strategies is planned for Phase 3.
 ### 4.2 Risk Categories
 
 **Smart Contract Risk**
-Single Soroban contract with no upgrade mechanism in Phase 1. All state is stored in instance
-storage. An audit is required before mainnet deployment (Phase 4).
+Single Soroban contract with an admin-controlled upgrade mechanism (Phase 2). All state is stored 
+in instance storage. Upgrades require the vault to be **paused** as a critical safety measure 
+to prevent state corruption during transitions. An audit is required before mainnet 
+deployment (Phase 4).
 
 **Counterparty Risk**
 Phase 1 yield is manually accrued by a trusted admin. Phase 3+ yield is pulled from RWA issuers
@@ -238,6 +240,7 @@ intentional for testnet iteration. Threshold must be raised before mainnet deplo
 | `ProposalNonce`              | u32       | Auto-incrementing proposal ID counter            |
 | `Proposal(u32)`              | StrategyProposal | Proposal state by ID                      |
 | `Vote(u32, Address)`         | bool      | Deduplication guard per voter per proposal       |
+| `Version`                    | u32       | Current contract version counter                  |
 
 ---
 
@@ -261,6 +264,8 @@ intentional for testnet iteration. Threshold must be raised before mainnet deplo
 | `total_shares()`                  | Read-only  | Returns total minted shares                              |
 | `total_assets()`                  | Read-only  | Returns total vault assets                               |
 | `balance(user)`                   | Read-only  | Returns a user's share balance                           |
+| `version()`                      | Read-only  | Returns the current contract version                     |
+| `upgrade(new_wasm_hash)`         | Admin      | Upgrades contract code (Safety: must be paused)          |
 
 ---
 
@@ -268,5 +273,6 @@ intentional for testnet iteration. Threshold must be raised before mainnet deplo
 
 | Version | Date       | Change                                                                 |
 |---------|------------|------------------------------------------------------------------------|
+| 0.2.1   | 2026-04-24 | Added upgradeability mechanism and proxy safety checks (Issue #119).   |
 | 0.2.0   | 2026-03-25 | Full rewrite: added DAO governance model, Korean debt yield curve, BENJI push model, complete state/function reference, updated risk parameters |
 | 0.1.0   | 2026-03-24 | Initial wiki — Phase 1 strategy and risk documentation                 |

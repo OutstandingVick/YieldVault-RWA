@@ -7,7 +7,8 @@ import { subscribeToApiTelemetry, normalizeApiError } from "../lib/api";
 import type { ApiError } from "../lib/api";
 import type { VaultSummary } from "../lib/vaultApi";
 import { networkConfig } from "../config/network";
-import { useVaultSummary } from "../hooks/useVaultData";
+import { useVaultSummary, useVaultHistory } from "../hooks/useVaultData";
+import { formatCurrency, formatPercent } from "../lib/formatters";
 
 interface VaultContextType {
   summary: VaultSummary;
@@ -53,7 +54,11 @@ const VaultContext = createContext<VaultContextType | undefined>(undefined);
 export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { data, isLoading, error: queryError, refetch } = useVaultSummary();
+  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary();
+  const { data: historyData, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } = useVaultHistory();
+
+  const isLoading = isSummaryLoading || isHistoryLoading;
+  const queryError = summaryError || historyError;
 
   const summary: VaultSummary = data
     ? {
@@ -85,16 +90,27 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
     return unsubscribe;
   }, []);
 
-  const formattedTvl = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(summary.tvl);
+  const formattedTvl = formatCurrency(summary.tvl, "USD", 0);
 
-  const formattedApy = `${summary.apy.toFixed(2)}%`;
+  const calculateApy = () => {
+    if (!historyData || historyData.length < 2) return null;
+    const start = historyData[0];
+    const end = historyData[historyData.length - 1];
+    
+    const startDate = new Date(start.date).getTime();
+    const endDate = new Date(end.date).getTime();
+    const days = (endDate - startDate) / (1000 * 60 * 60 * 24);
+    
+    if (days <= 0) return null;
+    return ((end.value / start.value) ** (365 / days) - 1) * 100;
+  };
+
+  const calculatedApy = calculateApy();
+  const currentApy = calculatedApy !== null ? calculatedApy : summary.apy;
+  const formattedApy = calculatedApy !== null || data ? `${currentApy.toFixed(2)}%` : "N/A";
 
   const refresh = async () => {
-    await refetch();
+    await Promise.all([refetchSummary(), refetchHistory()]);
   };
 
   return (
@@ -106,7 +122,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
         utilization,
         isCapWarning,
         isCapReached,
-        apy: summary.apy,
+        apy: currentApy,
         formattedTvl,
         formattedApy,
         lastUpdate,

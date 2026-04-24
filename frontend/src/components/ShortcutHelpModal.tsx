@@ -1,51 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { useKeyboardShortcutContext } from '../context/KeyboardShortcutContext';
 import { useTranslation } from '../i18n';
+import { Modal } from './Modal';
 
 const ShortcutHelpModal: React.FC = () => {
   const { shortcuts, isHelpModalOpen, closeHelpModal, formatShortcut } = useKeyboardShortcutContext();
   const { t } = useTranslation();
-  const modalRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (isHelpModalOpen && modalRef.current) {
-      previousFocusRef.current = document.activeElement as HTMLElement;
-      modalRef.current.focus();
-    }
-
-    return () => {
-      previousFocusRef.current?.focus();
-    };
-  }, [isHelpModalOpen]);
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Tab" || !modalRef.current) {
-      return;
-    }
-
-    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    if (focusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
-
-    const firstElement = focusable[0];
-    const lastElement = focusable[focusable.length - 1];
-    const activeElement = document.activeElement as HTMLElement | null;
-
-    if (event.shiftKey && activeElement === firstElement) {
-      event.preventDefault();
-      lastElement.focus();
-    } else if (!event.shiftKey && activeElement === lastElement) {
-      event.preventDefault();
-      firstElement.focus();
-    }
-  };
-
-  if (!isHelpModalOpen) return null;
 
   const groupedShortcuts = shortcuts.reduce<Record<string, typeof shortcuts>>((acc, shortcut) => {
     const scope = shortcut.scope || 'General';
@@ -54,82 +14,15 @@ const ShortcutHelpModal: React.FC = () => {
     return acc;
   }, {});
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      closeHelpModal();
-    }
-  };
-
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000
-      }}
-      onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
+    <Modal
+      isOpen={isHelpModalOpen}
+      onClose={closeHelpModal}
+      title={t('shortcuts.title')}
+      size="md"
       aria-labelledby="shortcut-help-title"
     >
-      <div
-        ref={modalRef}
-        tabIndex={-1}
-        onKeyDown={handleKeyDown}
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-glass)',
-          borderRadius: '16px',
-          padding: '24px',
-          maxWidth: '480px',
-          width: '90%',
-          maxHeight: '80vh',
-          overflow: 'auto',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
-        }}
-      >
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '20px'
-        }}>
-          <h2
-            id="shortcut-help-title"
-            style={{
-              margin: 0,
-              fontSize: 'var(--text-xl)',
-              fontWeight: 600,
-              color: 'var(--text-primary)'
-            }}
-          >
-            {t('shortcuts.title')}
-          </h2>
-          <button
-            onClick={closeHelpModal}
-            aria-label={t('shortcuts.close')}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontSize: '24px',
-              lineHeight: 1,
-              padding: '4px'
-            }}
-          >
-            &times;
-          </button>
-        </div>
-
+      <div style={{ marginTop: '16px' }}>
         {Object.entries(groupedShortcuts).map(([scope, scopeShortcuts]) => (
           <div key={scope} style={{ marginBottom: '20px' }}>
             <h3 style={{
@@ -188,7 +81,7 @@ const ShortcutHelpModal: React.FC = () => {
           {t('shortcuts.hint')}
         </p>
       </div>
-    </div>
+    </Modal>
   );
 };
 

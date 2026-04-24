@@ -183,11 +183,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             ? [
                 {
                   label: `${transactions.length} Total`,
-                  variant: "cyan" as const,
+                  variant: "cyan",
                 },
                 {
                   label: isLoading ? "Loading..." : "Up to date",
-                  variant: (isLoading ? "warning" : "success") as const,
+                  variant: isLoading ? "warning" : "success",
                 },
               ]
             : undefined
@@ -277,6 +277,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 rows={rows}
                 rowKey={(row) => row.id}
                 emptyMessage={emptyMessage}
+                isLoading={isLoading}
+                skeletonRows={state.pageSize}
                 sortBy={state.sortBy}
                 sortDirection={state.sortDirection}
                 onSortChange={setSort}
