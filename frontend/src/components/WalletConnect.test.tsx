@@ -8,6 +8,7 @@ import { ToastProvider } from '../context/ToastContext';
 
 // Mock freighter-api
 vi.mock('@stellar/freighter-api', () => ({
+    isConnected: vi.fn(),
     isAllowed: vi.fn(),
     setAllowed: vi.fn(),
     getAddress: vi.fn(),
@@ -28,6 +29,7 @@ describe('WalletConnect', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        mockedFreighter.isConnected.mockResolvedValue({ isConnected: true });
     });
 
     afterEach(() => {
@@ -45,6 +47,28 @@ describe('WalletConnect', () => {
         );
 
         expect(screen.getByText(/Connect Freighter/i)).toBeInTheDocument();
+    });
+
+    it('shows error state when Freighter is not installed', async () => {
+        mockedFreighter.isConnected.mockResolvedValue({ isConnected: false });
+        render(
+            <WalletConnectWrapper 
+                walletAddress={null} 
+                onConnect={mockOnConnect} 
+                onDisconnect={mockOnDisconnect} 
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i);
+        fireEvent.click(button);
+
+        await waitFor(() => {
+            expect(mockOnConnect).not.toHaveBeenCalled();
+            // Button should change to error state, toast shown
+            // Check for the error icon/state via tooltip or visually
+            const btn = screen.getByText(/Connect Freighter/i).closest('button');
+            expect(btn).toHaveClass('btn-error');
+        });
     });
 
     it('shows loading state while connecting', async () => {
