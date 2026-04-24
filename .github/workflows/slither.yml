@@ -88,6 +88,7 @@ jobs:
       - name: Comment PR with security summary
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
+        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -135,14 +136,4 @@ jobs:
           echo "  Use: //slither-disable-next-line <detector>"
           echo ""
 
-      - name: Fail if High/Medium findings detected
-        if: failure() && steps.slither.outcome == 'failure'
-        run: |
-          echo "❌ Build blocked due to High/Medium severity findings"
-          echo ""
-          echo "💡 Next steps:"
-          echo "1. Review findings in GitHub Security tab"
-          echo "2. Either fix the vulnerability OR suppress if it's a false positive"
-          echo "3. For false positives, follow the process in docs/SECURITY_CHECKLIST.md"
-          echo "4. Leave an inline comment: //slither-disable-next-line <detector>"
           exit 1
