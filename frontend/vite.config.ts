@@ -2,17 +2,29 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import { visualizer } from "rollup-plugin-visualizer";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
+    resolve: {
+      alias: {
+        "es-toolkit/compat/sortBy": "/src/shims/esToolkitSortBy.ts",
+      },
+    },
     build: {
       sourcemap: true,
     },
     plugins: [
       react(),
+      visualizer({
+        filename: "bundle-stats.html",
+        open: false,
+        gzipSize: true,
+        brotliSize: true,
+      }),
       sentryVitePlugin({
         authToken: env.SENTRY_AUTH_TOKEN,
         org: "bumblecode-softwares",

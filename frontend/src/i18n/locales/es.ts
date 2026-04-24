@@ -5,7 +5,7 @@ export const es = {
   app: {
     loading: {
       title: "Cargando...",
-      subtitle: "Asegurando la conexión RWA",
+      subtitle: "Asegurando la conexinnn RWA",
     },
     errorBoundary:
       "Se produjo un error. Nuestro equipo ha sido notificado.",
@@ -15,9 +15,9 @@ export const es = {
       primary: "YieldVault",
       accent: "RWA",
     },
-    vaults: "Bóvedas",
+    vaults: "Bvvvedas",
     portfolio: "Portafolio",
-    analytics: "Analítica",
+    analytics: "Analica",
   },
   theme: {
     toggleToDark: "Cambiar al modo oscuro",
@@ -25,32 +25,52 @@ export const es = {
   },
   wallet: {
     connecting: "Conectando...",
+    checkingFreighter: "Comprobando billetera…",
     connectFreighter: "Conectar Freighter",
     rpcPrefix: "RPC:",
     rpcCustom: "Personalizado",
     rpcDefault: "Predeterminado",
     disconnectAria: "Desconectar billetera",
+    status: {
+      connected: "Conectado",
+      connecting: "Conectando a la billetera...",
+      disconnected: "No conectado",
+      error: "Error de conexión",
+    },
+    error: {
+      notInstalled: "Extensión de billetera Freighter no detectada. Instala Freighter para continuar.",
+      notAllowed: "Permiso de Freighter denegado. Aprueba el acceso en la extensión.",
+      noAddress: "No se pudo obtener la dirección de la billetera. Verifica los permisos de Freighter.",
+      generic: "Conexión fallida. Asegúrate de que Freighter esté desbloqueado y aprobado.",
+    },
+    tooltip: {
+      connectedStatus: "Billetera conectada y lista para usar",
+      disconnectedStatus: "Conecta tu billetera Freighter para continuar",
+      connectingStatus: "Estableciendo conexión...",
+      checkingStatus: "Buscando una sesión existente de Freighter en este dispositivo",
+      errorStatus: "Conexión fallida - intenta de nuevo o verifica Freighter",
+    },
   },
   toast: {
     walletConnected: {
       title: "Billetera conectada",
       description:
-        "Freighter está conectado a tu sesión de YieldVault.",
+        "Freighter est conectado a tu sesinnn de YieldVault.",
     },
     walletPermissionRequired: {
       title: "Permiso de billetera requerido",
       description:
-        "Freighter no devolvió una clave pública para esta sesión.",
+        "Freighter no devolvi   una clave pblica para esta sesinnn.",
     },
     walletConnectionFailed: {
-      title: "Falló la conexión de la billetera",
+      title: "Fall   la conexinnn de la billetera",
       description:
-        "Asegúrate de que Freighter esté instalado, desbloqueado y aprobado para este sitio.",
+        "Asegrate de que Freighter est instalado, desbloqueado y aprobado para este sitio.",
     },
     walletDisconnected: {
       title: "Billetera desconectada",
       description:
-        "Puedes volver a conectar en cualquier momento para seguir gestionando posiciones en la bóveda.",
+        "Puedes volver a conectar en cualquier momento para seguir gestionando posiciones en la bvvveda.",
     },
   },
   apiBanner: {
@@ -62,5 +82,30 @@ export const es = {
     previous: "Anterior",
     next: "Siguiente",
     sortBy: "Ordenar por",
+  },
+  shortcuts: {
+    title: "Atajos de teclado",
+    close: "Cerrar",
+    hint: "Presiona Esc para cerrar este diálogo",
+  },
+  refresh: {
+    live: "En vivo",
+    stopped: "Detenido",
+    pause: "Pausar",
+    resume: "Reanudar",
+    refreshNow: "Actualizar",
+    refreshing: "Actualizando...",
+    justNow: "Ahora",
+    oneMinuteAgo: "Hace 1 min",
+    minutesAgo: "min atrs",
+    pausedHidden: "Pausado (pestaa oculta)",
+    pausedOffline: "Pausado (sin conexinnn)",
+    pausedManual: "Pausado",
+  },
+  timeline: {
+    loading: "Cargando actividad...",
+    empty: "No hay actividad para mostrar",
+    today: "Hoy",
+    yesterday: "Ayer",
   },
 } as const;

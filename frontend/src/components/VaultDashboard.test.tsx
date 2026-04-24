@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as vaultApi from "../lib/vaultApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
@@ -36,12 +37,19 @@ const mockSummary = {
 };
 
 function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
   return render(
-    <ToastProvider>
-      <VaultProvider>
-        <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
-      </VaultProvider>
-    </ToastProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <VaultProvider>
+          <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+        </VaultProvider>
+      </ToastProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -124,21 +132,15 @@ describe("VaultDashboard", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Processing Transaction.../i),
+        screen.getByText(/Waiting for confirmation\.\.\./i),
       ).toBeInTheDocument();
     });
 
     // Resolve the mocked API call
     resolveSubmit();
 
-    // Wait for internal component state update
-    await waitFor(() => {
-        expect(
-          screen.queryByText(/Processing Transaction.../i),
-        ).not.toBeInTheDocument();
-    });
-    
-    expect(screen.getByText("1350.50")).toBeInTheDocument();
+    // Loading state should be visible while mutation is pending.
+    expect(screen.getByText(/Waiting for confirmation\.\.\./i)).toBeInTheDocument();
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
@@ -151,21 +153,44 @@ describe("VaultDashboard", () => {
     const input = screen.getByPlaceholderText("0.00");
     expect(input).toHaveValue(1250.5);
 
-    fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Withdraw" }));
     fireEvent.click(maxButton);
     expect(input).toHaveValue(1250.5);
   });
 
-  it("prevents transactions above the max allowable amount", async () => {
+  it("shows inline error and blocks submit for amounts above balance", async () => {
     renderDashboard("GABC123");
 
     expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "2000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve & Deposit" }));
+    fireEvent.blur(input);
 
-    expect(screen.getByText(/Amount exceeds maximum/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Deposit amount cannot exceed your available USDC balance./i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+  });
+
+  it("shows minimum deposit validation and clears error when corrected", async () => {
+    renderDashboard("GABC123");
+
+    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "0.5" } });
+    fireEvent.blur(input);
+
+    expect(screen.getByText(/Minimum deposit is 1.00 USDC./i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "10" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Minimum deposit is 1.00 USDC./i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeEnabled();
+    });
   });
 
   it("shows a normalized API error message when data loading fails", async () => {

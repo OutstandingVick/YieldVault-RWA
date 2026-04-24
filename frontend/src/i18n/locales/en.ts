@@ -25,11 +25,31 @@ export const en = {
   },
   wallet: {
     connecting: "Connecting...",
+    checkingFreighter: "Checking wallet…",
     connectFreighter: "Connect Freighter",
     rpcPrefix: "RPC:",
     rpcCustom: "Custom",
     rpcDefault: "Default",
     disconnectAria: "Disconnect Wallet",
+    status: {
+      connected: "Connected",
+      connecting: "Connecting to wallet...",
+      disconnected: "Not connected",
+      error: "Connection error",
+    },
+    error: {
+      notInstalled: "Freighter wallet extension not detected. Install Freighter to proceed.",
+      notAllowed: "Freighter permission denied. Approve access in the extension.",
+      noAddress: "Unable to retrieve wallet address. Check Freighter permissions.",
+      generic: "Connection failed. Ensure Freighter is unlocked and approved.",
+    },
+    tooltip: {
+      connectedStatus: "Wallet connected and ready to use",
+      disconnectedStatus: "Connect your Freighter wallet to proceed",
+      connectingStatus: "Establishing connection...",
+      checkingStatus: "Looking for an existing Freighter session on this device",
+      errorStatus: "Connection failed - try again or check Freighter",
+    },
   },
   toast: {
     walletConnected: {
@@ -62,5 +82,30 @@ export const en = {
     previous: "Previous",
     next: "Next",
     sortBy: "Sort by",
+  },
+  shortcuts: {
+    title: "Keyboard Shortcuts",
+    close: "Close",
+    hint: "Press Esc to close this dialog",
+  },
+  refresh: {
+    live: "Live",
+    stopped: "Stopped",
+    pause: "Pause",
+    resume: "Resume",
+    refreshNow: "Refresh",
+    refreshing: "Refreshing...",
+    justNow: "Just now",
+    oneMinuteAgo: "1 min ago",
+    minutesAgo: "min ago",
+    pausedHidden: "Paused (tab hidden)",
+    pausedOffline: "Paused (offline)",
+    pausedManual: "Paused",
+  },
+  timeline: {
+    loading: "Loading activity...",
+    empty: "No activity to display",
+    today: "Today",
+    yesterday: "Yesterday",
   },
 } as const;

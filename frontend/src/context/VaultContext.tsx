@@ -1,18 +1,22 @@
 import React, {
   createContext,
-  useCallback,
   useContext,
   useEffect,
-  useState,
 } from "react";
+import { subscribeToApiTelemetry, normalizeApiError } from "../lib/api";
 import type { ApiError } from "../lib/api";
-import { normalizeApiError, subscribeToApiTelemetry } from "../lib/api";
-import { getVaultSummary, type VaultSummary } from "../lib/vaultApi";
+import type { VaultSummary } from "../lib/vaultApi";
 import { networkConfig } from "../config/network";
+import { useVaultSummary, useVaultHistory } from "../hooks/useVaultData";
+import { formatCurrency, formatPercent } from "../lib/formatters";
 
 interface VaultContextType {
   summary: VaultSummary;
   tvl: number;
+  depositCap: number;
+  utilization: number;
+  isCapWarning: boolean;
+  isCapReached: boolean;
   apy: number;
   formattedTvl: string;
   formattedApy: string;
@@ -24,6 +28,7 @@ interface VaultContextType {
 
 const DEFAULT_SUMMARY: VaultSummary = {
   tvl: 12450800,
+  depositCap: 15000000,
   apy: 8.45,
   participantCount: 1248,
   monthlyGrowthPct: 12.5,
@@ -49,43 +54,31 @@ const VaultContext = createContext<VaultContextType | undefined>(undefined);
 export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [summary, setSummary] = useState(DEFAULT_SUMMARY);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<ApiError | null>(null);
-  const [lastUpdate, setLastUpdate] = useState(
-    new Date(DEFAULT_SUMMARY.updatedAt),
-  );
+  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary();
+  const { data: historyData, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } = useVaultHistory();
 
-  const refresh = useCallback(async () => {
-    setIsLoading(true);
+  const isLoading = isSummaryLoading || isHistoryLoading;
+  const queryError = summaryError || historyError;
 
-    try {
-      const nextSummary = await getVaultSummary();
-      setSummary({
-        ...nextSummary,
+  const summary: VaultSummary = data
+    ? {
+        ...data,
         strategy: {
-          ...nextSummary.strategy,
+          ...data.strategy,
           rpcUrl: networkConfig.rpcUrl,
         },
-      });
-      setLastUpdate(new Date(nextSummary.updatedAt));
-      setError(null);
-    } catch (unknownError) {
-      setError(normalizeApiError(unknownError));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      }
+    : DEFAULT_SUMMARY;
 
-  useEffect(() => {
-    void refresh();
+  const error: ApiError | null = queryError
+    ? normalizeApiError(queryError)
+    : null;
 
-    const interval = window.setInterval(() => {
-      void refresh();
-    }, 30000);
+  const lastUpdate = new Date(summary.updatedAt);
 
-    return () => window.clearInterval(interval);
-  }, [refresh]);
+  const utilization = summary.depositCap > 0 ? summary.tvl / summary.depositCap : 0;
+  const isCapWarning = utilization > 0.9 && utilization < 1.0;
+  const isCapReached = utilization >= 1.0;
 
   useEffect(() => {
     const unsubscribe = subscribeToApiTelemetry((event) => {
@@ -97,20 +90,39 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
     return unsubscribe;
   }, []);
 
-  const formattedTvl = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(summary.tvl);
+  const formattedTvl = formatCurrency(summary.tvl, "USD", 0);
 
-  const formattedApy = `${summary.apy.toFixed(2)}%`;
+  const calculateApy = () => {
+    if (!historyData || historyData.length < 2) return null;
+    const start = historyData[0];
+    const end = historyData[historyData.length - 1];
+    
+    const startDate = new Date(start.date).getTime();
+    const endDate = new Date(end.date).getTime();
+    const days = (endDate - startDate) / (1000 * 60 * 60 * 24);
+    
+    if (days <= 0) return null;
+    return ((end.value / start.value) ** (365 / days) - 1) * 100;
+  };
+
+  const calculatedApy = calculateApy();
+  const currentApy = calculatedApy !== null ? calculatedApy : summary.apy;
+  const formattedApy = calculatedApy !== null || data ? `${currentApy.toFixed(2)}%` : "N/A";
+
+  const refresh = async () => {
+    await Promise.all([refetchSummary(), refetchHistory()]);
+  };
 
   return (
     <VaultContext.Provider
       value={{
         summary,
         tvl: summary.tvl,
-        apy: summary.apy,
+        depositCap: summary.depositCap,
+        utilization,
+        isCapWarning,
+        isCapReached,
+        apy: currentApy,
         formattedTvl,
         formattedApy,
         lastUpdate,

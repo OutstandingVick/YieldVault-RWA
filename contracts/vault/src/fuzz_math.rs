@@ -12,7 +12,6 @@
 /// Run with:
 ///   cargo test fuzz --features testutils -- --nocapture
 #[cfg(test)]
-
 use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, token, Address, Env};
 
@@ -37,7 +36,7 @@ fn setup() -> (Env, YieldVaultClient<'static>, Address, Address) {
 }
 
 /// Mint `amount` tokens to `recipient` from the SAC admin.
-fn mint(env: &Env, token_addr: &Address, admin: &Address, recipient: &Address, amount: i128) {
+fn mint(env: &Env, token_addr: &Address, _admin: &Address, recipient: &Address, amount: i128) {
     let token = token::StellarAssetClient::new(env, token_addr);
     token.mint(recipient, &amount);
 }

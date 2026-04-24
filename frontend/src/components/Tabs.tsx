@@ -28,7 +28,6 @@ interface TabsProps {
   className?: string;
 }
 
-/** Inner component that uses useSearchParams — only rendered when syncWithUrl=true */
 function TabsWithUrl({
   defaultValue,
   value: controlledValue,
@@ -41,12 +40,9 @@ function TabsWithUrl({
   const [internalValue, setInternalValue] = useState(defaultValue || "");
 
   const urlValue = searchParams.get(urlParam);
-  const activeValue =
-    controlledValue !== undefined
-      ? controlledValue
-      : urlValue
-      ? urlValue
-      : internalValue;
+  const activeValue = controlledValue !== undefined 
+    ? controlledValue 
+    : (urlValue || internalValue);
 
   useEffect(() => {
     if (!urlValue && defaultValue) {
@@ -65,7 +61,7 @@ function TabsWithUrl({
     if (controlledValue === undefined) {
       setInternalValue(newValue);
     }
-
+    
     setSearchParams(
       (prev) => {
         const newParams = new URLSearchParams(prev);
@@ -89,7 +85,6 @@ function TabsWithUrl({
   );
 }
 
-/** Inner component for tabs without URL sync */
 function TabsWithoutUrl({
   defaultValue,
   value: controlledValue,
@@ -99,8 +94,7 @@ function TabsWithoutUrl({
 }: Omit<TabsProps, "syncWithUrl" | "urlParam">) {
   const [internalValue, setInternalValue] = useState(defaultValue || "");
 
-  const activeValue =
-    controlledValue !== undefined ? controlledValue : internalValue;
+  const activeValue = controlledValue !== undefined ? controlledValue : internalValue;
 
   const handleValueChange = (newValue: string) => {
     if (controlledValue === undefined) {
@@ -120,10 +114,7 @@ function TabsWithoutUrl({
   );
 }
 
-export function Tabs({
-  syncWithUrl = false,
-  ...props
-}: TabsProps) {
+export function Tabs({ syncWithUrl = false, ...props }: TabsProps) {
   if (syncWithUrl) {
     return <TabsWithUrl {...props} />;
   }
@@ -132,12 +123,7 @@ export function Tabs({
 
 export function TabsList({ children, className = "", style }: { children: ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
-    <div
-      role="tablist"
-      aria-orientation="horizontal"
-      className={`tabs-list ${className}`}
-      style={style}
-    >
+    <div role="tablist" aria-orientation="horizontal" className={`tabs-list ${className}`} style={style}>
       {children}
     </div>
   );
@@ -170,13 +156,16 @@ export function TabsTrigger({ value, children, className = "" }: { value: string
 
     e.preventDefault();
     tabs[nextIndex].focus();
-    onValueChange(tabs[nextIndex].dataset.value!);
+    onValueChange(tabs[nextIndex].getAttribute('data-value')!);
   };
 
   return (
     <button
       type="button"
-      aria-pressed={isActive}
+      role="tab"
+      aria-selected={isActive}
+      aria-controls={`panel-${value}`}
+      id={`tab-${value}`}
       data-state={isActive ? "active" : "inactive"}
       data-value={value}
       className={`tabs-trigger ${isActive ? "active" : ""} ${className}`}
@@ -196,6 +185,9 @@ export function TabsContent({ value, children, className = "" }: { value: string
 
   return (
     <div
+      role="tabpanel"
+      id={`panel-${value}`}
+      aria-labelledby={`tab-${value}`}
       data-state={isActive ? "active" : "inactive"}
       className={`tabs-content ${className}`}
       tabIndex={0}

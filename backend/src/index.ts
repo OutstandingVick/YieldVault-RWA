@@ -1,7 +1,14 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
 import NodeCache from 'node-cache';
 import dotenv from 'dotenv';
+import listEndpoints from './listEndpoints';
+import { apiLimiter } from './rateLimiter';
+import {
+  buildIdempotencyFingerprint,
+  idempotencyStore,
+  IdempotencyConflictError,
+} from './idempotency';
+import { getJobHealthStatus, getJobMetrics } from './jobGovernance';
 
 dotenv.config();
 
@@ -12,58 +19,32 @@ const nodeEnv = process.env.NODE_ENV || 'development';
 // Health check cache to track dependency status
 const cache = new NodeCache({ stdTTL: 30 });
 
-// ─── Rate Limiting Middleware ────────────────────────────────────────────────
-// Issue #145: Rate limiting per IP/user key
-
-/**
- * Global rate limiter
- * Default: 100 requests per 15 minutes per IP
- */
-const globalLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  skip: (req: Request) => {
-    // Skip rate limiting for health and ready checks
-    return req.path === '/health' || req.path === '/ready';
-  },
-  handler: (req: Request, res: Response) => {
-    res.status(429).json({
-      error: 'Too many requests',
-      status: 429,
-      message: 'Rate limit exceeded. Please try again later.',
-      retryAfter: req.rateLimit?.resetTime,
-    });
-  },
-});
-
-/**
- * API endpoint rate limiter (stricter)
- * Per-user or per-API-key rate limiting
- */
-const apiLimiter = rateLimit({
-  windowMs: parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10), // 1 minute
-  max: parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS || '30', 10),
-  keyGenerator: (req: Request) => {
-    // Use API key if provided, otherwise use IP
-    return req.headers['x-api-key'] as string || req.ip || 'unknown';
-  },
-  handler: (req: Request, res: Response) => {
-    res.status(429).json({
-      error: 'API rate limit exceeded',
-      status: 429,
-      message: 'Too many API requests. Please try again later.',
-      retryAfter: req.rateLimit?.resetTime,
-    });
-  },
-});
-
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
 app.use(express.json());
-app.use(globalLimiter);
+
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  if (req.path.startsWith('/v1')) {
+    next();
+    return;
+  }
+
+  const redirectedPath = req.originalUrl.replace(/^\/api(?!\/v1)/, '/api/v1');
+  res.setHeader('Deprecation', 'true');
+  res.setHeader(
+    'Sunset',
+    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toUTCString()
+  );
+  res.setHeader('Link', `<${redirectedPath}>; rel="alternate"`);
+  res.redirect(308, redirectedPath);
+});
+
+app.use('/api/v1', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-API-Version', 'v1');
+  next();
+});
+
+app.use('/api/v1', apiLimiter);
 
 // Request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -86,7 +67,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
  * 
  * Response: 200 OK or 503 Service Unavailable
  */
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (_req: Request, res: Response) => {
   const health = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -96,6 +77,7 @@ app.get('/health', (req: Request, res: Response) => {
       api: 'up',
       cache: getCacheHealth(),
       stellarRpc: getStellarRpcHealth(),
+      jobs: getJobHealthStatus(),
     },
   };
 
@@ -112,7 +94,7 @@ app.get('/health', (req: Request, res: Response) => {
  * 
  * Response: 200 OK if ready, 503 Service Unavailable if not ready
  */
-app.get('/ready', (req: Request, res: Response) => {
+app.get('/ready', (_req: Request, res: Response) => {
   const readiness = {
     ready: true,
     timestamp: new Date().toISOString(),
@@ -138,7 +120,7 @@ app.get('/ready', (req: Request, res: Response) => {
  * Example protected API endpoint
  * Demonstrates rate limiting per API key
  */
-app.get('/api/vault/summary', apiLimiter, (req: Request, res: Response) => {
+app.get('/api/v1/vault/summary', (_req: Request, res: Response) => {
   // This would typically fetch data from Stellar RPC or database
   res.json({
     totalAssets: 0,
@@ -148,6 +130,71 @@ app.get('/api/vault/summary', apiLimiter, (req: Request, res: Response) => {
   });
 });
 
+app.post('/api/v1/vault/deposits', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const idempotencyKey = getIdempotencyKey(req);
+    if (!idempotencyKey) {
+      res.status(400).json({
+        error: 'Missing Idempotency Key',
+        status: 400,
+        message: 'Provide x-idempotency-key for mutation requests.',
+      });
+      return;
+    }
+
+    const depositRequest = normalizeDepositRequest(req.body);
+    if (!depositRequest.valid) {
+      res.status(400).json({
+        error: 'Invalid request body',
+        status: 400,
+        message: depositRequest.message,
+      });
+      return;
+    }
+
+    const fingerprint = buildIdempotencyFingerprint(depositRequest.value);
+    const { result, replayed } = await idempotencyStore.execute(
+      idempotencyKey,
+      fingerprint,
+      async () => ({
+        statusCode: 201,
+        body: {
+          depositId: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          status: 'queued',
+          receivedAt: new Date().toISOString(),
+          ...depositRequest.value,
+        },
+      })
+    );
+
+    res.setHeader('Idempotency-Key', idempotencyKey);
+    res.setHeader('Idempotency-Status', replayed ? 'replayed' : 'created');
+    res.status(result.statusCode).json(result.body);
+  } catch (error) {
+    if (error instanceof IdempotencyConflictError) {
+      res.status(409).json({
+        error: 'Idempotency conflict',
+        status: 409,
+        message: error.message,
+      });
+      return;
+    }
+
+    next(error);
+  }
+});
+
+app.get('/api/v1/ops/job-metrics', (_req: Request, res: Response) => {
+  res.json({
+    timestamp: new Date().toISOString(),
+    ...getJobMetrics(),
+  });
+});
+
+// ─── List Endpoints with Pagination ─────────────────────────────────────────
+
+app.use('/api/v1', listEndpoints);
+
 // ─── Dependency Health Checks ────────────────────────────────────────────────
 
 /**
@@ -155,7 +202,6 @@ app.get('/api/vault/summary', apiLimiter, (req: Request, res: Response) => {
  */
 function getCacheHealth(): string {
   try {
-    const keys = cache.keys();
     cache.set('health-check', true);
     const value = cache.get('health-check');
     return value ? 'up' : 'down';
@@ -176,12 +222,11 @@ function getStellarRpcHealth(): string {
   try {
     // Simulate RPC availability check
     // In production: make actual call to VITE_SOROBAN_RPC_URL
-    const rpcUrl = process.env.STELLAR_RPC_URL;
+    const rpcUrl = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
     if (!rpcUrl) {
-      console.warn('STELLAR_RPC_URL not configured');
       return 'down';
     }
-    // Assume up if URL is configured
+    // Assume up if a URL is configured
     // Real implementation would make a test RPC call
     return 'up';
   } catch {
@@ -193,9 +238,55 @@ function checkStellarRpcDependency(): boolean {
   return getStellarRpcHealth() === 'up';
 }
 
+interface DepositRequest {
+  amount: number;
+  asset: string;
+  walletAddress: string;
+}
+
+function getIdempotencyKey(req: Request): string | undefined {
+  const key = req.header('x-idempotency-key');
+  return key?.trim() || undefined;
+}
+
+function normalizeDepositRequest(body: unknown):
+  | { valid: true; value: DepositRequest }
+  | { valid: false; message: string } {
+  if (!body || typeof body !== 'object') {
+    return { valid: false, message: 'Request body must be a JSON object.' };
+  }
+
+  const payload = body as Record<string, unknown>;
+  const amount = typeof payload.amount === 'number' ? payload.amount : Number(payload.amount);
+  const asset = typeof payload.asset === 'string' ? payload.asset.trim() : '';
+  const walletAddress =
+    typeof payload.walletAddress === 'string' ? payload.walletAddress.trim() : '';
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { valid: false, message: 'amount must be a positive number.' };
+  }
+
+  if (!asset) {
+    return { valid: false, message: 'asset is required.' };
+  }
+
+  if (!walletAddress) {
+    return { valid: false, message: 'walletAddress is required.' };
+  }
+
+  return {
+    valid: true,
+    value: {
+      amount,
+      asset,
+      walletAddress,
+    },
+  };
+}
+
 // ─── Error Handler ──────────────────────────────────────────────────────────
 
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
     error: 'Internal Server Error',
@@ -220,20 +311,23 @@ app.use((req: Request, res: Response) => {
 
 // ─── Server Start ───────────────────────────────────────────────────────────
 
-const server = app.listen(port, () => {
-  console.log(`🚀 YieldVault Backend listening on port ${port}`);
-  console.log(`📊 Health check: http://localhost:${port}/health`);
-  console.log(`✅ Ready check: http://localhost:${port}/ready`);
-  console.log(`🌍 Environment: ${nodeEnv}`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+// Only start server if this file is run directly (not imported as a module)
+if (require.main === module) {
+  const server = app.listen(port, () => {
+    console.log(`🚀 YieldVault Backend listening on port ${port}`);
+    console.log(`📊 Health check: http://localhost:${port}/health`);
+    console.log(`✅ Ready check: http://localhost:${port}/ready`);
+    console.log(`🌍 Environment: ${nodeEnv}`);
   });
-});
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully');
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
+  });
+}
 
 export default app;

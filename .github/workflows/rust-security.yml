@@ -1,0 +1,69 @@
+name: Rust Security Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  security-audit:
+    name: Cargo Audit & Clippy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo-audit (detect vulnerable dependencies)
+        id: audit
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0097 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2024-0436
+
+      - name: Run cargo-clippy (linting)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        continue-on-error: true
+
+      - name: Run cargo-deny (supply chain security)
+        continue-on-error: true
+        run: |
+          cargo install cargo-deny
+          cargo deny check advisories
+
+      - name: Check for unsafe code
+        run: |
+          echo "🔍 Scanning for unsafe code blocks..."
+          if grep -r "unsafe {" contracts/vault/src --include="*.rs" | grep -v "test\|fuzz"; then
+            echo "⚠️ Unsafe code found in non-test code. Please review:"
+            grep -r "unsafe {" contracts/vault/src --include="*.rs" | grep -v "test\|fuzz"
+            echo ""
+            echo "✓ Verify these unsafe blocks are documented and necessary"
+          else
+            echo "✓ No unsafe code found in production code"
+          fi
+
+      - name: Fail on audit violations
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "❌ Security audit detected issues"
+          exit 1

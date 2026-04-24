@@ -1,38 +1,29 @@
-import { useEffect, useState, lazy, Suspense } from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
-import { ThemeProvider } from "./context/ThemeContext";
-import { ToastProvider } from "./context/ToastContext";
-import { VaultProvider } from "./context/VaultContext";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import * as Sentry from "@sentry/react";
 import Navbar from "./components/Navbar";
+import SessionExpiredModal from "./components/SessionExpiredModal";
+import type { DisconnectReason } from "./components/WalletConnect";
+import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
+import ShortcutHelpModal from "./components/ShortcutHelpModal";
+import { FeatureGate } from "./components/FeatureGate";
+import { FeatureFlagProvider } from "./context/FeatureFlagContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useTranslation } from "./i18n";
-import Home from "./pages/Home";
-import Analytics from "./pages/Analytics";
-import Portfolio from "./pages/Portfolio";
-import { fetchUsdcBalance } from "./lib/stellarAccount";
-import "./index.css";
+import { useUsdcBalance } from "./hooks/useBalanceData";
+import { queryClient } from "./lib/queryClient";
+import { clearWalletSessionState } from "./lib/sessionCleanup";
+import ErrorFallback from "./components/ErrorFallback";
 
-type AppPath = "/" | "/analytics" | "/portfolio";
+const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
-function App() {
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState(1250.5);
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!walletAddress) {
-      setUsdcBalance(0);
-      return;
-    }
-
-function AppLoadingFallback() {
+const Home = lazy(() => import("./pages/Home"));
+const Portfolio = lazy(() => import("./pages/Portfolio"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const UIPreview = lazy(() => import("./pages/UIPreview"));
+const TransactionHistory = lazy(() => import("./pages/TransactionHistory"));
+const Settings = lazy(() => import("./pages/Settings"));
+const LoadingPage = () => {
   const { t } = useTranslation();
   return (
     <div
@@ -57,140 +48,111 @@ function AppLoadingFallback() {
       </div>
     </div>
   );
-}
+};
 
-function AppErrorFallback() {
-  const { t } = useTranslation();
-  return <p>{t("app.errorBoundary")}</p>;
-}
-    let cancelled = false;
+// Removed simple fallback in favor of components/ErrorFallback
 
-    const syncBalance = async () => {
-      try {
-        const balance = await fetchUsdcBalance(walletAddress);
-        if (!cancelled) {
-          setUsdcBalance(balance > 0 ? balance : 1250.5);
-        }
-      } catch {
-        // Keep the optimistic mock balance when live lookup is unavailable.
-      }
-    };
+function AppContent() {
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { sessionState, intendedPath, setSessionExpired, clearSessionExpired } = useAuth();
+  const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
 
-    void syncBalance();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [walletAddress]);
-
-  const handleConnect = (address: string) => {
+  const handleConnect = useCallback((address: string) => {
+    clearSessionExpired();
     setWalletAddress(address);
-    setUsdcBalance((currentBalance) => (currentBalance > 0 ? currentBalance : 1250.5));
-  };
+  }, [clearSessionExpired]);
 
-  const handleDisconnect = () => {
-    setWalletAddress(null);
-    setUsdcBalance(0);
-  };
-
-  const handleNavigate = (path: AppPath) => {
-    if (location.pathname !== path) {
-      navigate(path);
+  const handleDisconnect = useCallback((reason: DisconnectReason = "manual") => {
+    if (reason === "session-expired") {
+      setSessionExpired(location.pathname);
+    } else {
+      clearSessionExpired();
     }
-  };
+
+    clearWalletSessionState(queryClient);
+    setWalletAddress(null);
+    navigate("/", { replace: true });
+  }, [clearSessionExpired, location.pathname, navigate, setSessionExpired]);
+
+  const handleReconnect = useCallback(() => {
+    clearSessionExpired();
+    window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"));
+  }, [clearSessionExpired]);
 
   return (
-    <Sentry.ErrorBoundary fallback={<AppErrorFallback />} showDialog>
-      <ThemeProvider>
-        <ToastProvider>
-          <VaultProvider>
-            <Router>
-              <div className="app-container">
-                <Navbar
-                  walletAddress={walletAddress}
-                  onConnect={handleConnect}
-                  onDisconnect={handleDisconnect}
-                />
-                <main
-                  className="container"
-                  style={{ marginTop: "100px", paddingBottom: "60px" }}
-                >
-                  <Suspense fallback={<LoadingPage />}>
-                    {/* Replaced Routes with SentryRoutes to capture performance events */}
-                    <SentryRoutes>
-                      <Route
-                        path="/"
-                        element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
-                      />
-                      <Route
-                        path="/portfolio"
-                        element={<Portfolio walletAddress={walletAddress} />}
-                      />
-                      <Route path="/analytics" element={<Analytics />} />
-                      <Route
-                        path="/transactions"
-                        element={
-                          <TransactionHistory walletAddress={walletAddress} />
-                        }
-                      />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </SentryRoutes>
-                  </Suspense>
-                </main>
-              </div>
-            </Router>
-          </VaultProvider>
-        </ToastProvider>
-        <VaultProvider>
-          <Router>
-            <div className="app-container">
-              <Navbar
-                walletAddress={walletAddress}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
+    <KeyboardShortcutProvider>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <div className="app-container">
+        <Navbar
+          walletAddress={walletAddress}
+          usdcBalance={usdcBalance}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+        />
+        <main id="main-content" className="container app-main" style={{ marginTop: "100px", paddingBottom: "60px" }}>
+          <Suspense fallback={<LoadingPage />}>
+            <SentryRoutes>
+              <Route
+                path="/"
+                element={
+                  <Home
+                    walletAddress={walletAddress}
+                    usdcBalance={usdcBalance}
+                  />
+                }
               />
-              <main
-                className="container"
-                style={{ marginTop: "100px", paddingBottom: "60px" }}
-              >
-                <Suspense fallback={<AppLoadingFallback />}>
-                  {/* Replaced Routes with SentryRoutes to capture performance events */}
-                  <SentryRoutes>
-                    <Route
-                      path="/"
-                      element={<Home walletAddress={walletAddress} />}
-                    />
-                    <Route
-                      path="/portfolio"
-                      element={<Portfolio walletAddress={walletAddress} />}
-                    />
-                    <Route path="/analytics" element={<Analytics />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </SentryRoutes>
-                </Suspense>
-              </main>
-            </div>
-          </Router>
-        </VaultProvider>
-      </ThemeProvider>
+              <Route
+                path="/portfolio"
+                element={
+                  <Portfolio
+                    walletAddress={walletAddress}
+                  />
+                }
+              />
+              <Route
+                path="/analytics"
+                element={
+                  <FeatureGate flag="ANALYTICS_PAGE">
+                    <Analytics />
+                  </FeatureGate>
+                }
+              />
+              <Route path="/transactions" element={<TransactionHistory walletAddress={walletAddress} />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/ui-kit" element={<UIPreview />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </SentryRoutes>
+          </Suspense>
+        </main>
+        <ShortcutHelpModal />
+        {sessionState === "expired" && (
+          <SessionExpiredModal
+            intendedPath={intendedPath}
+            onReconnect={handleReconnect}
+            onDismiss={() => handleDisconnect("manual")}
+          />
+        )}
+      </div>
+    </KeyboardShortcutProvider>
+  );
+}
+
+function App() {
+  return (
+    <Sentry.ErrorBoundary
+      fallback={(props) => <ErrorFallback {...props} />}
+      showDialog
+    >
+      <AuthProvider>
+        <FeatureFlagProvider>
+          <AppContent />
+        </FeatureFlagProvider>
+      </AuthProvider>
     </Sentry.ErrorBoundary>
-    <div className="app-container">
-      <Navbar
-        currentPath={location.pathname === "/portfolio" ? "/portfolio" : location.pathname === "/analytics" ? "/analytics" : "/"}
-        onNavigate={handleNavigate}
-        walletAddress={walletAddress}
-        onConnect={handleConnect}
-        onDisconnect={handleDisconnect}
-      />
-      <main className="container" style={{ marginTop: "100px", paddingBottom: "60px" }}>
-        <Routes>
-          <Route path="/" element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/portfolio" element={<Portfolio walletAddress={walletAddress} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-    </div>
   );
 }
 

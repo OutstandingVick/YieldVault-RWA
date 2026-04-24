@@ -1,15 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
+import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
-import { normalizeApiError, type ApiError } from "../lib/api";
-import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
+import { 
+  normalizeApiError, 
+  isValidationError, 
+  type ApiError, 
+  type ValidationError 
+} from "../lib/api";
 import {
-  getTransactions,
   formatAmount,
   formatTimestamp,
   truncateHash,
+  getTransactions,
   type Transaction,
 } from "../lib/transactionApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
@@ -22,19 +27,18 @@ interface TransactionHistoryProps {
 
 type TxTypeFilter = "all" | "deposit" | "withdrawal";
 
-// Task 4.2: DataTable column config for transactions
 const columns: DataTableColumn<Transaction>[] = [
   {
     id: "type",
     header: "Type",
     sortable: true,
     cell: (row) => (
-      <span
-        className={`tag ${row.type === "deposit" ? "cyan" : "red"}`}
-        style={{ textTransform: "capitalize" }}
+      <Badge
+        variant="status"
+        color={row.type === "deposit" ? "cyan" : "error"}
       >
         {row.type}
-      </span>
+      </Badge>
     ),
   },
   {
@@ -80,21 +84,18 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<ApiError | ValidationError | null>(null);
 
-  // Task 4.3: Wire useDataTableState for sort, page, pageSize URL persistence
   const { state, setSort, setPage, setPageSize } = useDataTableState({
     defaultSortBy: "date",
     defaultSortDirection: "desc",
     defaultPageSize: 10,
   });
 
-  // Task 4.3: Read txType filter from useSearchParams (not added to shared hook)
   const [searchParams, setSearchParams] = useSearchParams();
   const txType = (searchParams.get("txType") ?? "all") as TxTypeFilter;
 
   const setTxType = (value: TxTypeFilter) => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("txType", value);
-    // Task 4.3: Reset page to 1 on filter change
     nextParams.set("page", "1");
     setSearchParams(nextParams, { replace: true });
   };
@@ -140,11 +141,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     };
   }, [walletAddress, state.pageSize, state.sortDirection, txType]);
 
-  // Apply type filter before passing to useClientDataTable
-  const filteredByType = transactions; // already filtered by API
-
   const { rows, page, totalItems, totalPages } = useClientDataTable({
-    rows: filteredByType,
+    rows: transactions,
     state,
     getSearchValue: (row) =>
       `${row.type} ${row.asset ?? ""} ${row.transactionHash}`,
@@ -162,7 +160,6 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     },
   });
 
-  // Task 4.4: Empty-state messages
   const emptyMessage =
     txType !== "all"
       ? "No transactions matched the current filter."
@@ -186,11 +183,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             ? [
                 {
                   label: `${transactions.length} Total`,
-                  variant: "cyan" as const,
+                  variant: "cyan",
                 },
                 {
                   label: isLoading ? "Loading..." : "Up to date",
-                  variant: (isLoading ? "warning" : "success") as const,
+                  variant: isLoading ? "warning" : "success",
                 },
               ]
             : undefined
@@ -280,6 +277,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 rows={rows}
                 rowKey={(row) => row.id}
                 emptyMessage={emptyMessage}
+                isLoading={isLoading}
+                skeletonRows={state.pageSize}
                 sortBy={state.sortBy}
                 sortDirection={state.sortDirection}
                 onSortChange={setSort}

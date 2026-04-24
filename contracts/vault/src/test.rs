@@ -12,6 +12,19 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(e, &token_address)
 }
 
+fn setup_vault(env: &Env) -> (YieldVaultClient, Address, token::StellarAssetClient, Address) {
+    let admin = Address::generate(env);
+    let token_admin = Address::generate(env);
+    let usdc_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+    let usdc_sa = token::StellarAssetClient::new(env, &usdc_address);
+    
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(env, &vault_id);
+    vault.initialize(&admin, &usdc_address);
+    
+    (vault, usdc_address, usdc_sa, admin)
+}
+
 // ─── helper: 10^18 scale factor ───────────────────────────────────────────────
 const SCALE: i128 = 1_000_000_000_000_000_000i128;
 
@@ -726,6 +739,15 @@ fn test_yield_accrual_maintains_state_consistency() {
     assert!(price_2 > price_1);
     assert!(price_3 > price_2);
 }
+
+#[test]
+fn test_yield_accrual_state_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+
     usdc_sa.mint(&user, &1000);
     usdc_sa.mint(&admin, &500);
 
@@ -766,4 +788,73 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.balance(&user_b), 100);
     assert_eq!(vault.total_shares(), 200);
     assert_eq!(vault.total_assets(), 200);
+}
+
+// ─── Pause Mechanism Tests ───────────────────────────────────────────────
+
+#[test]
+fn test_pause_mechanism() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &1000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    // 1. Initially NOT paused
+    assert_eq!(vault.is_paused(), false);
+    vault.deposit(&user, &100);
+    assert_eq!(vault.balance(&user), 100);
+
+    // 2. Pause the vault
+    vault.set_pause(&true);
+    assert_eq!(vault.is_paused(), true);
+
+    // 3. Verify deposit reverts when paused
+    let deposit_result = vault.try_deposit(&user, &100);
+    assert_eq!(deposit_result, Err(Ok(VaultError::ContractPaused)));
+
+    // 4. Verify withdraw reverts when paused
+    let withdraw_result = vault.try_withdraw(&user, &50);
+    assert_eq!(withdraw_result, Err(Ok(VaultError::ContractPaused)));
+
+    // 5. Unpause the vault
+    vault.set_pause(&false);
+    assert_eq!(vault.is_paused(), false);
+
+    // 6. Verify operations resume
+    vault.deposit(&user, &100);
+    assert_eq!(vault.balance(&user), 200);
+    vault.withdraw(&user, &50);
+    assert_eq!(vault.balance(&user), 150);
+}
+
+#[test]
+fn test_upgrade_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, admin) = setup_vault(&env);
+    
+    // Initial version
+    assert_eq!(vault.version(), 1);
+
+    // Try to upgrade without pausing - should fail
+    let new_wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
+    let result = vault.try_upgrade(&new_wasm_hash);
+    assert_eq!(result, Err(Ok(VaultError::NotPaused)));
+
+    // Pause and upgrade
+    vault.set_pause(&true);
+    vault.upgrade(&new_wasm_hash);
+
+    // Version should increment
+    assert_eq!(vault.version(), 2);
 }
