@@ -137,10 +137,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           ? `${value.toFixed(2)} USDC has been deposited into the vault.`
           : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error({
         title: "Transaction Failed",
-        description: err.message || "An error occurred during the transaction.",
+        description: err instanceof Error ? err.message : "An error occurred during the transaction.",
       });
     }
   };
@@ -242,7 +242,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
           )}
 
-          <Tabs value={activeTab} defaultValue="deposit" onValueChange={(v) => setActiveTab(v as any)}>
+          <Tabs value={activeTab} defaultValue="deposit" onValueChange={(v) => setActiveTab(v as "deposit" | "withdraw")}>
             <TabsList style={{ marginBottom: "24px" }}>
               <TabsTrigger value="deposit">Deposit</TabsTrigger>
               <TabsTrigger value="withdraw">Withdraw</TabsTrigger>

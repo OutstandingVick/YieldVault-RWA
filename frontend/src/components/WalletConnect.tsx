@@ -75,6 +75,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, usdcBalanc
         };
         window.addEventListener('TRIGGER_WALLET_CONNECT', handleTrigger);
         return () => window.removeEventListener('TRIGGER_WALLET_CONNECT', handleTrigger);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleConnect = async () => {
