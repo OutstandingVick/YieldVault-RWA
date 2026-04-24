@@ -1,13 +1,18 @@
-import React, { lazy, Suspense, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useCallback, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import Navbar from "./components/Navbar";
+import SessionExpiredModal from "./components/SessionExpiredModal";
+import type { DisconnectReason } from "./components/WalletConnect";
 import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
 import ShortcutHelpModal from "./components/ShortcutHelpModal";
 import { FeatureGate } from "./components/FeatureGate";
 import { FeatureFlagProvider } from "./context/FeatureFlagContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { useTranslation } from "./i18n";
 import { useUsdcBalance } from "./hooks/useBalanceData";
+import { queryClient } from "./lib/queryClient";
+import { clearWalletSessionState } from "./lib/sessionCleanup";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -51,16 +56,32 @@ const AppErrorFallback = () => {
 
 function AppContent() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { sessionState, intendedPath, setSessionExpired, clearSessionExpired } = useAuth();
   const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
 
-  const handleConnect = (address: string) => {
+  const handleConnect = useCallback((address: string) => {
+    clearSessionExpired();
     setWalletAddress(address);
-  };
+  }, [clearSessionExpired]);
 
-  const handleDisconnect = () => {
+  const handleDisconnect = useCallback((reason: DisconnectReason = "manual") => {
+    if (reason === "session-expired") {
+      setSessionExpired(location.pathname);
+    } else {
+      clearSessionExpired();
+    }
+
+    clearWalletSessionState(queryClient);
     setWalletAddress(null);
-  };
+    navigate("/", { replace: true });
+  }, [clearSessionExpired, location.pathname, navigate, setSessionExpired]);
 
+  const handleReconnect = useCallback(() => {
+    clearSessionExpired();
+    window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"));
+  }, [clearSessionExpired]);
 
   return (
     <KeyboardShortcutProvider>
@@ -91,7 +112,6 @@ function AppContent() {
                 element={
                   <Portfolio
                     walletAddress={walletAddress}
-                    usdcBalance={usdcBalance}
                   />
                 }
               />
@@ -111,6 +131,13 @@ function AppContent() {
           </Suspense>
         </main>
         <ShortcutHelpModal />
+        {sessionState === "expired" && (
+          <SessionExpiredModal
+            intendedPath={intendedPath}
+            onReconnect={handleReconnect}
+            onDismiss={() => handleDisconnect("manual")}
+          />
+        )}
       </div>
     </KeyboardShortcutProvider>
   );
@@ -119,9 +146,11 @@ function AppContent() {
 function App() {
   return (
     <Sentry.ErrorBoundary fallback={<AppErrorFallback />} showDialog>
-      <FeatureFlagProvider>
-        <AppContent />
-      </FeatureFlagProvider>
+      <AuthProvider>
+        <FeatureFlagProvider>
+          <AppContent />
+        </FeatureFlagProvider>
+      </AuthProvider>
     </Sentry.ErrorBoundary>
   );
 }

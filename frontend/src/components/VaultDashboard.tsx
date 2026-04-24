@@ -1,19 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon, AlertTriangle, Info } from "./icons";
-import { useState, useEffect } from "react";
-import { Activity, ShieldCheck, TrendingUp, Wallet as WalletIcon, Loader2 } from "./icons";
-import { hasCustomRpcConfig, networkConfig } from "../config/network";
+import { Activity, AlertCircle, ShieldCheck, TrendingUp, Wallet as WalletIcon } from "./icons";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
 import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
-import { FormField, SubmitButton } from "../forms";
+import { FormField } from "../forms";
 import CopyButton from "./CopyButton";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
-import TransactionStatus, { type ActionStatus } from "./TransactionStatus";
-import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
-import CopyButton from "./CopyButton";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
@@ -36,7 +30,7 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
         gap: "12px"
       }}
     >
-      {isReached ? <AlertTriangle color="var(--text-error)" size={20} /> : <Info color="var(--text-warning)" size={20} />}
+      <AlertCircle color={isReached ? "var(--text-error)" : "var(--text-warning)"} size={20} />
       <div>
         <div style={{ fontWeight: 600, color: isReached ? 'var(--text-error)' : 'var(--text-warning)', marginBottom: "4px" }}>
           {isReached ? 'Vault Capacity Reached' : 'Vault Near Capacity'}
@@ -51,23 +45,20 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
   );
 };
 
-function buildFakeTxHash(walletAddress: string, action: "deposit" | "withdraw", amount: number): string {
-  const seed = `${walletAddress}-${action}-${amount.toFixed(2)}-${Date.now()}`;
-  let hash = "";
-  for (let i = 0; i < 64; i += 1) {
-    const code = seed.charCodeAt(i % seed.length);
-    hash += ((code + i * 13) % 16).toString(16);
-  }
-  return hash;
-}
-
-const STATUS_VISIBLE_MS = 12000;
-
 const VaultDashboard: React.FC<VaultDashboardProps> = ({
   walletAddress,
   usdcBalance = 0,
 }) => {
-  const { formattedTvl, formattedApy, summary, error, isLoading } = useVault();
+  const {
+    formattedTvl,
+    formattedApy,
+    summary,
+    error,
+    isLoading,
+    utilization,
+    isCapWarning,
+    isCapReached,
+  } = useVault();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
@@ -94,6 +85,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       : null;
 
   const availableBalance = walletAddress ? usdcBalance : 0;
+  const isBusy = isProcessing !== null;
   const strategy = summary.strategy;
   const enteredAmount = Number(amount);
   const isValidAmount = Number.isFinite(enteredAmount) && enteredAmount > 0;
@@ -161,7 +153,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     <div className="vault-dashboard gap-lg">
       <div className="vault-dashboard-stats">
         <div className="glass-panel" style={{ padding: "32px" }}>
-          {error && <ApiStatusBanner error={error} />}
+          {error && (
+            <ApiStatusBanner error={{ ...error, userMessage: "Failed to load vault data" }} />
+          )}
           <div className="vault-stats-header flex justify-between items-center" style={{ marginBottom: "24px" }}>
             <div>
               <h2 style={{ fontSize: "1.5rem", marginBottom: "4px" }}>Global RWA Yield Fund</h2>
@@ -302,34 +296,23 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         onClick={() => setAmount(availableBalance.toFixed(2))}
                         disabled={!walletAddress || availableBalance <= 0 || isBusy || (tab === "deposit" && isCapReached)}
                       >
-                <div style={{ marginBottom: "24px" }}>
-                  <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
-                    <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                      {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
-                    </div>
-                    <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                      Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  <div className="input-group">
-                    <div className="input-wrapper">
-                      <span style={{ color: "var(--text-secondary)", paddingRight: "12px", borderRight: "1px solid var(--border-glass)", marginRight: "16px" }}>USDC</span>
-                      <input className="input-field" type="number" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isProcessing !== null} />
-                      <button className="btn-max" onClick={() => setAmount(availableBalance.toFixed(2))} disabled={!walletAddress || availableBalance <= 0 || isProcessing !== null}>
                         MAX
                       </button>
                     </div>
                   </div>
 
-                  <SubmitButton
-                    loading={isBusy && activeTab === tab}
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
                     disabled={!walletAddress || isBusy || !amount || Number(amount) <= 0 || (tab === "deposit" && isCapReached)}
-                    label={tab === "deposit" ? (isCapReached ? "Vault is full" : "Approve & Deposit") : "Withdraw Funds"}
-                    loadingLabel="Waiting for confirmation..."
-                  />
+                  >
+                    {isProcessing === tab
+                      ? "Processing Transaction..."
+                      : tab === "deposit"
+                        ? (isCapReached ? "Vault is full" : "Approve & Deposit")
+                        : "Withdraw Funds"}
+                  </button>
                 </form>
-                </div>
 
                 <div className="glass-panel" style={{ padding: "14px 16px", background: "rgba(0, 0, 0, 0.15)", marginBottom: "16px" }}>
                   <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
@@ -351,18 +334,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   </div>
                 </div>
 
-                <button className="btn btn-primary" style={{ width: "100%", padding: "16px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
-                  {isProcessing === tab ? "Processing Transaction..." : tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"}
-                <button className="btn btn-primary" style={{ width: "100%", padding: "16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
-                  {isProcessing === tab ? (
-                    <>
-                      <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
-                      Processing Transaction...
-                    </>
-                  ) : (
-                    tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"
-                  )}
-                </button>
               </TabsContent>
             ))}
           </Tabs>
