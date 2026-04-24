@@ -25,8 +25,10 @@ interface WalletConnectProps {
   walletAddress: string | null;
   usdcBalance?: number;
   onConnect: (address: string) => void;
-  onDisconnect: () => void;
+  onDisconnect: (reason?: DisconnectReason) => void;
 }
+
+export type DisconnectReason = "manual" | "session-expired" | "connection-lost";
 
 type ConnectionErrorType = "not-installed" | "not-allowed" | "no-address" | "generic" | null;
 
@@ -72,7 +74,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           clearWalletManualDisconnect();
           onConnect(discovered);
         } else if (walletAddress) {
-          onDisconnect();
+          onDisconnect("connection-lost");
           toast.info({
             title: "Wallet disconnected",
             description: "Freighter is no longer connected to this session.",
@@ -267,7 +269,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           onClick={() => {
             setConnectionError(null);
             setWalletManualDisconnect();
-            onDisconnect();
+            onDisconnect("manual");
             toast.info({
               title: t("toast.walletDisconnected.title"),
               description: t("toast.walletDisconnected.description"),

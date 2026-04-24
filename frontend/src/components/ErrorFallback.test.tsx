@@ -14,34 +14,24 @@ describe('ErrorFallback', () => {
   });
 
   it('calls reload when reload button is clicked', () => {
-    const originalLocation = window.location;
-    // @ts-ignore
-    delete window.location;
-    window.location = { ...originalLocation, reload: vi.fn() };
+    const reloadSpy = vi.fn();
 
-    render(<ErrorFallback error={mockError} resetError={mockResetError} />);
+    render(<ErrorFallback error={mockError} resetError={mockResetError} onReload={reloadSpy} />);
     
     const reloadButton = screen.getByText('Reload Page');
     fireEvent.click(reloadButton);
     
-    expect(window.location.reload).toHaveBeenCalled();
-
-    window.location = originalLocation;
+    expect(reloadSpy).toHaveBeenCalled();
   });
 
   it('navigates to home when Go Home button is clicked', () => {
-    const originalLocation = window.location;
-    // @ts-ignore
-    delete window.location;
-    window.location = { ...originalLocation, href: '' };
+    const assignSpy = vi.fn();
 
-    render(<ErrorFallback error={mockError} resetError={mockResetError} />);
+    render(<ErrorFallback error={mockError} resetError={mockResetError} onGoHome={assignSpy} />);
     
     const homeButton = screen.getByText('Go Home');
     fireEvent.click(homeButton);
     
-    expect(window.location.href).toBe('/');
-
-    window.location = originalLocation;
+    expect(assignSpy).toHaveBeenCalled();
   });
 });

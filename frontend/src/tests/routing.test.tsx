@@ -47,9 +47,8 @@ describe('Routing and Lazy Loading', () => {
       </MemoryRouter>
     );
 
-    // Check if loading text appears
-    // The LoadingPage component uses {t("app.loading.title")}
-    expect(screen.getByText('app.loading.title')).toBeDefined();
+    // Shared route fallback renders while lazy chunks load
+    expect(screen.getByText('app.loading.subtitle')).toBeDefined();
 
     // Wait for lazy component to load
     await waitFor(() => {
@@ -64,7 +63,7 @@ describe('Routing and Lazy Loading', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('app.loading.title')).toBeDefined();
+    expect(screen.getByText('app.loading.subtitle')).toBeDefined();
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-page')).toBeDefined();
