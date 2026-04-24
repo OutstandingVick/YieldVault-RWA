@@ -7,72 +7,13 @@ import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import CopyButton from "./CopyButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
+import WithdrawalConfirmationModal from "./WithdrawalConfirmationModal";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
   usdcBalance?: number;
 }
 
-const VaultDashboard: React.FC<VaultDashboardProps> = ({ walletAddress, usdcBalance = 0 }) => {
-    const { formattedTvl, formattedApy, summary, error, isLoading } = useVault();
-    const toast = useToast();
-    const [activeTab, setActiveTab] = useState<"deposit" | "withdraw">("deposit");
-    const [amount, setAmount] = useState("");
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [pendingBalanceChange, setPendingBalanceChange] = useState(0);
-
-    const yieldRate = formattedApy;
-    const tvl = formattedTvl;
-    const strategy = summary.strategy;
-    const availableBalance = Math.max(0, usdcBalance + pendingBalanceChange);
-    const estimatedUsdcFee = (() => {
-        const feeMatch = summary.networkFeeEstimate.match(/([0-9]*\.?[0-9]+)\s*USDC/i);
-        return feeMatch ? Number(feeMatch[1]) : 0;
-    })();
-    const maxDepositAmount = Math.max(0, availableBalance - estimatedUsdcFee);
-    const maxWithdrawAmount = availableBalance;
-    const maxAllowableAmount = activeTab === "deposit" ? maxDepositAmount : maxWithdrawAmount;
-
-    const handleTransaction = () => {
-        const value = Number(amount);
-        if (!walletAddress || !amount || isNaN(value)) {
-            toast.warning({
-                title: "Enter a valid amount",
-                description: "Choose a wallet and amount before submitting the transaction.",
-            });
-            return;
-        }
-        if (value > maxAllowableAmount) {
-            toast.warning({
-                title: "Amount exceeds maximum",
-                description:
-                    activeTab === "deposit"
-                        ? `You can deposit up to ${maxDepositAmount.toFixed(2)} USDC based on your available balance and fees.`
-                        : `You can withdraw up to ${maxWithdrawAmount.toFixed(2)} USDC.`,
-            });
-            return;
-        }
-        setIsProcessing(true);
-
-        // Simulate transaction delay
-        setTimeout(() => {
-            if (activeTab === "deposit") {
-                setPendingBalanceChange((prev) => prev + value);
-            }
-            if (activeTab === "withdraw") {
-                setPendingBalanceChange((prev) => prev - value);
-            }
-            setAmount("");
-            setIsProcessing(false);
-            toast.success({
-                title: activeTab === "deposit" ? "Deposit queued" : "Withdrawal queued",
-                description:
-                    activeTab === "deposit"
-                        ? `${value.toFixed(2)} USDC has been added to your pending vault activity.`
-                        : `${value.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
-            });
-        }, 2000);
-    };
 const VaultDashboard: React.FC<VaultDashboardProps> = ({
   walletAddress,
   usdcBalance = 0,
@@ -83,10 +24,17 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const [amount, setAmount] = useState("");
   const [isProcessing, setIsProcessing] = useState<"deposit" | "withdraw" | null>(null);
   const [pendingBalanceChange, setPendingBalanceChange] = useState(0);
+  const [showWithdrawalConfirm, setShowWithdrawalConfirm] = useState(false);
+  const [pendingWithdrawalAmount, setPendingWithdrawalAmount] = useState(0);
 
   const baseBalance = walletAddress ? (usdcBalance > 0 ? usdcBalance : 1250.5) : 0;
   const availableBalance = Math.max(0, baseBalance + pendingBalanceChange);
   const strategy = summary.strategy;
+
+  const estimatedUsdcFee = (() => {
+    const feeMatch = summary.networkFeeEstimate.match(/([0-9]*\.?[0-9]+)\s*USDC/i);
+    return feeMatch ? Number(feeMatch[1]) : 0;
+  })();
 
   const handleTransaction = (actionType: "deposit" | "withdraw") => {
     const value = Number(amount);
@@ -107,8 +55,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       return;
     }
 
-                <div className="glass-panel panel-padding-mobile" style={{ padding: '32px' }}>
-                    {error && <ApiStatusBanner error={error} />}
     if (actionType === "withdraw" && value > availableBalance) {
       toast.warning({
         title: "Insufficient balance",
@@ -117,26 +63,59 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       return;
     }
 
+    // For withdrawals, show confirmation modal instead of processing immediately
+    if (actionType === "withdraw") {
+      setPendingWithdrawalAmount(value);
+      setShowWithdrawalConfirm(true);
+      return;
+    }
+
+    // For deposits, process immediately
     setIsProcessing(actionType);
 
     window.setTimeout(() => {
-      setPendingBalanceChange((prev) =>
-        actionType === "deposit" ? prev + value : prev - value,
-      );
+      setPendingBalanceChange((prev) => prev + value);
       setAmount("");
       setIsProcessing(null);
       toast.success({
-        title: actionType === "deposit" ? "Deposit queued" : "Withdrawal queued",
-        description:
-          actionType === "deposit"
-            ? `${value.toFixed(2)} USDC has been added to your pending vault activity.`
-            : `${value.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
+        title: "Deposit queued",
+        description: `${value.toFixed(2)} USDC has been added to your pending vault activity.`,
       });
     }, 2000);
   };
 
+  const handleWithdrawalConfirm = () => {
+    setIsProcessing("withdraw");
+
+    window.setTimeout(() => {
+      setPendingBalanceChange((prev) => prev - pendingWithdrawalAmount);
+      setAmount("");
+      setIsProcessing(null);
+      setShowWithdrawalConfirm(false);
+      setPendingWithdrawalAmount(0);
+      toast.success({
+        title: "Withdrawal queued",
+        description: `${pendingWithdrawalAmount.toFixed(2)} USDC has been added to your pending withdrawal activity.`,
+      });
+    }, 2000);
+  };
+
+  const handleWithdrawalCancel = () => {
+    setShowWithdrawalConfirm(false);
+    setPendingWithdrawalAmount(0);
+  };
+
   return (
     <div className="vault-dashboard gap-lg">
+      <WithdrawalConfirmationModal
+        isOpen={showWithdrawalConfirm}
+        amount={pendingWithdrawalAmount}
+        estimatedFee={estimatedUsdcFee}
+        onConfirm={handleWithdrawalConfirm}
+        onCancel={handleWithdrawalCancel}
+        isProcessing={isProcessing === "withdraw"}
+      />
+
       <div className="vault-dashboard-stats">
         <div className="glass-panel" style={{ padding: "32px" }}>
           {error && <ApiStatusBanner error={error} />}
@@ -176,9 +155,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
           </div>
 
-            {/* Right Column - User Interaction */}
-            <div style={{ flex: '1 1 400px' }}>
-                <div className="glass-panel panel-padding-mobile" style={{ padding: '32px', position: 'relative', overflow: 'hidden' }}>
           <div
             style={{
               height: "1px",
@@ -309,43 +285,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             }}
           />
 
-                    <div className="flex justify-between items-center" style={{ marginBottom: '16px' }}>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                            {activeTab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'}
-                        </div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                            Balance: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{walletAddress ? availableBalance.toFixed(2) : '0.00'}</span>
-                        </div>
-                    </div>
-
-                    <div className="input-group" style={{ marginBottom: '24px' }}>
-                        <div className="input-wrapper">
-                            <span style={{ color: 'var(--text-secondary)', paddingRight: '12px', borderRight: '1px solid var(--border-glass)', marginRight: '16px' }}>USDC</span>
-                            <input
-                                className="input-field"
-                                type="number"
-                                placeholder="0.00"
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                            />
-                            <button
-                                style={{
-                                    color: 'var(--accent-cyan)',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 600,
-                                    background: 'var(--accent-cyan-dim)',
-                                    padding: '4px 10px',
-                                    borderRadius: '6px'
-                                }}
-                                onClick={() =>
-                                  setAmount(maxAllowableAmount.toFixed(2))
-                                }
-                                disabled={!walletAddress || maxAllowableAmount <= 0}
-                            >
-                                MAX
-                            </button>
-                        </div>
-                    </div>
           {!walletAddress && (
             <div
               style={{
