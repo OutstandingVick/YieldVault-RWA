@@ -1,7 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Activity, ShieldCheck, TrendingUp, DollarSign, Percent, Briefcase } from "../components/icons";
+import { Activity, TrendingUp, DollarSign, Percent, Briefcase } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
-import Skeleton from "../components/Skeleton";
 import {
   DataTable,
   type DataTableColumn,
@@ -133,7 +132,7 @@ const PortfolioSummaryCard: React.FC<{
     onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
   >
     <div style={{ position: "absolute", top: "-10px", right: "-10px", opacity: 0.05 }}>
-      {React.cloneElement(icon as React.ReactElement, { size: 80 })}
+      {React.cloneElement(icon as React.ReactElement<Record<string, unknown>>, { size: 80 })}
     </div>
     <div className="flex items-center gap-sm" style={{ color: "var(--text-secondary)", marginBottom: "12px" }}>
       {icon}

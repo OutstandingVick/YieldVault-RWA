@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Activity, AlertCircle, ShieldCheck, TrendingUp, Wallet as WalletIcon, Loader2, AlertTriangle, Info } from "./icons";
-import { hasCustomRpcConfig, networkConfig } from "../config/network";
+import { Activity, AlertCircle, ShieldCheck, TrendingUp, Wallet as WalletIcon, Loader2, Info } from "./icons";
 import Skeleton from "./Skeleton";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
 import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
+import { FormField } from "../forms";
 import WithdrawalConfirmationModal from "./WithdrawalConfirmationModal";
 import { FormField, SubmitButton } from "../forms";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
