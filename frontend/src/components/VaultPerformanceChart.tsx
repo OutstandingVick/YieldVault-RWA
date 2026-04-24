@@ -11,8 +11,7 @@ import {
 import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
 import Skeleton from "./Skeleton";
-
-type TimeRange = "7D" | "1M" | "3M" | "ALL";
+import { type TimeRange, getNow, getCutoffDate } from "../lib/dateUtils";
 
 interface VaultPerformanceTooltipProps {
   active?: boolean;
@@ -53,19 +52,9 @@ const VaultPerformanceChart: React.FC = () => {
   const filteredData = useMemo(() => {
     if (!rawData.length) return [];
     
-    const now = new Date("2026-03-25T10:00:00.000Z"); // Use reference date from summary
-    let daysToSubtract = 0;
+    if (timeRange === "ALL") return rawData;
 
-    switch (timeRange) {
-      case "7D": daysToSubtract = 7; break;
-      case "1M": daysToSubtract = 30; break;
-      case "3M": daysToSubtract = 90; break;
-      case "ALL": return rawData;
-    }
-
-    const cutoff = new Date(now);
-    cutoff.setDate(cutoff.getDate() - daysToSubtract);
-
+    const cutoff = getCutoffDate(timeRange, getNow());
     return rawData.filter(point => new Date(point.date) >= cutoff);
   }, [rawData, timeRange]);
 
