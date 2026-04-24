@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
+import { isConnected, setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
 import { Loader2, LogOut, Wallet, AlertCircle, Check } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
 import { useToast } from '../context/ToastContext';
@@ -81,6 +81,16 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, usdcBalanc
         setIsConnecting(true);
         setConnectionError(null);
         try {
+            const connected = await isConnected();
+            if (!connected.isConnected) {
+                setConnectionError('not-installed');
+                toast.error({
+                    title: t('toast.walletConnectionFailed.title'),
+                    description: t('wallet.error.notInstalled'),
+                });
+                return;
+            }
+            
             await setAllowed();
             const allowed = await isAllowed();
             if (allowed.isAllowed) {

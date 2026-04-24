@@ -262,46 +262,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
             {(["deposit", "withdraw"] as const).map((tab) => (
               <TabsContent key={tab} value={tab}>
-                {(isCapReached || isCapWarning) && tab === "deposit" && (
-                   <VaultCapWarning utilization={utilization} isReached={isCapReached} />
-                )}
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handleTransaction(tab);
-                  }}
-                >
-                  <div style={{ marginBottom: "24px" }}>
-                    <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
-                      <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                        {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
-                      </div>
-                      <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                        Balance:{" "}
-                        <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                          {walletAddress ? availableBalance.toFixed(2) : "0.00"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <FormField
-                      label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
-                      name={`${tab}-amount`}
-                      type="number"
-                      placeholder="0.00"
-                      value={amount}
-                      onChange={(event) => setAmount(event.target.value)}
-                      disabled={isBusy || (tab === "deposit" && isCapReached)}
-                    />
-
-                    <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
-                      <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Asset: USDC</span>
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        onClick={() => setAmount(availableBalance.toFixed(2))}
-                        disabled={!walletAddress || availableBalance <= 0 || isBusy || (tab === "deposit" && isCapReached)}
-                      >
                 <div style={{ marginBottom: "24px" }}>
                   <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
                     <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
@@ -321,14 +281,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       </button>
                     </div>
                   </div>
-
-                  <SubmitButton
-                    loading={isBusy && activeTab === tab}
-                    disabled={!walletAddress || isBusy || !amount || Number(amount) <= 0 || (tab === "deposit" && isCapReached)}
-                    label={tab === "deposit" ? (isCapReached ? "Vault is full" : "Approve & Deposit") : "Withdraw Funds"}
-                    loadingLabel="Waiting for confirmation..."
-                  />
-                </form>
                 </div>
 
                 <div className="glass-panel" style={{ padding: "14px 16px", background: "rgba(0, 0, 0, 0.15)", marginBottom: "16px" }}>
@@ -351,8 +303,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   </div>
                 </div>
 
-                <button className="btn btn-primary" style={{ width: "100%", padding: "16px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
-                  {isProcessing === tab ? "Processing Transaction..." : tab === "deposit" ? "Approve & Deposit" : "Withdraw Funds"}
                 <button className="btn btn-primary" style={{ width: "100%", padding: "16px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }} onClick={() => handleTransaction(tab)} disabled={isProcessing !== null || !amount || Number(amount) <= 0}>
                   {isProcessing === tab ? (
                     <>
