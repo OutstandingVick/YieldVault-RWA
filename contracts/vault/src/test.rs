@@ -12,6 +12,19 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(e, &token_address)
 }
 
+fn setup_vault(env: &Env) -> (YieldVaultClient, Address, token::StellarAssetClient, Address) {
+    let admin = Address::generate(env);
+    let token_admin = Address::generate(env);
+    let usdc_address = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+    let usdc_sa = token::StellarAssetClient::new(env, &usdc_address);
+    
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(env, &vault_id);
+    vault.initialize(&admin, &usdc_address);
+    
+    (vault, usdc_address, usdc_sa, admin)
+}
+
 // ─── helper: 10^18 scale factor ───────────────────────────────────────────────
 const SCALE: i128 = 1_000_000_000_000_000_000i128;
 
@@ -726,6 +739,15 @@ fn test_yield_accrual_maintains_state_consistency() {
     assert!(price_2 > price_1);
     assert!(price_3 > price_2);
 }
+
+#[test]
+fn test_yield_accrual_state_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+
     usdc_sa.mint(&user, &1000);
     usdc_sa.mint(&admin, &500);
 
@@ -812,4 +834,27 @@ fn test_pause_mechanism() {
     assert_eq!(vault.balance(&user), 200);
     vault.withdraw(&user, &50);
     assert_eq!(vault.balance(&user), 150);
+}
+
+#[test]
+fn test_upgrade_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, admin) = setup_vault(&env);
+    
+    // Initial version
+    assert_eq!(vault.version(), 1);
+
+    // Try to upgrade without pausing - should fail
+    let new_wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
+    let result = vault.try_upgrade(&new_wasm_hash);
+    assert_eq!(result, Err(Ok(VaultError::NotPaused)));
+
+    // Pause and upgrade
+    vault.set_pause(&true);
+    vault.upgrade(&new_wasm_hash);
+
+    // Version should increment
+    assert_eq!(vault.version(), 2);
 }

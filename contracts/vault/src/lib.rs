@@ -17,7 +17,7 @@ use crate::oracle::{
 };
 use crate::strategy::StrategyClient;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Vec,
 };
 
 const MAX_PAGE_SIZE: u32 = 50;
@@ -69,6 +69,7 @@ pub enum DataKey {
     PriceOracleHeartbeat,
     LastValidatedPrice,
     OracleEnabled,
+    Version,
 }
 
 #[contracttype]
@@ -101,6 +102,8 @@ pub enum VaultError {
     HeartbeatExceeded = 15,
     PriceDeviationExceeded = 16,
     OracleNotSet = 17,
+    Unauthorized = 18,
+    NotPaused = 19,
 }
 
 #[contract]
@@ -146,6 +149,7 @@ impl YieldVault {
         env.storage().instance().set(&DataKey::State, &state);
         env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
         env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
+        env.storage().instance().set(&DataKey::Version, &1u32);
 
         env.events()
             .publish((symbol_short!("vault_ini"), admin.clone()), (token,));
@@ -1024,6 +1028,46 @@ impl YieldVault {
 
         env.events()
             .publish((symbol_short!("yld_rptd"), strategy), (amount,));
+
+        Ok(())
+    }
+
+    /// Returns the current contract version.
+    pub fn version(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::Version).unwrap_or(1)
+    }
+
+    /// Upgrades the contract code to a new WASM hash.
+    /// 
+    /// ### Safety Checks
+    /// 1. **Authorization**: Only the admin can call this function.
+    /// 2. **State Protection**: The vault must be paused before upgrading to ensure no state
+    ///    changes occur during the transition.
+    /// 3. **Version Tracking**: Increments the internal version counter for auditability.
+    /// 4. **Event Logging**: Publishes an `upgrade` event with the new hash and version.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), VaultError> {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(VaultError::OracleNotSet)?;
+        admin.require_auth();
+
+        // Proxy Safety Check: Ensure the vault is paused.
+        // This prevents users from interacting with the contract while it is being upgraded,
+        // which is a critical safety measure for financial contracts.
+        if !Self::is_paused(env.clone()) {
+            return Err(VaultError::NotPaused);
+        }
+
+        // Upgrade the contract WASM code
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        // Increment version for tracking
+        let current_version = Self::version(env.clone());
+        env.storage().instance().set(&DataKey::Version, &(current_version + 1));
+
+        // Emit upgrade event
+        env.events().publish(
+            (symbol_short!("upgrade"), admin),
+            (new_wasm_hash, current_version + 1),
+        );
 
         Ok(())
     }
