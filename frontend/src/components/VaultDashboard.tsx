@@ -269,7 +269,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Current APY</div>
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}>
+                Current APY
+                <div title="Annualized yield based on the historical performance of the vault's underlying assets." style={{ cursor: "help", display: "flex", alignItems: "center" }}>
+                  <Info size={14} color="var(--text-secondary)" />
+                </div>
+              </div>
               <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
                 {isLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
               </div>
@@ -480,10 +485,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
                       </div>
                       <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                        Balance:{" "}
-                        <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-                          {walletAddress ? availableBalance.toFixed(2) : "0.00"}
-                        </span>
+                        Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
                       </div>
                     </div>
 
