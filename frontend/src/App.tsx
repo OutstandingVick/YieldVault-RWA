@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import Navbar from "./components/Navbar";
@@ -69,6 +69,8 @@ function AppContent() {
       </a>
       <div className="app-container">
         <Navbar
+          currentPath="/"
+          onNavigate={() => {}}
           walletAddress={walletAddress}
           usdcBalance={usdcBalance}
           onConnect={handleConnect}
@@ -91,7 +93,6 @@ function AppContent() {
                 element={
                   <Portfolio
                     walletAddress={walletAddress}
-                    usdcBalance={usdcBalance}
                   />
                 }
               />
