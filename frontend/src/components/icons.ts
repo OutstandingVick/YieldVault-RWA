@@ -2,6 +2,7 @@ export {
   Activity,
   ChevronRight,
   AlertCircle,
+  AlertTriangle,
   Check,
   Copy,
   Layers,
@@ -15,4 +16,8 @@ export {
   TrendingUp,
   Wallet,
   X,
+  Info,
+  DollarSign,
+  Percent,
+  Briefcase,
 } from "lucide-react";

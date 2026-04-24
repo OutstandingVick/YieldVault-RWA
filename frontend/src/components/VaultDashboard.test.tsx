@@ -4,15 +4,12 @@ import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import * as vaultApi from "../lib/vaultApi";
+import * as vaultMutations from "../hooks/useVaultMutations";
 
-vi.mock("../lib/vaultApi", async (importOriginal) => {
-  const actual = await importOriginal<typeof vaultApi>();
-  return {
-    ...actual,
-    submitDeposit: vi.fn(),
-  };
-});
+vi.mock("../hooks/useVaultMutations", () => ({
+  useDepositMutation: vi.fn(),
+  useWithdrawMutation: vi.fn(),
+}));
 
 const mockSummary = {
   tvl: 12450800,
@@ -24,6 +21,7 @@ const mockSummary = {
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
   updatedAt: "2026-03-25T10:00:00.000Z",
+  depositCap: 15000000,
   strategy: {
     id: "stellar-benji",
     name: "Franklin BENJI Connector",
@@ -35,6 +33,15 @@ const mockSummary = {
       "Connector strategy that routes vault yield updates from BENJI-issued tokenized money market exposure on Stellar.",
   },
 };
+
+function createMockMutation() {
+  return {
+    mutateAsync: vi.fn().mockResolvedValue({ success: true }),
+    isPending: false,
+    isError: false,
+    error: null,
+  };
+}
 
 function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
   const queryClient = new QueryClient({
@@ -54,10 +61,20 @@ function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
 }
 
 describe("VaultDashboard", () => {
+  let mockDeposit: any;
+  let mockWithdraw: any;
+
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    
+    mockDeposit = createMockMutation();
+    mockWithdraw = createMockMutation();
+    
+    vi.mocked(vaultMutations.useDepositMutation).mockReturnValue(mockDeposit);
+    vi.mocked(vaultMutations.useWithdrawMutation).mockReturnValue(mockWithdraw);
+
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -113,12 +130,6 @@ describe("VaultDashboard", () => {
   });
 
   it("updates the amount input and processes a deposit", async () => {
-    let resolveSubmit!: () => void;
-    const submitPromise = new Promise<void>((resolve) => {
-      resolveSubmit = resolve;
-    });
-    vi.mocked(vaultApi.submitDeposit).mockReturnValue(submitPromise);
-    
     renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
     expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
@@ -130,17 +141,14 @@ describe("VaultDashboard", () => {
     const button = screen.getByText("Approve & Deposit");
     fireEvent.click(button);
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Processing Transaction.../i),
-      ).toBeInTheDocument();
+    expect(mockDeposit.mutateAsync).toHaveBeenCalledWith({
+      walletAddress: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      amount: 100,
     });
 
-    // Resolve the mocked API call
-    resolveSubmit();
-
-    // Processing state should be visible after submitting.
-    expect(screen.getByText(/Processing Transaction.../i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Deposit Successful/i)).toBeInTheDocument();
+    });
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
@@ -167,7 +175,73 @@ describe("VaultDashboard", () => {
     fireEvent.change(input, { target: { value: "2000" } });
     fireEvent.click(screen.getByRole("button", { name: "Approve & Deposit" }));
 
-    expect(screen.getByText(/Amount exceeds maximum/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Amount exceeds maximum/i)).toBeInTheDocument();
+    });
+    expect(mockDeposit.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("prevents withdrawals above the available balance", async () => {
+    renderDashboard("GABC123", 500);
+
+    const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
+    fireEvent.click(withdrawTab);
+
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "600" } });
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw Funds" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Insufficient balance/i)).toBeInTheDocument();
+    });
+    expect(mockWithdraw.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("validates that amount must be greater than zero", async () => {
+    renderDashboard("GABC123");
+
+    const input = screen.getByPlaceholderText("0.00");
+    const button = screen.getByRole("button", { name: "Approve & Deposit" });
+    
+    // Zero amount
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(screen.getByText(/Enter a valid amount/i)).toBeInTheDocument();
+    });
+    
+    expect(mockDeposit.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("validates that amount must be positive", async () => {
+    renderDashboard("GABC123");
+
+    const input = screen.getByPlaceholderText("0.00");
+    const button = screen.getByRole("button", { name: "Approve & Deposit" });
+    
+    // Negative amount
+    fireEvent.change(input, { target: { value: "-10" } });
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(screen.getByText(/Enter a valid amount/i)).toBeInTheDocument();
+    });
+    
+    expect(mockDeposit.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("shows an error toast when the mutation fails", async () => {
+    mockDeposit.mutateAsync.mockRejectedValue(new Error("RPC Error"));
+    
+    renderDashboard("GABC123");
+    
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve & Deposit" }));
+    
+    await waitFor(() => {
+      expect(screen.getByText(/Transaction Failed/i)).toBeInTheDocument();
+      expect(screen.getByText(/RPC Error/i)).toBeInTheDocument();
+    });
   });
 
   it("shows a normalized API error message when data loading fails", async () => {
@@ -182,6 +256,7 @@ describe("VaultDashboard", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
     }, { timeout: 3000 });
-    expect(screen.getByRole("alert")).toHaveTextContent("Failed to load vault data");
+    
+    expect(screen.getByRole("alert")).toHaveTextContent("We could not reach the server. Check your connection and try again.");
   });
 });

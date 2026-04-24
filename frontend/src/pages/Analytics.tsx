@@ -4,6 +4,7 @@ import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
 import ViewState from "../components/ViewState";
+import VaultPerformanceChart from "../components/VaultPerformanceChart";
 
 const Analytics: React.FC = () => {
     const { formattedTvl, summary, error, isLoading } = useVault();
@@ -57,8 +58,8 @@ const Analytics: React.FC = () => {
                 </div>
             </div>
 
-            <div className="glass-panel" style={{ marginTop: '32px', padding: '48px', textAlign: 'center', background: 'var(--bg-muted)' }}>
-                <div style={{ color: 'var(--text-secondary)' }}>Interactive Charts coming soon...</div>
+            <div className="glass-panel" style={{ marginTop: '32px', padding: '32px', background: 'var(--bg-muted)', minHeight: '400px' }}>
+                <VaultPerformanceChart />
             </div>
         </div>
     );
