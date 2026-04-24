@@ -1,6 +1,7 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "../i18n";
 import { Pagination } from "./Pagination";
+import Skeleton from "./Skeleton";
 
 export type TableSortDirection = "asc" | "desc";
 
@@ -34,6 +35,8 @@ interface DataTableProps<T> {
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   renderRowDetails?: (row: T) => ReactNode;
+  isLoading?: boolean;
+  skeletonRows?: number;
 }
 
 function getCellAlignment(align: DataTableColumn<unknown>["align"]) {
@@ -61,6 +64,8 @@ export function DataTable<T>({
   onPageChange,
   onPageSizeChange,
   renderRowDetails,
+  isLoading = false,
+  skeletonRows = 5,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
   const handleHeaderKeyDown = (
@@ -124,7 +129,22 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {isLoading ? (
+              Array.from({ length: skeletonRows }).map((_, rowIndex) => (
+                <tr key={`skeleton-${rowIndex}`} className="data-table-row">
+                  {columns.map((column) => (
+                    <td
+                      key={column.id}
+                      style={{
+                        textAlign: getCellAlignment(column.align),
+                      }}
+                    >
+                      <Skeleton className="skeleton-text" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} className="data-table-empty">
                   {emptyMessage}

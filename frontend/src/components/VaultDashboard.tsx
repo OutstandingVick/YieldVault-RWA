@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Activity, AlertCircle, ShieldCheck, TrendingUp, Wallet as WalletIcon, Loader2, AlertTriangle, Info } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
+import Skeleton from "./Skeleton";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
 import VaultPerformanceChart from "./VaultPerformanceChart";
@@ -268,18 +269,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                Current APY
-              </div>
-              <div
-                className="text-gradient"
-                style={{
-                  fontSize: "2rem",
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 700,
-                }}
-              >
-                {formattedApy}
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Current APY</div>
+              <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
+                {isLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
               </div>
             </div>
           </div>
@@ -319,14 +311,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   {isLoading ? "Syncing" : "Live"}
                 </span>
               </div>
-              <div
-                style={{
-                  fontSize: "1.25rem",
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 600,
-                }}
-              >
-                {formattedTvl}
+              <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>
+                {isLoading ? <Skeleton width="140px" height="1.5rem" /> : formattedTvl}
               </div>
             </div>
             <div>

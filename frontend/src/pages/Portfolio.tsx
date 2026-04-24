@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import ApiStatusBanner from "../components/ApiStatusBanner";
+import Skeleton from "../components/Skeleton";
 import {
   DataTable,
   type DataTableColumn,
@@ -269,7 +270,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                 Total Assets
               </div>
               <div style={{ fontSize: "var(--text-4xl)", fontWeight: "var(--font-semibold)" }}>
-                {formatCurrency(totalValue)}
+                {isLoading ? <Skeleton width="160px" height="2.5rem" /> : formatCurrency(totalValue)}
               </div>
             </div>
             <div
@@ -286,7 +287,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                   fontWeight: "var(--font-semibold)",
                 }}
               >
-                +{formatCurrency(totalGain)}
+                {isLoading ? <Skeleton width="120px" height="2rem" /> : `+${formatCurrency(totalGain)}`}
               </div>
             </div>
           </div>
@@ -362,6 +363,8 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                   ? "Loading holdings..."
                   : "No holdings matched the current filters."
               }
+              isLoading={isLoading}
+              skeletonRows={state.pageSize}
               sortBy={state.sortBy}
               sortDirection={state.sortDirection}
               onSortChange={setSort}
