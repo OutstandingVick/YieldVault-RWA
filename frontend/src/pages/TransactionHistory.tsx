@@ -183,7 +183,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             ? [
                 {
                   label: `${transactions.length} Total`,
-                  variant: "cyan" as const,
+                  variant: "cyan",
                 },
                 {
                   label: isLoading ? "Loading..." : "Up to date",

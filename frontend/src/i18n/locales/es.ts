@@ -25,6 +25,7 @@ export const es = {
   },
   wallet: {
     connecting: "Conectando...",
+    checkingFreighter: "Comprobando billetera…",
     connectFreighter: "Conectar Freighter",
     rpcPrefix: "RPC:",
     rpcCustom: "Personalizado",
@@ -46,6 +47,7 @@ export const es = {
       connectedStatus: "Billetera conectada y lista para usar",
       disconnectedStatus: "Conecta tu billetera Freighter para continuar",
       connectingStatus: "Estableciendo conexión...",
+      checkingStatus: "Buscando una sesión existente de Freighter en este dispositivo",
       errorStatus: "Conexión fallida - intenta de nuevo o verifica Freighter",
     },
   },

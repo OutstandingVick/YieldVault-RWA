@@ -1,9 +1,12 @@
 export {
   Activity,
+  AlertTriangle,
   ChevronRight,
   AlertCircle,
+  AlertTriangle,
   Check,
   Copy,
+  Info,
   Layers,
   Loader2,
   LogOut,
@@ -17,4 +20,7 @@ export {
   X,
   AlertTriangle,
   Info,
+  DollarSign,
+  Percent,
+  Briefcase,
 } from "lucide-react";

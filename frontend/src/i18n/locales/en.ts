@@ -25,6 +25,7 @@ export const en = {
   },
   wallet: {
     connecting: "Connecting...",
+    checkingFreighter: "Checking wallet…",
     connectFreighter: "Connect Freighter",
     rpcPrefix: "RPC:",
     rpcCustom: "Custom",
@@ -46,6 +47,7 @@ export const en = {
       connectedStatus: "Wallet connected and ready to use",
       disconnectedStatus: "Connect your Freighter wallet to proceed",
       connectingStatus: "Establishing connection...",
+      checkingStatus: "Looking for an existing Freighter session on this device",
       errorStatus: "Connection failed - try again or check Freighter",
     },
   },
