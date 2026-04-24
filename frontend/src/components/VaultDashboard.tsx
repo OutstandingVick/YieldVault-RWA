@@ -7,15 +7,8 @@ import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
 import { FormField } from "../forms";
-import WithdrawalConfirmationModal from "./WithdrawalConfirmationModal";
-import { FormField, SubmitButton } from "../forms";
-import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
-import TransactionStatus, { type ActionStatus } from "./TransactionStatus";
 import CopyButton from "./CopyButton";
-import {
-  useDepositMutation,
-  useWithdrawMutation,
-} from "../hooks/useVaultMutations";
+import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
@@ -135,10 +128,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<TransactionTab>("deposit");
   const [amount, setAmount] = useState("");
-  const [isProcessing, setIsProcessing] = useState<"deposit" | "withdraw" | null>(null);
-  const [pendingBalanceChange, setPendingBalanceChange] = useState(0);
-  const [showWithdrawalConfirm, setShowWithdrawalConfirm] = useState(false);
-  const [pendingWithdrawalAmount, setPendingWithdrawalAmount] = useState(0);
   const [touched, setTouched] =
     useState<Record<TransactionTab, boolean>>(INITIAL_TOUCHED_STATE);
 
@@ -234,7 +223,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     } catch (err: unknown) {
       toast.error({
         title: "Transaction Failed",
-        description: err instanceof Error ? err.message : "An error occurred during the transaction.",
         description:
           err instanceof Error
             ? err.message
@@ -243,22 +231,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
   };
 
-  const handleWithdrawalCancel = () => {
-    setShowWithdrawalConfirm(false);
-    setPendingWithdrawalAmount(0);
-  };
-
   return (
     <div className="vault-dashboard gap-lg">
-      <WithdrawalConfirmationModal
-        isOpen={showWithdrawalConfirm}
-        amount={pendingWithdrawalAmount}
-        estimatedFee={estimatedUsdcFee}
-        onConfirm={handleWithdrawalConfirm}
-        onCancel={handleWithdrawalCancel}
-        isProcessing={isProcessing === "withdraw"}
-      />
-
       <div className="vault-dashboard-stats">
         <div className="glass-panel" style={{ padding: "32px" }}>
           {error && (
@@ -495,11 +469,14 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
           )}
 
-          <Tabs value={activeTab} defaultValue="deposit" onValueChange={(v) => setActiveTab(v as "deposit" | "withdraw")}>
           <Tabs
             value={activeTab}
             defaultValue="deposit"
-            onValueChange={(value) => setActiveTab(value as TransactionTab)}
+            onValueChange={(value) => {
+              setActiveTab(value as TransactionTab);
+              setAmount("");
+              setTouched(INITIAL_TOUCHED_STATE);
+            }}
           >
             <TabsList style={{ marginBottom: "24px" }}>
               <TabsTrigger value="deposit">Deposit</TabsTrigger>
