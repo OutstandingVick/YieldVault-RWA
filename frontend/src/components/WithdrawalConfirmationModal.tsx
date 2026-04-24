@@ -44,8 +44,8 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
           maxWidth: "420px",
           width: "100%",
           position: "relative",
-          onClick: (e) => e.stopPropagation(),
         }}
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         {/* Close Button */}
         <button
