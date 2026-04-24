@@ -20,4 +20,6 @@ export {
   DollarSign,
   Percent,
   Briefcase,
+  Share2,
+  Link,
 } from "lucide-react";

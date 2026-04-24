@@ -9,6 +9,7 @@ import {
   IdempotencyConflictError,
 } from './idempotency';
 import { getJobHealthStatus, getJobMetrics } from './jobGovernance';
+import { sanitizationMiddleware } from './sanitization';
 
 dotenv.config();
 
@@ -21,7 +22,8 @@ const cache = new NodeCache({ stdTTL: 30 });
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
-app.use(express.json());
+app.use(express.json({ limit: '100kb' })); // Restrict payload size
+app.use(sanitizationMiddleware); // Sanitize globally
 
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
   if (req.path.startsWith('/v1')) {
@@ -287,6 +289,25 @@ function normalizeDepositRequest(body: unknown):
 // ─── Error Handler ──────────────────────────────────────────────────────────
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  if (err.type === 'entity.too.large') {
+    res.status(413).json({
+      error: 'Payload Too Large',
+      status: 413,
+      message: 'Request payload exceeds the allowed limit',
+    });
+    return;
+  }
+
+  // Catch malformed JSON errors from express.json()
+  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'Malformed JSON payload',
+    });
+    return;
+  }
+
   console.error('Unhandled error:', err);
   res.status(500).json({
     error: 'Internal Server Error',
