@@ -8,9 +8,42 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from "recharts";
-import { TrendingUp, Activity } from "./icons";
+import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
+import Skeleton from "./Skeleton";
 import { type TimeRange, getNow, getCutoffDate } from "../lib/dateUtils";
+
+interface VaultPerformanceTooltipProps {
+  active?: boolean;
+  payload?: ReadonlyArray<{ value?: number }>;
+  label?: string;
+}
+
+function VaultPerformanceTooltip({ active, payload, label }: VaultPerformanceTooltipProps) {
+  if (active && payload && payload.length) {
+    const value = payload[0]?.value;
+    if (value === undefined) return null;
+    return (
+      <div
+        className="glass-panel"
+        style={{
+          padding: "12px",
+          background: "rgba(13, 14, 18, 0.95)",
+          border: "1px solid var(--border-glass)",
+          fontSize: "0.85rem",
+        }}
+      >
+        <div style={{ color: "var(--text-secondary)", marginBottom: "4px" }}>
+          {label
+            ? new Date(label).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+            : ""}
+        </div>
+        <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>Index: {value.toFixed(2)}</div>
+      </div>
+    );
+  }
+  return null;
+}
 
 const VaultPerformanceChart: React.FC = () => {
   const { data: rawData = [], isLoading } = useVaultHistory();
@@ -24,27 +57,6 @@ const VaultPerformanceChart: React.FC = () => {
     const cutoff = getCutoffDate(timeRange, getNow());
     return rawData.filter(point => new Date(point.date) >= cutoff);
   }, [rawData, timeRange]);
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="glass-panel" style={{ 
-          padding: "12px", 
-          background: "rgba(13, 14, 18, 0.95)", 
-          border: "1px solid var(--border-glass)",
-          fontSize: "0.85rem"
-        }}>
-          <div style={{ color: "var(--text-secondary)", marginBottom: "4px" }}>
-            {new Date(label).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </div>
-          <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>
-            Index: {payload[0].value.toFixed(2)}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
@@ -92,10 +104,12 @@ const VaultPerformanceChart: React.FC = () => {
 
       <div style={{ flex: 1, minHeight: "260px", position: "relative" }}>
         {isLoading ? (
-          <div className="flex items-center justify-center" style={{ height: "100%", color: "var(--text-secondary)", fontSize: "0.9rem", gap: "10px" }}>
-            <Activity size={20} className="animate-pulse" />
-            Loading historical data...
-          </div>
+          <Skeleton
+            width="100%"
+            height="100%"
+            borderRadius="var(--radius-sm)"
+            style={{ minHeight: "260px" }}
+          />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -123,7 +137,7 @@ const VaultPerformanceChart: React.FC = () => {
                 tickLine={false}
                 tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={VaultPerformanceTooltip} />
               <Area 
                 type="monotone" 
                 dataKey="value" 
