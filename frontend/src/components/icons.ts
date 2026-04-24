@@ -3,6 +3,7 @@ export {
   AlertTriangle,
   ChevronRight,
   AlertCircle,
+  AlertTriangle,
   Check,
   Copy,
   Info,
@@ -19,4 +20,7 @@ export {
   X,
   AlertTriangle,
   Info,
+  DollarSign,
+  Percent,
+  Briefcase,
 } from "lucide-react";

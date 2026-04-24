@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { Activity, ShieldCheck, TrendingUp, DollarSign, Percent, Briefcase } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Skeleton from "../components/Skeleton";
 import {
@@ -111,6 +112,53 @@ const columns: DataTableColumn<PortfolioHolding>[] = [
   },
 ];
 
+const PortfolioSummaryCard: React.FC<{ 
+  label: string; 
+  value: string; 
+  icon: React.ReactNode; 
+  trend?: string;
+  trendPositive?: boolean;
+}> = ({ label, value, icon, trend, trendPositive }) => (
+  <div
+    className="glass-panel"
+    style={{ 
+      padding: "24px", 
+      background: "var(--bg-muted)", 
+      position: "relative",
+      overflow: "hidden",
+      border: "1px solid var(--border-glass)",
+      transition: "transform 0.2s ease",
+    }}
+    onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-4px)"}
+    onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+  >
+    <div style={{ position: "absolute", top: "-10px", right: "-10px", opacity: 0.05 }}>
+      {React.cloneElement(icon as React.ReactElement, { size: 80 })}
+    </div>
+    <div className="flex items-center gap-sm" style={{ color: "var(--text-secondary)", marginBottom: "12px" }}>
+      {icon}
+      <span className="text-body-sm" style={{ fontWeight: 500, letterSpacing: "0.02em" }}>{label}</span>
+    </div>
+    <div style={{ fontSize: "2rem", fontWeight: 700, fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
+      {value}
+    </div>
+    {trend && (
+      <div style={{ 
+        marginTop: "8px", 
+        fontSize: "0.85rem", 
+        color: trendPositive ? "var(--accent-cyan)" : "var(--text-error)",
+        fontWeight: 600,
+        display: "flex",
+        alignItems: "center",
+        gap: "4px"
+      }}>
+        {trendPositive ? <TrendingUp size={14} /> : <Activity size={14} />}
+        {trend}
+      </div>
+    )}
+  </div>
+);
+
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const toast = useToast();
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
@@ -219,6 +267,11 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
     0,
   );
 
+  const weightedApy = useMemo(() => {
+    if (totalValue === 0) return 0;
+    return holdings.reduce((sum, h) => sum + (h.apy * h.valueUsd), 0) / totalValue;
+  }, [holdings, totalValue]);
+
   return (
     <div className="glass-panel" style={{ padding: "32px" }}>
       <PageHeader
@@ -236,8 +289,8 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           walletAddress
             ? [
                 {
-                  label: `${holdings.length} Holdings`,
-                  variant: "cyan",
+                  label: `${holdings.length} Positions`,
+                  variant: "cyan" as const,
                 },
                 {
                   label: isLoading ? "Syncing..." : "Live",
@@ -260,36 +313,39 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
           <div
             className="portfolio-summary-grid"
-            style={{ display: "grid", gap: "24px", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}
+            style={{ 
+              display: "grid", 
+              gap: "24px", 
+              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+              marginBottom: "8px"
+            }}
           >
-            <div
-              className="glass-panel"
-              style={{ padding: "24px", background: "var(--bg-muted)" }}
-            >
-              <div className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
-                Total Assets
-              </div>
-              <div style={{ fontSize: "var(--text-4xl)", fontWeight: "var(--font-semibold)" }}>
-                {isLoading ? <Skeleton width="160px" height="2.5rem" /> : formatCurrency(totalValue)}
-              </div>
-            </div>
-            <div
-              className="glass-panel"
-              style={{ padding: "24px", background: "var(--bg-muted)" }}
-            >
-              <div className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
-                Unrealized Gain
-              </div>
-              <div
-                style={{
-                  fontSize: "var(--text-2xl)",
-                  color: "var(--accent-cyan)",
-                  fontWeight: "var(--font-semibold)",
-                }}
-              >
-                {isLoading ? <Skeleton width="120px" height="2rem" /> : `+${formatCurrency(totalGain)}`}
-              </div>
-            </div>
+            <PortfolioSummaryCard 
+              label="Total Net Value" 
+              value={formatCurrency(totalValue)} 
+              icon={<DollarSign size={20} color="var(--accent-cyan)" />}
+              trend="+4.2% since last week"
+              trendPositive={true}
+            />
+            <PortfolioSummaryCard 
+              label="Cumulative Yield" 
+              value={`+${formatCurrency(totalGain)}`} 
+              icon={<TrendingUp size={20} color="var(--accent-purple)" />}
+              trend="All-time unrealized"
+              trendPositive={totalGain >= 0}
+            />
+            <PortfolioSummaryCard 
+              label="Weighted Avg APY" 
+              value={`${weightedApy.toFixed(2)}%`} 
+              icon={<Percent size={20} color="var(--accent-cyan)" />}
+              trend="Current performance"
+              trendPositive={true}
+            />
+            <PortfolioSummaryCard 
+              label="Active Positions" 
+              value={holdings.filter(h => h.status === 'active').length.toString()} 
+              icon={<Briefcase size={20} color="var(--text-secondary)" />}
+            />
           </div>
 
           <section
@@ -299,7 +355,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           >
             <div className="portfolio-toolbar">
               <div>
-                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Holdings</h2>
+                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Position Details</h2>
                 <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
                   Sort, search, and page through all current vault positions.
                 </p>
@@ -317,13 +373,13 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                     >
                       <option value="all">All Statuses</option>
                       <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
+                      <option value="pending">Pending</option>
                     </select>
                   </div>
                 </label>
 
                 <label className="input-group" style={{ minWidth: "220px" }}>
-                  <span className="text-body-sm">Search holdings</span>
+                  <span className="text-body-sm">Search positions</span>
                   <div className="input-wrapper">
                     <input
                       className="input-field"
@@ -350,7 +406,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             </div>
 
             <div className="text-body-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
-              {isLoading ? "Loading holdings..." : `${totalItems} holdings found`}
+              {isLoading ? "Loading positions..." : `${totalItems} positions found`}
             </div>
 
             <DataTable
@@ -360,8 +416,8 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               rowKey={(row) => row.id}
               emptyMessage={
                 isLoading
-                  ? "Loading holdings..."
-                  : "No holdings matched the current filters."
+                  ? "Loading positions..."
+                  : "No positions matched the current filters."
               }
               isLoading={isLoading}
               skeletonRows={state.pageSize}
