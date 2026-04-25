@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import WalletConnect from "./WalletConnect";
 import type { DisconnectReason } from "./WalletConnect";
 import ThemeToggle from "./ThemeToggle";
+import TvlTicker from "./TvlTicker";
 import { Layers } from "./icons";
 import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
@@ -59,6 +60,8 @@ const Navbar: FC<NavbarProps> = ({
     };
   }, [walletAddress]);
 
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   return (
     <nav
       aria-label="Primary"
@@ -81,6 +84,7 @@ const Navbar: FC<NavbarProps> = ({
             to="/"
             className="flex items-center gap-sm"
             style={{ textDecoration: "none" }}
+            onClick={() => setIsMobileMenuOpen(false)}
           >
             <div
               style={{
@@ -110,7 +114,7 @@ const Navbar: FC<NavbarProps> = ({
             </span>
           </NavLink>
 
-          <div className="flex gap-lg" style={{ marginLeft: "32px" }}>
+          <div className="flex gap-lg nav-desktop-links" style={{ marginLeft: "32px" }}>
             <NavLink
               to="/"
               style={({ isActive }) => ({
@@ -154,41 +158,94 @@ const Navbar: FC<NavbarProps> = ({
         </div>
 
         <div className="flex items-center gap-md">
-          {walletAddress ? (
-            <span
-              aria-label="Network badge"
-              title={`Connected network: ${networkLabel}`}
-              style={{
-                padding: "6px 10px",
-                borderRadius: "999px",
-                fontSize: "0.75rem",
-                fontWeight: "var(--font-semibold)",
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                border:
-                  networkLabel === "Mainnet"
-                    ? "1px solid rgba(34, 197, 94, 0.45)"
-                    : "1px solid rgba(56, 189, 248, 0.45)",
-                color:
-                  networkLabel === "Mainnet"
-                    ? "rgb(34, 197, 94)"
-                    : "var(--accent-cyan)",
-                background:
-                  networkLabel === "Mainnet"
-                    ? "rgba(34, 197, 94, 0.08)"
-                    : "rgba(0, 240, 255, 0.08)",
-              }}
-            >
-              {networkLabel}
-            </span>
-          ) : null}
-          <ThemeToggle />
+          <TvlTicker />
+          <div className="flex items-center gap-sm nav-desktop-links">
+            {walletAddress ? (
+              <span
+                aria-label="Network badge"
+                title={`Connected network: ${networkLabel}`}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "999px",
+                  fontSize: "0.75rem",
+                  fontWeight: "var(--font-semibold)",
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  border:
+                    networkLabel === "Mainnet"
+                      ? "1px solid rgba(34, 197, 94, 0.45)"
+                      : "1px solid rgba(56, 189, 248, 0.45)",
+                  color:
+                    networkLabel === "Mainnet"
+                      ? "rgb(34, 197, 94)"
+                      : "var(--accent-cyan)",
+                  background:
+                    networkLabel === "Mainnet"
+                      ? "rgba(34, 197, 94, 0.08)"
+                      : "rgba(0, 240, 255, 0.08)",
+                }}
+              >
+                {networkLabel}
+              </span>
+            ) : null}
+            <ThemeToggle />
+          </div>
           <WalletConnect
             walletAddress={walletAddress}
             usdcBalance={usdcBalance}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
           />
+
+          <button
+            className="nav-mobile-toggle"
+            style={{ display: "none" }}
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+          >
+            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+        </div>
+      </div>
+
+      <div className={`nav-mobile-menu ${isMobileMenuOpen ? "is-open" : ""}`}>
+        <NavLink
+          to="/"
+          className={({ isActive }) => `nav-mobile-link ${isActive ? "active" : ""}`}
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          {t("nav.vaults")}
+        </NavLink>
+        <NavLink
+          to="/portfolio"
+          className={({ isActive }) => `nav-mobile-link ${isActive ? "active" : ""}`}
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          {t("nav.portfolio")}
+        </NavLink>
+        <NavLink
+          to="/analytics"
+          className={({ isActive }) => `nav-mobile-link ${isActive ? "active" : ""}`}
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          {t("nav.analytics")}
+        </NavLink>
+        <div className="flex items-center justify-between" style={{ marginTop: "auto", paddingTop: "24px" }}>
+          <ThemeToggle />
+          {walletAddress && (
+            <span
+              style={{
+                padding: "6px 12px",
+                borderRadius: "999px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                background: networkLabel === "Mainnet" ? "rgba(34, 197, 94, 0.1)" : "rgba(0, 240, 255, 0.1)",
+                color: networkLabel === "Mainnet" ? "rgb(34, 197, 94)" : "var(--accent-cyan)",
+              }}
+            >
+              {networkLabel}
+            </span>
+          )}
         </div>
       </div>
     </nav>

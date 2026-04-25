@@ -22,8 +22,7 @@ import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
 import { useToast } from "../context/ToastContext";
-import EmptyState from "../components/ui/EmptyState";
-import { useNavigate } from "react-router-dom";
+import YieldBreakdownChart from "../components/YieldBreakdownChart";
 
 interface PortfolioProps {
   walletAddress: string | null;
@@ -379,27 +378,20 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             />
           </div>
 
-          {holdings.length === 0 && !isLoading ? (
-            <EmptyState
-              title="No Positions Found"
-              description="You haven't deposited any assets yet. Start earning institutional yields by making your first deposit."
-              icon={<Briefcase size={40} />}
-              actionLabel="Go to Vaults"
-              onAction={() => navigate("/")}
-            />
-          ) : (
-            <section
-              className="glass-panel"
-              style={{ padding: "24px", background: "var(--bg-muted)" }}
-              aria-labelledby="holdings-heading"
-            >
-              <div className="portfolio-toolbar">
-                <div>
-                  <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Position Details</h2>
-                  <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
-                    Sort, search, and page through all current vault positions.
-                  </p>
-                </div>
+          <YieldBreakdownChart totalGain={totalGain} />
+
+          <section
+            className="glass-panel"
+            style={{ padding: "24px", background: "var(--bg-muted)" }}
+            aria-labelledby="holdings-heading"
+          >
+            <div className="portfolio-toolbar">
+              <div>
+                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Position Details</h2>
+                <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
+                  Sort, search, and page through all current vault positions.
+                </p>
+              </div>
 
                 <div className="portfolio-toolbar-controls">
                   <label className="input-group" style={{ minWidth: "180px" }}>
