@@ -6,9 +6,9 @@ import {
   TrendingUp, 
   Wallet as WalletIcon, 
   Loader2, 
-  Info,
   Share2
 } from "./icons";
+import HelpIcon from "./ui/HelpIcon";
 import Skeleton from "./Skeleton";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
