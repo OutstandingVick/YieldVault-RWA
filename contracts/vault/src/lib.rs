@@ -59,6 +59,8 @@ pub enum DataKey {
     ShareBalance(Address),
     ShipmentByStatus(ShipmentStatus),
     ShipmentStatusOf(u64),
+    UserDeposit(Address),
+    PerUserCap,
 }
 
 #[contracttype]
@@ -78,6 +80,7 @@ pub enum VaultError {
     InsufficientShares = 2,
     InvalidAmount = 3,
     ContractPaused = 4,
+    ExceedsUserCap = 5,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -134,6 +137,26 @@ impl YieldVault {
 
     pub fn is_paused(env: Env) -> bool {
         Self::get_state(&env).is_paused
+    }
+
+    pub fn set_per_user_cap(env: Env, cap: i128) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::PerUserCap, &cap);
+    }
+
+    pub fn per_user_cap(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::PerUserCap)
+            .unwrap_or(i128::MAX)
+    }
+
+    pub fn user_deposit(env: Env, user: Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::UserDeposit(user))
+            .unwrap_or(0)
     }
 
     fn get_state(env: &Env) -> VaultState {
@@ -508,7 +531,22 @@ impl YieldVault {
             return Err(VaultError::InvalidAmount);
         }
 
+        let deposit_key = DataKey::UserDeposit(user.clone());
+        let current_deposit: i128 = env.storage().instance().get(&deposit_key).unwrap_or(0);
+        let new_deposit = current_deposit + amount;
+
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PerUserCap)
+            .unwrap_or(i128::MAX);
+        if new_deposit > cap {
+            return Err(VaultError::ExceedsUserCap);
+        }
+
         token_client.transfer(&user, &env.current_contract_address(), &amount);
+
+        env.storage().instance().set(&deposit_key, &new_deposit);
 
         // Update idle state
         let ta = env
@@ -615,6 +653,15 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&user_key, &(user_shares - shares));
+
+        let deposit_key = DataKey::UserDeposit(user.clone());
+        let current_deposit: i128 = env.storage().instance().get(&deposit_key).unwrap_or(0);
+        let new_deposit = if current_deposit > assets_to_return {
+            current_deposit - assets_to_return
+        } else {
+            0
+        };
+        env.storage().instance().set(&deposit_key, &new_deposit);
 
         env.events().publish(
             (symbol_short!("withdraw"), user),
