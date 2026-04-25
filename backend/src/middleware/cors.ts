@@ -63,7 +63,7 @@ export const corsOptions: CorsOptions = {
  * Custom CORS middleware wrapper to handle rejection with 403
  */
 export const corsMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  cors(corsOptions)(req, res, (err) => {
+  return cors(corsOptions)(req, res, (err) => {
     if (err) {
       return res.status(403).json({
         error: 'Forbidden',

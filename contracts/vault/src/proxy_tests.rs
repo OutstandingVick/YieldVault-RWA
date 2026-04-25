@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, BytesN as _}, Address, Env, BytesN};
+use soroban_sdk::{testutils::{Address as _, BytesN as _}, Address, Env, BytesN, String as SorobanString};
 use crate::upgrade::{IMPLEMENTATION_SLOT, ADMIN_SLOT, is_initialized, get_admin};
 
 #[test]
@@ -94,12 +94,12 @@ fn test_check_storage_layout_fingerprint() {
     assert!(fingerprint.contains("Initialized"));
 }
 
-fn generate_storage_fingerprint(env: &Env) -> Vec<core::primitive::str> {
+fn generate_storage_fingerprint(env: &Env) -> &str {
     // In a real script, this would iterate over storage or check specific critical keys
     // For the unit test, we just verify the ones we care about.
     let mut keys = Vec::new(env);
-    if is_initialized(env) { keys.push_back("Initialized"); }
-    if get_admin(env).is_some() { keys.push_back("Admin"); }
+    if is_initialized(env) { keys.push_back(SorobanString::from_str(env, "Initialized")); }
+    if get_admin(env).is_some() { keys.push_back(SorobanString::from_str(env, "Admin")); }
     // ... add more
     
     // Return a simple list of present keys as a simulated fingerprint
