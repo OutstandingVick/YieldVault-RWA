@@ -112,7 +112,7 @@ const columns: DataTableColumn<PortfolioHolding>[] = [
 ];
 
 const PortfolioSummaryCard: React.FC<{ 
-  label: string; 
+  label: React.ReactNode; 
   value: string; 
   icon: React.ReactNode; 
   trend?: string;
@@ -353,7 +353,15 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               trendPositive={totalGain >= 0}
             />
             <PortfolioSummaryCard 
-              label="Weighted Avg APY" 
+              label={
+                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  Weighted Avg APY
+                  <HelpIcon
+                    variant="tooltip"
+                    content="The portfolio-value-weighted average of all active position APYs."
+                  />
+                </span>
+              }
               value={`${weightedApy.toFixed(2)}%`} 
               icon={<Percent size={20} color="var(--accent-cyan)" />}
               trend={weightedApyTrend}
