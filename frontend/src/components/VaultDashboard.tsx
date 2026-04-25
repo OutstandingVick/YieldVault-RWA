@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { 
   Activity, 
   AlertCircle, 
+  Check,
   ShieldCheck, 
   TrendingUp, 
   Wallet as WalletIcon, 
@@ -17,6 +18,7 @@ import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
 import { FormField } from "../forms";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
+import { useTokenAllowance } from "../hooks/useTokenAllowance";
 import CopyButton from "./CopyButton";
 import { copyTextToClipboard } from "../lib/clipboard";
 
@@ -153,6 +155,14 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const depositMutation = useDepositMutation();
   const withdrawMutation = useWithdrawMutation();
+  const { approvalStatus, needsApproval, approve, resetApproval } =
+    useTokenAllowance(walletAddress);
+
+  // Reset approval when deposit amount changes
+  useEffect(() => {
+    resetApproval();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount]);
 
   useEffect(() => {
     const handleTrigger = () => {
@@ -632,6 +642,131 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     </div>
                   </div>
 
+                  {/* Approval wizard — only shown for deposit tab when allowance is insufficient */}
+                  {tab === "deposit" && isValidAmount && needsApproval(enteredAmount) && (
+                    <div
+                      className="glass-panel"
+                      style={{
+                        padding: "14px 16px",
+                        marginBottom: "12px",
+                        border: approvalStatus === "confirmed"
+                          ? "1px solid rgba(0, 240, 255, 0.4)"
+                          : "1px solid rgba(255, 159, 10, 0.4)",
+                        background: approvalStatus === "confirmed"
+                          ? "rgba(0, 240, 255, 0.05)"
+                          : "rgba(255, 159, 10, 0.05)",
+                      }}
+                    >
+                      {/* Step indicators */}
+                      <div className="flex items-center gap-sm" style={{ marginBottom: "10px" }}>
+                        {/* Step 1 */}
+                        <div
+                          className="flex items-center gap-xs"
+                          style={{
+                            fontSize: "0.78rem",
+                            fontWeight: 600,
+                            color: approvalStatus === "confirmed"
+                              ? "var(--accent-cyan)"
+                              : "rgba(255, 159, 10, 0.9)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "20px",
+                              height: "20px",
+                              borderRadius: "50%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              background: approvalStatus === "confirmed"
+                                ? "var(--accent-cyan)"
+                                : "rgba(255, 159, 10, 0.2)",
+                              border: approvalStatus === "confirmed"
+                                ? "none"
+                                : "1px solid rgba(255, 159, 10, 0.6)",
+                              fontSize: "0.7rem",
+                              color: approvalStatus === "confirmed" ? "#000" : "rgba(255, 159, 10, 0.9)",
+                            }}
+                          >
+                            {approvalStatus === "confirmed" ? <Check size={12} /> : "1"}
+                          </div>
+                          Approve USDC
+                        </div>
+                        <div style={{ flex: 1, height: "1px", background: "var(--border-glass)" }} />
+                        {/* Step 2 */}
+                        <div
+                          className="flex items-center gap-xs"
+                          style={{
+                            fontSize: "0.78rem",
+                            fontWeight: 600,
+                            color: approvalStatus === "confirmed"
+                              ? "var(--text-primary)"
+                              : "var(--text-secondary)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "20px",
+                              height: "20px",
+                              borderRadius: "50%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              background: "rgba(255,255,255,0.05)",
+                              border: "1px solid var(--border-glass)",
+                              fontSize: "0.7rem",
+                            }}
+                          >
+                            2
+                          </div>
+                          Deposit
+                        </div>
+                      </div>
+
+                      {approvalStatus !== "confirmed" && (
+                        <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "10px" }}>
+                          You need to approve the vault contract to spend{" "}
+                          <strong style={{ color: "var(--text-primary)" }}>
+                            {enteredAmount.toFixed(2)} USDC
+                          </strong>{" "}
+                          before depositing.
+                        </p>
+                      )}
+
+                      {approvalStatus === "error" && (
+                        <p style={{ fontSize: "0.82rem", color: "var(--text-error)", marginBottom: "10px" }}>
+                          Approval failed. Please try again.
+                        </p>
+                      )}
+
+                      {approvalStatus !== "confirmed" && (
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ width: "100%", padding: "10px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+                          disabled={approvalStatus === "pending" || !walletAddress}
+                          onClick={async () => {
+                            try {
+                              await approve(enteredAmount);
+                              toast.success({ title: "USDC Approved", description: "You can now proceed with your deposit." });
+                            } catch {
+                              toast.error({ title: "Approval Failed", description: "Could not approve USDC. Please try again." });
+                            }
+                          }}
+                        >
+                          {approvalStatus === "pending" ? (
+                            <>
+                              <Loader2 size={14} style={{ animation: "spin 0.9s linear infinite" }} />
+                              Approving...
+                            </>
+                          ) : (
+                            "Approve USDC"
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   <button
                     className="btn btn-primary"
                     style={{
@@ -643,7 +778,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       gap: "8px",
                     }}
                     type="submit"
-                    disabled={isSubmitDisabled}
+                    disabled={
+                      isSubmitDisabled ||
+                      (tab === "deposit" && isValidAmount && needsApproval(enteredAmount) && approvalStatus !== "confirmed")
+                    }
                   >
                     {isProcessing === tab ? (
                       <>
@@ -655,7 +793,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         Waiting for confirmation...
                       </>
                     ) : tab === "deposit" ? (
-                      isCapReached ? "Vault is full" : "Approve & Deposit"
+                      isCapReached ? "Vault is full" : "Deposit"
                     ) : (
                       "Withdraw Funds"
                     )}

@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import WalletConnect from "./WalletConnect";
 import type { DisconnectReason } from "./WalletConnect";
 import ThemeToggle from "./ThemeToggle";
+import TvlTicker from "./TvlTicker";
 import { Layers } from "./icons";
 import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
@@ -154,6 +155,7 @@ const Navbar: FC<NavbarProps> = ({
         </div>
 
         <div className="flex items-center gap-md">
+          <TvlTicker />
           {walletAddress ? (
             <span
               aria-label="Network badge"
