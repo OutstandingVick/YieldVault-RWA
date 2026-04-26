@@ -18,15 +18,18 @@ import {
   type PortfolioHolding,
 } from "../lib/portfolioApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
+import HelpIcon from "../components/ui/HelpIcon";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
 import { useToast } from "../context/ToastContext";
+import YieldBreakdownChart from "../components/YieldBreakdownChart";
 
 interface PortfolioProps {
   walletAddress: string | null;
 }
 
 import { formatCurrency, formatNumber } from "../lib/formatters";
+import HelpIcon from "../components/ui/HelpIcon";
 
 const columns: DataTableColumn<PortfolioHolding>[] = [
   {
@@ -291,7 +294,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   }, [holdings.length]);
 
   return (
-    <div className="glass-panel" style={{ padding: "32px" }}>
+    <div className="glass-panel portfolio-page-panel">
       <PageHeader
         title={
           <>
@@ -331,12 +334,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
           <div
             className="portfolio-summary-grid"
-            style={{ 
-              display: "grid", 
-              gap: "24px", 
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              marginBottom: "8px"
-            }}
+            style={{ marginBottom: "8px" }}
           >
             <PortfolioSummaryCard 
               label="Total Net Value" 
@@ -373,6 +371,8 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               icon={<Briefcase size={20} color="var(--text-secondary)" />}
             />
           </div>
+
+          <YieldBreakdownChart totalGain={totalGain} />
 
           <section
             className="glass-panel"
