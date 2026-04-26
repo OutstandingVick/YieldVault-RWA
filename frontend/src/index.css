@@ -1115,6 +1115,7 @@ button {
 .toast {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   background: var(--bg-surface);
   backdrop-filter: blur(12px);
@@ -1170,6 +1171,7 @@ button {
 }
 
 .toast-copy {
+  flex: 1;
   min-width: 0;
 }
 
@@ -1799,5 +1801,44 @@ button {
     max-width: 150px;
     font-size: 0.7rem;
     padding: 6px 10px;
+  }
+}
+
+/* Transaction Status Animations */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: icon-enter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes icon-enter {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-icon-wrapper {
+    animation: icon-fade 0.3s ease forwards;
+  }
+  @keyframes icon-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 }
