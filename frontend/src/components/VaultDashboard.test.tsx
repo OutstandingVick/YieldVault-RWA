@@ -113,10 +113,10 @@ describe("VaultDashboard", () => {
   it("allows switching between deposit and withdraw tabs", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
-    const depositTab = screen.getByText("Deposit");
-    const withdrawTab = screen.getByText("Withdraw");
+    const depositTab = screen.getByRole("tab", { name: /Deposit/i });
+    const withdrawTab = screen.getByRole("tab", { name: /Withdraw/i });
 
     fireEvent.click(withdrawTab);
     expect(screen.getByText(/Amount to withdraw/i)).toBeInTheDocument();
@@ -125,7 +125,7 @@ describe("VaultDashboard", () => {
     expect(screen.getByText(/Amount to deposit/i)).toBeInTheDocument();
   });
 
-  it("updates the amount input and processes a deposit", async () => {
+  it("updates the amount input and processes a deposit wizard flow", async () => {
     let resolveSubmit!: () => void;
     const submitPromise = new Promise<void>((resolve) => {
       resolveSubmit = resolve;
@@ -134,30 +134,35 @@ describe("VaultDashboard", () => {
     
     renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "100" } });
-    expect(input).toHaveValue(100);
+    
+    // Step 1 -> Step 2
+    fireEvent.click(screen.getByText("Review Transaction"));
+    expect(await screen.findByText(/Confirm Transaction/i)).toBeInTheDocument();
 
-    const button = screen.getByText("Approve & Deposit");
+    // Step 2 -> Step 3
+    const button = screen.getByText("Confirm deposit");
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
+      expect(screen.getByText(/Processing/i)).toBeInTheDocument();
     });
 
     // Resolve the mocked API call
     resolveSubmit();
 
-    // Loading state should be visible while mutation is pending.
-    expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
+    });
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const maxButton = screen.getByRole("button", { name: "MAX" });
     fireEvent.click(maxButton);
@@ -169,10 +174,10 @@ describe("VaultDashboard", () => {
     expect(input).toHaveValue(1250.5);
   });
 
-  it("shows inline error and blocks submit for amounts above balance", async () => {
+  it("shows inline error and blocks review for amounts above balance", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "2000" } });
@@ -181,26 +186,26 @@ describe("VaultDashboard", () => {
     expect(
       screen.getByText(/Deposit amount cannot exceed your available USDC balance./i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Review Transaction/i })).toBeDisabled();
   });
 
   it("shows minimum deposit validation and clears error when corrected", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "0.5" } });
     fireEvent.blur(input);
 
     expect(screen.getByText(/Minimum deposit is 1.00 USDC./i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Review Transaction/i })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "10" } });
 
     await waitFor(() => {
       expect(screen.queryByText(/Minimum deposit is 1.00 USDC./i)).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /Review Transaction/i })).toBeEnabled();
     });
   });
 
