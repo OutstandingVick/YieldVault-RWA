@@ -16,6 +16,7 @@ import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
 import listRouter from './listEndpoints';
+import { startApySnapshotScheduler } from './apySnapshot';
 import {
   register,
   httpRequestCount,
@@ -463,6 +464,12 @@ const server = app.listen(port, () => {
 // Register graceful shutdown handler
 const shutdownHandler = new GracefulShutdownHandler(drainTimeout);
 shutdownHandler.register(server);
+
+// ─── APY Snapshot Scheduler (Issue #374) ────────────────────────────────────
+const stopApyScheduler = startApySnapshotScheduler();
+shutdownHandler.onShutdown(async () => {
+  stopApyScheduler();
+});
 
 // Register database shutdown task
 shutdownHandler.onShutdown(async () => {

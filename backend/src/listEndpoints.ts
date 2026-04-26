@@ -17,6 +17,7 @@ import {
   encodeCursor,
   PaginationConfig,
 } from './pagination';
+import { getApyHistory } from './apySnapshot';
 
 const router = Router();
 
@@ -388,6 +389,61 @@ router.get('/vault/history', (req: Request, res: Response) => {
       error: 'Internal Server Error',
       status: 500,
       message: 'Failed to fetch vault history',
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/vault/apy/history:
+ *   get:
+ *     summary: APY history
+ *     description: >
+ *       Returns one APY data point per day for the requested range.
+ *       Missing days are backfilled with the previous known value (never null).
+ *       Snapshots are written nightly by the APY snapshot job (Issue #374).
+ *     tags: [Vault]
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema: { type: integer, default: 30, minimum: 1, maximum: 365 }
+ *         description: Number of calendar days of history to return (max 365).
+ *     responses:
+ *       200:
+ *         description: Array of APY snapshots ordered oldest → newest
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       date: { type: string, format: date }
+ *                       apy:  { type: number }
+ *                 days: { type: integer }
+ *                 count: { type: integer }
+ */
+router.get('/vault/apy/history', async (req: Request, res: Response) => {
+  try {
+    const rawDays = parseInt((req.query.days as string) || '30', 10);
+    const days = Number.isFinite(rawDays) ? rawDays : 30;
+
+    const data = await getApyHistory(days);
+
+    res.json({
+      data,
+      days,
+      count: data.length,
+    });
+  } catch (err) {
+    console.error('Error fetching APY history:', err);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to fetch APY history',
     });
   }
 });
