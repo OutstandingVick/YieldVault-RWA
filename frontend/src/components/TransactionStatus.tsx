@@ -66,7 +66,11 @@ const TransactionStatus: React.FC<TransactionStatusProps> = ({ status }) => {
       }}
     >
       <div className="flex items-center gap-sm" style={{ marginBottom: "6px" }}>
-        {stateStyles.icon}
+        <div className="status-icon-container">
+          <div key={status.state} className={`status-icon status-icon-${status.state}`}>
+            {stateStyles.icon}
+          </div>
+        </div>
         <strong>{status.title}</strong>
       </div>
       <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.9rem" }}>
@@ -95,6 +99,40 @@ const TransactionStatus: React.FC<TransactionStatusProps> = ({ status }) => {
         @keyframes spin {
           to {
             transform: rotate(360deg);
+          }
+        }
+        .status-icon-container {
+          position: relative;
+          width: 16px;
+          height: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .status-icon {
+          position: absolute;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          animation: icon-enter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        @keyframes icon-enter {
+          from {
+            transform: scale(0.5);
+            opacity: 0;
+          }
+          to {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .status-icon {
+            animation: icon-fade 0.3s ease forwards;
+          }
+          @keyframes icon-fade {
+            from { opacity: 0; }
+            to { opacity: 1; }
           }
         }
       `}</style>

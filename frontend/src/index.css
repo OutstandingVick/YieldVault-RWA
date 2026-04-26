@@ -1114,14 +1114,39 @@ button {
 
 .toast {
   display: flex;
-  justify-content: space-between;
+  align-items: flex-start;
   gap: 12px;
-  padding: 14px 16px;
-  border-radius: 16px;
+  background: var(--bg-surface);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border-glass);
-  background: rgba(11, 16, 24, 0.92);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  min-width: 320px;
+  max-width: 420px;
   box-shadow: var(--shadow-glass);
   pointer-events: auto;
+  animation: slide-in 0.3s ease-out both;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: fade-in 0.3s ease-out both;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }
 
 [data-theme='light'] .toast {
