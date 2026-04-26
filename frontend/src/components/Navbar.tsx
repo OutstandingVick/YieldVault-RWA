@@ -1,4 +1,4 @@
-import { useEffect, useState, type FC } from "react";
+import { useEffect, useRef, useState, type FC } from "react";
 import { NavLink } from "react-router-dom";
 import { X, Menu } from "lucide-react";
 import WalletConnect from "./WalletConnect";
@@ -28,6 +28,20 @@ const Navbar: FC<NavbarProps> = ({
   const [networkLabel, setNetworkLabel] = useState(
     networkConfig.isTestnet ? "Testnet" : "Mainnet",
   );
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   useEffect(() => {
     let active = true;
@@ -66,6 +80,7 @@ const Navbar: FC<NavbarProps> = ({
   return (
     <nav
       aria-label="Primary"
+      ref={menuRef}
       style={{
         position: "fixed",
         top: 0,
@@ -118,6 +133,7 @@ const Navbar: FC<NavbarProps> = ({
           <div className="flex gap-lg nav-desktop-links" style={{ marginLeft: "32px" }}>
             <NavLink
               to="/"
+              className="nav-link"
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -131,6 +147,7 @@ const Navbar: FC<NavbarProps> = ({
             </NavLink>
             <NavLink
               to="/portfolio"
+              className="nav-link"
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -144,6 +161,7 @@ const Navbar: FC<NavbarProps> = ({
             </NavLink>
             <NavLink
               to="/analytics"
+              className="nav-link"
               style={({ isActive }) => ({
                 color: isActive
                   ? "var(--accent-cyan)"
@@ -249,6 +267,45 @@ const Navbar: FC<NavbarProps> = ({
           )}
         </div>
       </div>
+
+      {/* Mobile dropdown menu */}
+      {menuOpen && (
+        <div id="mobile-nav-menu" className="nav-mobile-menu" role="menu">
+          <NavLink
+            to="/"
+            role="menuitem"
+            className="nav-mobile-link"
+            onClick={() => setMenuOpen(false)}
+            style={({ isActive }) => ({
+              color: isActive ? "var(--accent-cyan)" : "var(--text-primary)",
+            })}
+          >
+            {t("nav.vaults")}
+          </NavLink>
+          <NavLink
+            to="/portfolio"
+            role="menuitem"
+            className="nav-mobile-link"
+            onClick={() => setMenuOpen(false)}
+            style={({ isActive }) => ({
+              color: isActive ? "var(--accent-cyan)" : "var(--text-primary)",
+            })}
+          >
+            {t("nav.portfolio")}
+          </NavLink>
+          <NavLink
+            to="/analytics"
+            role="menuitem"
+            className="nav-mobile-link"
+            onClick={() => setMenuOpen(false)}
+            style={({ isActive }) => ({
+              color: isActive ? "var(--accent-cyan)" : "var(--text-primary)",
+            })}
+          >
+            {t("nav.analytics")}
+          </NavLink>
+        </div>
+      )}
     </nav>
   );
 };
