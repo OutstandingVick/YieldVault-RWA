@@ -1,8 +1,10 @@
-import { useEffect, useState, type FC } from "react";
+import { useEffect, useRef, useState, type FC } from "react";
 import { NavLink } from "react-router-dom";
+import { X, Menu } from "lucide-react";
 import WalletConnect from "./WalletConnect";
 import type { DisconnectReason } from "./WalletConnect";
 import ThemeToggle from "./ThemeToggle";
+import TvlTicker from "./TvlTicker";
 import { Layers } from "./icons";
 import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
@@ -26,7 +28,23 @@ const Navbar: FC<NavbarProps> = ({
   const [networkLabel, setNetworkLabel] = useState(
     networkConfig.isTestnet ? "Testnet" : "Mainnet",
   );
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  // Resolve network label
   useEffect(() => {
     let active = true;
 
@@ -42,13 +60,15 @@ const Navbar: FC<NavbarProps> = ({
         const isMainnet = details.networkPassphrase
           ?.toLowerCase()
           .includes("public");
+
         setNetworkLabel(isMainnet ? "Mainnet" : "Testnet");
       } catch {
-        // Keep fallback config-derived label when wallet network cannot be queried.
+        // fallback stays
       }
     };
 
     void resolveNetworkLabel();
+
     const interval = window.setInterval(() => {
       void resolveNetworkLabel();
     }, 10_000);
@@ -59,11 +79,10 @@ const Navbar: FC<NavbarProps> = ({
     };
   }, [walletAddress]);
 
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
   return (
     <nav
       aria-label="Primary"
+      ref={menuRef}
       style={{
         position: "fixed",
         top: 0,
@@ -78,6 +97,7 @@ const Navbar: FC<NavbarProps> = ({
       }}
     >
       <div className="container flex justify-between items-center">
+        {/* LEFT */}
         <div className="flex items-center gap-xl">
           <NavLink
             to="/"
@@ -96,6 +116,7 @@ const Navbar: FC<NavbarProps> = ({
             >
               <Layers size={24} color="#000" />
             </div>
+
             <span
               style={{
                 fontFamily: "var(--font-display)",
@@ -113,52 +134,26 @@ const Navbar: FC<NavbarProps> = ({
             </span>
           </NavLink>
 
+          {/* Desktop links */}
           <div className="flex gap-lg nav-desktop-links" style={{ marginLeft: "32px" }}>
-            <NavLink
-              to="/"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: "var(--font-medium)",
-                fontSize: "var(--text-base)",
-              })}
-            >
+            <NavLink to="/" className="nav-link">
               {t("nav.vaults")}
             </NavLink>
-            <NavLink
-              to="/portfolio"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: "var(--font-medium)",
-                fontSize: "var(--text-base)",
-              })}
-            >
+            <NavLink to="/portfolio" className="nav-link">
               {t("nav.portfolio")}
             </NavLink>
-            <NavLink
-              to="/analytics"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: "var(--font-medium)",
-                fontSize: "var(--text-base)",
-              })}
-            >
+            <NavLink to="/analytics" className="nav-link">
               {t("nav.analytics")}
             </NavLink>
           </div>
         </div>
 
+        {/* RIGHT */}
         <div className="flex items-center gap-md">
+          <TvlTicker />
+
           <div className="flex items-center gap-sm nav-desktop-links">
-            {walletAddress ? (
+            {walletAddress && (
               <span
                 aria-label="Network badge"
                 title={`Connected network: ${networkLabel}`}
@@ -167,7 +162,6 @@ const Navbar: FC<NavbarProps> = ({
                   borderRadius: "999px",
                   fontSize: "0.75rem",
                   fontWeight: "var(--font-semibold)",
-                  letterSpacing: "0.04em",
                   textTransform: "uppercase",
                   border:
                     networkLabel === "Mainnet"
@@ -185,7 +179,7 @@ const Navbar: FC<NavbarProps> = ({
               >
                 {networkLabel}
               </span>
-            ) : null}
+            )}
             <ThemeToggle />
           </div>
 
@@ -196,9 +190,9 @@ const Navbar: FC<NavbarProps> = ({
             onDisconnect={onDisconnect}
           />
 
+          {/* Mobile toggle */}
           <button
             className="nav-mobile-toggle"
-            style={{ display: "none" }}
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
           >
@@ -207,46 +201,40 @@ const Navbar: FC<NavbarProps> = ({
         </div>
       </div>
 
-      <div className={`nav-mobile-menu ${isMobileMenuOpen ? "is-open" : ""}`}>
-        <NavLink
-          to="/"
-          className={({ isActive }) => `nav-mobile-link ${isActive ? "active" : ""}`}
-          onClick={() => setIsMobileMenuOpen(false)}
-        >
-          {t("nav.vaults")}
-        </NavLink>
-        <NavLink
-          to="/portfolio"
-          className={({ isActive }) => `nav-mobile-link ${isActive ? "active" : ""}`}
-          onClick={() => setIsMobileMenuOpen(false)}
-        >
-          {t("nav.portfolio")}
-        </NavLink>
-        <NavLink
-          to="/analytics"
-          className={({ isActive }) => `nav-mobile-link ${isActive ? "active" : ""}`}
-          onClick={() => setIsMobileMenuOpen(false)}
-        >
-          {t("nav.analytics")}
-        </NavLink>
-        <div className="flex items-center justify-between" style={{ marginTop: "auto", paddingTop: "24px" }}>
-          <ThemeToggle />
-          {walletAddress && (
-            <span
-              style={{
-                padding: "6px 12px",
-                borderRadius: "999px",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                background: networkLabel === "Mainnet" ? "rgba(34, 197, 94, 0.1)" : "rgba(0, 240, 255, 0.1)",
-                color: networkLabel === "Mainnet" ? "rgb(34, 197, 94)" : "var(--accent-cyan)",
-              }}
-            >
-              {networkLabel}
-            </span>
-          )}
+      {/* Mobile Menu */}
+      {isMobileMenuOpen && (
+        <div className="nav-mobile-menu is-open">
+          <NavLink to="/" onClick={() => setIsMobileMenuOpen(false)}>
+            {t("nav.vaults")}
+          </NavLink>
+          <NavLink to="/portfolio" onClick={() => setIsMobileMenuOpen(false)}>
+            {t("nav.portfolio")}
+          </NavLink>
+          <NavLink to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
+            {t("nav.analytics")}
+          </NavLink>
+
+          <div className="flex items-center justify-between" style={{ marginTop: "24px" }}>
+            <ThemeToggle />
+            {walletAddress && <span>{networkLabel}</span>}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Dropdown fallback menu */}
+      {menuOpen && (
+        <div className="nav-mobile-menu" role="menu">
+          <NavLink to="/" role="menuitem" onClick={() => setMenuOpen(false)}>
+            {t("nav.vaults")}
+          </NavLink>
+          <NavLink to="/portfolio" role="menuitem" onClick={() => setMenuOpen(false)}>
+            {t("nav.portfolio")}
+          </NavLink>
+          <NavLink to="/analytics" role="menuitem" onClick={() => setMenuOpen(false)}>
+            {t("nav.analytics")}
+          </NavLink>
+        </div>
+      )}
     </nav>
   );
 };
