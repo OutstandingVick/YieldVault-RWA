@@ -16,6 +16,7 @@ import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
 import listRouter from './listEndpoints';
+import { loginHandler, refreshHandler } from './auth';
 import {
   register,
   httpRequestCount,
@@ -225,6 +226,21 @@ app.get('/api/vault/summary', (req: Request, res: Response) => {
   res.setHeader('deprecation', 'true');
   res.redirect(308, '/api/v1/vault/summary');
 });
+
+// ─── Auth Routes (Issue #377) ────────────────────────────────────────────────
+
+/**
+ * POST /auth/login
+ * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
+ */
+app.post('/auth/login', apiLimiter, loginHandler);
+
+/**
+ * POST /auth/refresh
+ * Rotate the refresh token and issue a new access JWT.
+ * Reuse of a revoked refresh token invalidates the entire session (401).
+ */
+app.post('/auth/refresh', apiLimiter, refreshHandler);
 
 // Versioned API v1
 const apiV1 = express.Router();
