@@ -13,13 +13,13 @@ describe('YieldVault Smoke Tests', () => {
   it('should navigate to deposit flow', () => {
     cy.contains('button', 'Connect Wallet').click();
     cy.contains('button', 'Deposit').click();
-    cy.contains('Deposit amount').should('be.visible');
+    cy.contains('Amount to deposit').should('be.visible');
   });
 
   it('should navigate to withdrawal flow', () => {
     cy.contains('button', 'Connect Wallet').click();
     cy.contains('button', 'Withdraw').click();
-    cy.contains('Withdrawal amount').should('be.visible');
+    cy.contains('Amount to withdraw').should('be.visible');
   });
 
   it('should view transaction history', () => {
