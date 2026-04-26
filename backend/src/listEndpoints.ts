@@ -1,7 +1,7 @@
 /**
  * @file listEndpoints.ts
  * List endpoints with pagination and filtering support.
- * 
+ *
  * Provides consistent list endpoints for:
  * - Transactions
  * - Portfolio holdings
@@ -12,6 +12,7 @@ import { Router, Request, Response } from 'express';
 import {
   parsePaginationQuery,
   paginateWithCursor,
+  paginateWithOffset,
   sortItems,
   sendPaginatedResponse,
   encodeCursor,
@@ -40,6 +41,7 @@ const router = Router();
 interface Transaction {
   id: string;
   type: 'deposit' | 'withdrawal';
+  status: 'pending' | 'completed' | 'failed';
   amount: string;
   asset: string;
   timestamp: string;
@@ -103,6 +105,7 @@ interface VaultHistoryPoint {
 const MOCK_TRANSACTIONS: Transaction[] = Array.from({ length: 100 }, (_, i) => ({
   id: `tx-${i + 1}`,
   type: i % 2 === 0 ? 'deposit' : 'withdrawal',
+  status: i % 11 === 0 ? 'failed' : i % 3 === 0 ? 'pending' : 'completed',
   amount: (Math.random() * 1000).toFixed(2),
   asset: ['XLM', 'USDC', 'yUSDC', 'RWA'][i % 4],
   timestamp: new Date(Date.now() - i * 3600000).toISOString(),
@@ -159,17 +162,62 @@ const VAULT_HISTORY_PAGINATION_CONFIG: Partial<PaginationConfig> = {
  */
 function filterTransactions(
   transactions: Transaction[],
-  filters: { type?: string; walletAddress?: string }
+  filters: { type?: string; status?: string; walletAddress?: string; from?: string; to?: string }
 ): Transaction[] {
+  const from = parseDateFilter(filters.from, 'start');
+  const to = parseDateFilter(filters.to, 'end');
+
   return transactions.filter((tx) => {
     if (filters.type && filters.type !== 'all' && tx.type !== filters.type) {
+      return false;
+    }
+    if (filters.status && filters.status !== 'all' && tx.status !== filters.status) {
       return false;
     }
     if (filters.walletAddress && tx.walletAddress !== filters.walletAddress) {
       return false;
     }
+    if (!isTransactionInDateRange(tx.timestamp, from, to)) {
+      return false;
+    }
     return true;
   });
+}
+
+function parseDateFilter(value: string | undefined, boundary: 'start' | 'end'): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const hasTimeComponent = value.includes('T');
+  const normalizedValue = hasTimeComponent
+    ? value
+    : boundary === 'start'
+      ? `${value}T00:00:00.000Z`
+      : `${value}T23:59:59.999Z`;
+  const timestamp = Date.parse(normalizedValue);
+
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function isTransactionInDateRange(
+  timestamp: string,
+  from: number | null,
+  to: number | null
+): boolean {
+  const transactionTime = Date.parse(timestamp);
+
+  if (Number.isNaN(transactionTime)) {
+    return false;
+  }
+  if (from !== null && transactionTime < from) {
+    return false;
+  }
+  if (to !== null && transactionTime > to) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -231,6 +279,15 @@ function filterVaultHistory(
  *         name: type
  *         schema: { type: string, enum: [deposit, withdrawal, all] }
  *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [pending, completed, failed, all] }
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *       - in: query
  *         name: walletAddress
  *         schema: { type: string }
  *     responses:
@@ -253,6 +310,9 @@ router.get('/transactions', (req: Request, res: Response) => {
     const pagination = parsePaginationQuery(req, TRANSACTION_PAGINATION_CONFIG);
     const filters = {
       type: req.query.type as string | undefined,
+      status: req.query.status as string | undefined,
+      from: req.query.from as string | undefined,
+      to: req.query.to as string | undefined,
       walletAddress: req.query.walletAddress as string | undefined,
     };
 
@@ -264,14 +324,11 @@ router.get('/transactions', (req: Request, res: Response) => {
       filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder || 'desc');
     }
 
-    // Paginate with cursor
-    const { data, pagination: paginationMeta } = paginateWithCursor(
-      filtered,
-      pagination,
-      (tx) => encodeCursor(tx.id)
-    );
+    const paginated = pagination.page
+      ? paginateWithOffset(filtered, pagination)
+      : paginateWithCursor(filtered, pagination, (tx) => encodeCursor(tx.id));
 
-    sendPaginatedResponse(res, data, paginationMeta);
+    sendPaginatedResponse(res, paginated.data, paginated.pagination);
   } catch (error) {
     console.error('Error fetching transactions:', error);
     res.status(500).json({
@@ -375,10 +432,8 @@ router.get('/vault/history', (req: Request, res: Response) => {
     }
 
     // Paginate with cursor
-    const { data, pagination: paginationMeta } = paginateWithCursor(
-      filtered,
-      pagination,
-      (point) => encodeCursor(point.date)
+    const { data, pagination: paginationMeta } = paginateWithCursor(filtered, pagination, (point) =>
+      encodeCursor(point.date)
     );
 
     sendPaginatedResponse(res, data, paginationMeta);
