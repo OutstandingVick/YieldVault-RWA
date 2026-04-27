@@ -29,6 +29,9 @@ interface PortfolioProps {
   walletAddress: string | null;
 }
 
+import { formatCurrency, formatNumber } from "../lib/formatters";
+
+
 const columns: DataTableColumn<PortfolioHolding>[] = [
   {
     id: "asset",

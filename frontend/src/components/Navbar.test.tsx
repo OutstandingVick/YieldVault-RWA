@@ -4,23 +4,29 @@ import Navbar from './Navbar';
 import { ThemeProvider } from '../context/ThemeContext';
 import { ToastProvider } from '../context/ToastContext';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 describe('Navbar', () => {
     const mockOnConnect = vi.fn();
     const mockOnDisconnect = vi.fn();
+    const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+    });
 
     it('renders the navbar with navigation links', () => {
         render(
             <MemoryRouter>
-                <ToastProvider>
-                    <ThemeProvider>
-                        <Navbar
-                            walletAddress={null}
-                            onConnect={mockOnConnect}
-                            onDisconnect={mockOnDisconnect}
-                        />
-                    </ThemeProvider>
-                </ToastProvider>
+                <QueryClientProvider client={queryClient}>
+                    <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={null}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </QueryClientProvider>
             </MemoryRouter>
         );
 
@@ -34,15 +40,17 @@ describe('Navbar', () => {
     it('renders the wallet connect button', () => {
         render(
             <MemoryRouter>
-                <ToastProvider>
-                    <ThemeProvider>
-                        <Navbar
-                            walletAddress={null}
-                            onConnect={mockOnConnect}
-                            onDisconnect={mockOnDisconnect}
-                        />
-                    </ThemeProvider>
-                </ToastProvider>
+                <QueryClientProvider client={queryClient}>
+                    <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={null}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </QueryClientProvider>
             </MemoryRouter>
         );
 
@@ -73,15 +81,17 @@ describe('Navbar', () => {
         const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
         render(
             <MemoryRouter>
-                <ToastProvider>
-                    <ThemeProvider>
-                        <Navbar
-                            walletAddress={fullAddress}
-                            onConnect={mockOnConnect}
-                            onDisconnect={mockOnDisconnect}
-                        />
-                    </ThemeProvider>
-                </ToastProvider>
+                <QueryClientProvider client={queryClient}>
+                    <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={fullAddress}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </QueryClientProvider>
             </MemoryRouter>
         );
 

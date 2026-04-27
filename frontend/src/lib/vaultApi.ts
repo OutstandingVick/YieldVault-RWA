@@ -68,7 +68,7 @@ export async function getSharePrice(): Promise<number> {
   };
 
   const tx = new TransactionBuilder(
-    sourceAccount as TxSourceAccount,
+    sourceAccount as ConstructorParameters<typeof TransactionBuilder>[0],
     {
       fee: BASE_FEE,
       networkPassphrase: networkConfig.networkPassphrase,
@@ -103,9 +103,7 @@ export async function getSharePrice(): Promise<number> {
   // The i128 XDR value is accessed via the SDK's scVal helpers.
   // hi is the high 64 bits (signed), lo is the low 64 bits (unsigned).
   const raw = returnValue.i128();
-  const hi = typeof raw.hi === "function" ? raw.hi() : raw.hi;
-  const lo = typeof raw.lo === "function" ? raw.lo() : raw.lo;
-  const rawBigInt = (BigInt(hi.toString()) << 64n) | BigInt(lo.toString());
+  const rawBigInt = (BigInt(raw.hi().toString()) << 64n) | BigInt(raw.lo().toString());
 
   return decodeSharePrice(rawBigInt);
 }
