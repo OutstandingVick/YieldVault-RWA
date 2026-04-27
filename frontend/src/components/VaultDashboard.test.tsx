@@ -6,6 +6,11 @@ import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import * as vaultApi from "../lib/vaultApi";
+import { VaultSummary } from "../lib/vaultApi";
+import * as portfolioHooks from "../hooks/usePortfolioData";
+import * as vaultDataHooks from "../hooks/useVaultData";
+import { UseQueryResult } from "@tanstack/react-query";
+import { PortfolioHolding } from "../lib/portfolioApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
@@ -14,6 +19,15 @@ vi.mock("../lib/vaultApi", async (importOriginal) => {
     submitDeposit: vi.fn(),
   };
 });
+
+vi.mock("../hooks/usePortfolioData", () => ({
+  usePortfolioHoldings: vi.fn(),
+}));
+
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
 
 const mockSummary = {
   tvl: 12450800,
@@ -25,6 +39,7 @@ const mockSummary = {
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
   updatedAt: "2026-03-25T10:00:00.000Z",
+  contractPaused: false,
   strategy: {
     id: "stellar-benji",
     name: "Franklin BENJI Connector",
@@ -80,6 +95,22 @@ describe("VaultDashboard", () => {
         }),
       ),
     );
+    vi.mocked(portfolioHooks.usePortfolioHoldings).mockReturnValue({
+      data: [{ id: "1", shares: 100, valueUsd: 100, asset: "USDC", vaultName: "RWA Vault", symbol: "yvUSDC", apy: 5, unrealizedGainUsd: 0, issuer: "G...", status: "active" }],
+      isLoading: false,
+    } as unknown as UseQueryResult<PortfolioHolding[], Error>);
+
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: { ...mockSummary, contractPaused: false },
+      isLoading: false,
+      error: null,
+    } as unknown as UseQueryResult<VaultSummary, Error>);
+
+    vi.mocked(vaultDataHooks.useVaultHistory).mockReturnValue({
+      data: [{ date: "2026-03-20", value: 1.0 }, { date: "2026-03-25", value: 1.084 }],
+      isLoading: false,
+      error: null,
+    } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
   });
 
   afterEach(() => {
@@ -206,10 +237,11 @@ describe("VaultDashboard", () => {
 
   it("shows a normalized API error message when data loading fails", async () => {
     vi.useRealTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
-    );
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: new Error("Failed to fetch"),
+    } as unknown as UseQueryResult<VaultSummary, Error>);
 
     renderDashboard("GABC123");
 

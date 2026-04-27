@@ -23,6 +23,9 @@ import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
 import { useToast } from "../context/ToastContext";
 import YieldBreakdownChart from "../components/YieldBreakdownChart";
+import EmptyState from "../components/shared/EmptyState";
+import { PackageSearch } from "../components/icons";
+import { useNavigate } from "react-router-dom";
 
 interface PortfolioProps {
   walletAddress: string | null;
@@ -163,6 +166,7 @@ const PortfolioSummaryCard: React.FC<{
 
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const toast = useToast();
+  const navigate = useNavigate();
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [error, setError] = useState<ApiError | ValidationError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -379,94 +383,106 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             style={{ padding: "24px", background: "var(--bg-muted)" }}
             aria-labelledby="holdings-heading"
           >
-            <div className="portfolio-toolbar">
-              <div>
-                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Position Details</h2>
-                <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
-                  Sort, search, and page through all current vault positions.
-                </p>
-              </div>
-
-              <div className="portfolio-toolbar-controls">
-                <label className="input-group" style={{ minWidth: "180px" }}>
-                  <span className="text-body-sm">Status Filter</span>
-                  <div className="input-wrapper">
-                    <select
-                      className="portfolio-select"
-                      value={urlState.filters.status || "all"}
-                      onChange={(e) => setFilters({ status: e.target.value })}
-                      aria-label="Filter by status"
-                    >
-                      <option value="all">All Statuses</option>
-                      <option value="active">Active</option>
-                      <option value="pending">Pending</option>
-                    </select>
+            {holdings.length === 0 && !isLoading ? (
+              <EmptyState
+                title="No Positions Found"
+                description="You haven't deposited any assets into the vault yet. Start earning institutional-grade yield by depositing USDC."
+                icon={<PackageSearch />}
+                ctaLabel="Deposit USDC"
+                onAction={() => navigate("/?action=deposit")}
+              />
+            ) : (
+              <>
+                <div className="portfolio-toolbar">
+                  <div>
+                    <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Position Details</h2>
+                    <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
+                      Sort, search, and page through all current vault positions.
+                    </p>
                   </div>
-                </label>
 
-                <label className="input-group" style={{ minWidth: "220px" }}>
-                  <span className="text-body-sm">Search positions</span>
-                  <div className="input-wrapper">
-                    <input
-                      className="input-field"
-                      type="search"
-                      placeholder="Search asset, vault, issuer..."
-                      value={urlState.filters.search || ""}
-                      onChange={(event) => setSearch(event.target.value)}
-                      style={{ fontSize: "var(--text-base)", fontFamily: "var(--font-sans)" }}
-                    />
+                  <div className="portfolio-toolbar-controls">
+                    <label className="input-group" style={{ minWidth: "180px" }}>
+                      <span className="text-body-sm">Status Filter</span>
+                      <div className="input-wrapper">
+                        <select
+                          className="portfolio-select"
+                          value={urlState.filters.status || "all"}
+                          onChange={(e) => setFilters({ status: e.target.value })}
+                          aria-label="Filter by status"
+                        >
+                          <option value="all">All Statuses</option>
+                          <option value="active">Active</option>
+                          <option value="pending">Pending</option>
+                        </select>
+                      </div>
+                    </label>
+
+                    <label className="input-group" style={{ minWidth: "220px" }}>
+                      <span className="text-body-sm">Search positions</span>
+                      <div className="input-wrapper">
+                        <input
+                          className="input-field"
+                          type="search"
+                          placeholder="Search asset, vault, issuer..."
+                          value={urlState.filters.search || ""}
+                          onChange={(event) => setSearch(event.target.value)}
+                          style={{ fontSize: "var(--text-base)", fontFamily: "var(--font-sans)" }}
+                        />
+                      </div>
+                    </label>
+
+                    {(urlState.filters.search || (urlState.filters.status && urlState.filters.status !== "all")) && (
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={reset}
+                        style={{ alignSelf: "flex-end", height: "42px" }}
+                      >
+                        Reset Filters
+                      </button>
+                    )}
                   </div>
-                </label>
-
-                {(urlState.filters.search || (urlState.filters.status && urlState.filters.status !== "all")) && (
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={reset}
-                    style={{ alignSelf: "flex-end", height: "42px" }}
-                  >
-                    Reset Filters
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="text-body-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
-              {isLoading ? "Loading positions..." : `${totalItems} positions found`}
-            </div>
-
-            <DataTable
-              caption="Portfolio holdings"
-              columns={columns}
-              rows={rows}
-              rowKey={(row) => row.id}
-              emptyMessage={
-                isLoading
-                  ? "Loading positions..."
-                  : "No positions matched the current filters."
-              }
-              isLoading={isLoading}
-              skeletonRows={state.pageSize}
-              sortBy={state.sortBy}
-              sortDirection={state.sortDirection}
-              onSortChange={setSort}
-              pagination={{
-                page,
-                pageSize: state.pageSize,
-                totalItems,
-                totalPages,
-              }}
-              onPageChange={setPage}
-              onPageSizeChange={setPageSize}
-              renderRowDetails={(row) => (
-                <div className="portfolio-row-meta">
-                  <span className={`tag ${row.status === "active" ? "cyan" : ""}`}>
-                    {row.status}
-                  </span>
-                  <span>{row.symbol}</span>
                 </div>
-              )}
-            />
+
+                <div className="text-body-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
+                  {isLoading ? "Loading positions..." : `${totalItems} positions found`}
+                </div>
+
+                <DataTable
+                  caption="Portfolio holdings"
+                  columns={columns}
+                  rows={rows}
+                  rowKey={(row) => row.id}
+                  emptyMessage={
+                    isLoading
+                      ? "Loading positions..."
+                      : "No positions matched the current filters."
+                  }
+                  isLoading={isLoading}
+                  skeletonRows={state.pageSize}
+                  sortBy={state.sortBy}
+                  sortDirection={state.sortDirection}
+                  onSortChange={setSort}
+                  pagination={{
+                    page,
+                    pageSize: state.pageSize,
+                    totalItems,
+                    totalPages,
+                  }}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  renderRowDetails={(row) => (
+                    <div className="portfolio-row-meta">
+                      <span className={`tag ${row.status === "active" ? "cyan" : ""}`}>
+                        {row.status}
+                      </span>
+                      <span>{row.symbol}</span>
+                    </div>
+                  )}
+                />
+              </>
+            )}
           </section>
         </div>
       )}

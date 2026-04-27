@@ -123,6 +123,7 @@ export interface VaultSummary {
   exchangeRate: number;
   networkFeeEstimate: string;
   updatedAt: string;
+  contractPaused: boolean;
   strategy: StrategyMetadata;
 }
 

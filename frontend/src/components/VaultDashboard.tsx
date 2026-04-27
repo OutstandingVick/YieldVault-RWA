@@ -8,7 +8,6 @@ import {
   TrendingUp, 
   Wallet as WalletIcon, 
   Loader2,
-  Loader2, 
   Share2
 } from "./icons";
 import Skeleton from "./Skeleton";
@@ -26,6 +25,9 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { AlertTriangle } from "./icons";
 import HelpIcon from "./ui/HelpIcon";
+import EmptyState from "./shared/EmptyState";
+import { usePortfolioHoldings } from "../hooks/usePortfolioData";
+import { PackageSearch } from "./icons";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
@@ -142,8 +144,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     utilization,
     isCapWarning,
     isCapReached,
+    contractPaused,
   } = useVault();
+  const { data: holdings = [], isLoading: isHoldingsLoading } = usePortfolioHoldings(walletAddress);
+  const totalShares = holdings.reduce((sum, h) => sum + h.shares, 0);
   const toast = useToast();
+
+  const hasNoActivity = walletAddress && !isLoading && !isHoldingsLoading && totalShares === 0;
 
   const [activeTab, setActiveTab] = useState<TransactionTab>("deposit");
   const [amount, setAmount] = useState("");
@@ -178,7 +185,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const depositMutation = useDepositMutation();
   const withdrawMutation = useWithdrawMutation();
-  const { approvalStatus, needsApproval, approve, resetApproval } =
+  const { allowance, approvalStatus, needsApproval, approve, resetApproval } =
     useTokenAllowance(walletAddress);
 
   // Reset approval when deposit amount changes
@@ -233,7 +240,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const isSubmitDisabled =
     !walletAddress ||
     isBusy ||
+    approvalStatus === "pending" ||
     Boolean(activeAmountError) ||
+    contractPaused ||
     (activeTab === "deposit" && isCapReached);
 
 
@@ -292,189 +301,209 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   return (
     <div className="vault-dashboard gap-lg">
-      <div className="vault-dashboard-stats">
-        <div className="glass-panel vault-stats-panel">
-          {error && (
-            <ApiStatusBanner error={{ ...error, userMessage: "Failed to load vault data" }} />
-          )}
-          <div className="vault-stats-header flex justify-between items-center" style={{ marginBottom: "24px" }}>
-            <div>
-              <h2 style={{ fontSize: "1.5rem", marginBottom: "4px" }}>
-                Global RWA Yield Fund
-              </h2>
-              <span
-                className="tag"
-                style={{
-                  background: "rgba(255, 255, 255, 0.05)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                Tokens: USDC
-              </span>
-              <SharePriceDisplay />
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}>
-                Current APY
-                <HelpIcon
-                  variant="tooltip"
-                  content="Annualized yield based on the historical performance of the vault's underlying assets."
-                />
-              </div>
-              <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
-                {isLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              height: "1px",
-              background: "var(--border-glass)",
-              margin: "24px 0",
+      {hasNoActivity ? (
+        <div style={{ gridArea: "stats / 1 / span 2 / 1" }}>
+          <EmptyState
+            title="Start Your Yield Journey"
+            description="You have no active positions in this vault. Deposit USDC to start earning stable, predictable yield backed by Real-World Assets."
+            icon={<PackageSearch />}
+            ctaLabel="Deposit USDC"
+            onAction={() => {
+              setActiveTab("deposit");
+              setTimeout(() => {
+                const input = document.querySelector(".input-field") as HTMLInputElement | null;
+                if (input) input.focus();
+              }, 0);
             }}
           />
+        </div>
+      ) : (
+        <>
+          <div className="vault-dashboard-stats">
+            <div className="glass-panel vault-stats-panel">
+              {error && (
+                <ApiStatusBanner error={{ ...error, userMessage: "Failed to load vault data" }} />
+              )}
+              <div className="vault-stats-header flex justify-between items-center" style={{ marginBottom: "24px" }}>
+                <div>
+                  <h2 style={{ fontSize: "1.5rem", marginBottom: "4px" }}>
+                    Global RWA Yield Fund
+                  </h2>
+                  <span
+                    className="tag"
+                    style={{
+                      background: "rgba(255, 255, 255, 0.05)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    Tokens: USDC
+                  </span>
+                  <SharePriceDisplay />
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}>
+                    Current APY
+                    <HelpIcon
+                      variant="tooltip"
+                      content="Annualized yield based on the historical performance of the vault's underlying assets."
+                    />
+                  </div>
+                  <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
+                    {isLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
+                  </div>
+                </div>
+              </div>
 
-          <div className="vault-stats-meta flex gap-xl" style={{ marginBottom: "32px" }}>
-            <div>
               <div
                 style={{
-                  color: "var(--text-secondary)",
-                  fontSize: "0.85rem",
-                  marginBottom: "4px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
+                  height: "1px",
+                  background: "var(--border-glass)",
+                  margin: "24px 0",
                 }}
-              >
-                Total Value Locked
-                <span
-                  className="flex items-center gap-xs"
+              />
+
+              <div className="vault-stats-meta flex gap-xl" style={{ marginBottom: "32px" }}>
+                <div>
+                  <div
+                    style={{
+                      color: "var(--text-secondary)",
+                      fontSize: "0.85rem",
+                      marginBottom: "4px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    Total Value Locked
+                    <span
+                      className="flex items-center gap-xs"
+                      style={{
+                        color: "var(--accent-cyan)",
+                        fontSize: "0.7rem",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />
+                      {isLoading ? "Syncing" : "Live"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>
+                    {isLoading ? <Skeleton width="140px" height="1.5rem" /> : formattedTvl}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "4px" }}>
+                    Underlying Asset
+                  </div>
+                  <div className="flex items-center gap-sm">
+                    <ShieldCheck size={16} color="var(--accent-cyan)" />
+                    <span style={{ fontSize: "1.1rem", fontWeight: 500 }}>{summary.assetLabel}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-panel" style={{ padding: "20px", background: "var(--bg-muted)" }}>
+                <h3
                   style={{
-                    color: "var(--accent-cyan)",
-                    fontSize: "0.7rem",
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
+                    fontSize: "1.1rem",
+                    marginBottom: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
                   }}
                 >
-                  <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />
-                  {isLoading ? "Syncing" : "Live"}
-                </span>
-              </div>
-              <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>
-                {isLoading ? <Skeleton width="140px" height="1.5rem" /> : formattedTvl}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "4px" }}>
-                Underlying Asset
-              </div>
-              <div className="flex items-center gap-sm">
-                <ShieldCheck size={16} color="var(--accent-cyan)" />
-                <span style={{ fontSize: "1.1rem", fontWeight: 500 }}>{summary.assetLabel}</span>
+                  <TrendingUp size={18} color="var(--accent-purple)" />
+                  Strategy Overview
+                </h3>
+                <div
+                  style={{
+                    marginBottom: "12px",
+                    color: "var(--text-secondary)",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  BENJI Strategy
+                </div>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.6" }}>
+                  This vault pools USDC and deploys it into verified tokenized sovereign bonds available on
+                  the Stellar network.
+                </p>
+                <div className="flex gap-md" style={{ marginTop: "14px", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      flex: "1 1 150px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid var(--border-glass)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
+                      Target Allocation
+                    </div>
+                    <div style={{ fontWeight: 600 }}>70% Treasuries</div>
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>30% Cash Reserve</div>
+                  </div>
+                  <div
+                    style={{
+                      flex: "1 1 150px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid var(--border-glass)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
+                      Yield Distribution
+                    </div>
+                    <div style={{ fontWeight: 600 }}>Daily Compounding</div>
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+                      Reflected in yvUSDC NAV
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      flex: "1 1 150px",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid var(--border-glass)",
+                    }}
+                  >
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
+                      Risk Controls
+                    </div>
+                    <div style={{ fontWeight: 600 }}>Issuer + Duration Caps</div>
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+                      Rebalanced every epoch
+                    </div>
+                  </div>
+                </div>
+                <div style={{ marginTop: "12px", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                  Strategy: <span style={{ color: "var(--text-primary)" }}>{strategy.name}</span> ({strategy.issuer})
+                </div>
+                <div
+                  className="copy-field"
+                  style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
+                >
+                  <span>Strategy ID:</span>
+                  <span className="copy-field-value copy-field-value-mono">{strategy.id}</span>
+                  <CopyButton value={strategy.id} label="strategy ID" />
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="glass-panel" style={{ padding: "20px", background: "var(--bg-muted)" }}>
-            <h3
-              style={{
-                fontSize: "1.1rem",
-                marginBottom: "12px",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <TrendingUp size={18} color="var(--accent-purple)" />
-              Strategy Overview
-            </h3>
-            <div
-              style={{
-                marginBottom: "12px",
-                color: "var(--text-secondary)",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-              }}
-            >
-              BENJI Strategy
-            </div>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.6" }}>
-              This vault pools USDC and deploys it into verified tokenized sovereign bonds available on
-              the Stellar network.
-            </p>
-            <div className="flex gap-md" style={{ marginTop: "14px", flexWrap: "wrap" }}>
-              <div
-                style={{
-                  flex: "1 1 150px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid var(--border-glass)",
-                }}
-              >
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
-                  Target Allocation
-                </div>
-                <div style={{ fontWeight: 600 }}>70% Treasuries</div>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>30% Cash Reserve</div>
-              </div>
-              <div
-                style={{
-                  flex: "1 1 150px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid var(--border-glass)",
-                }}
-              >
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
-                  Yield Distribution
-                </div>
-                <div style={{ fontWeight: 600 }}>Daily Compounding</div>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-                  Reflected in yvUSDC NAV
-                </div>
-              </div>
-              <div
-                style={{
-                  flex: "1 1 150px",
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid var(--border-glass)",
-                }}
-              >
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
-                  Risk Controls
-                </div>
-                <div style={{ fontWeight: 600 }}>Issuer + Duration Caps</div>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-                  Rebalanced every epoch
-                </div>
-              </div>
-            </div>
-            <div style={{ marginTop: "12px", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-              Strategy: <span style={{ color: "var(--text-primary)" }}>{strategy.name}</span> ({strategy.issuer})
-            </div>
-            <div
-              className="copy-field"
-              style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
-            >
-              <span>Strategy ID:</span>
-              <span className="copy-field-value copy-field-value-mono">{strategy.id}</span>
-              <CopyButton value={strategy.id} label="strategy ID" />
+          <div className="vault-dashboard-chart">
+            <div className="glass-panel vault-chart-panel">
+              <VaultPerformanceChart />
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="vault-dashboard-chart">
-        <div className="glass-panel vault-chart-panel">
-          <VaultPerformanceChart />
-        </div>
-      </div>
+        </>
+      )}
 
       <div className="vault-dashboard-actions">
         <div
@@ -830,11 +859,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       gap: "8px",
                     }}
                     type="submit"
-                    disabled={
-                      isSubmitDisabled ||
-                      isEstimating ||
-                      (tab === "deposit" && isValidAmount && needsApproval(enteredAmount) && approvalStatus !== "confirmed")
-                    }
+                    disabled={isSubmitDisabled || isEstimating}
                   >
                     {isProcessing === tab ? (
                       <>
@@ -855,7 +880,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         Estimating fee...
                       </>
                     ) : tab === "deposit" ? (
-                      isCapReached ? "Vault is full" : "Deposit"
+                      isCapReached ? "Vault is full" : (allowance === 0 || needsApproval(enteredAmount) ? "Approve & Deposit" : "Deposit")
                     ) : (
                       "Withdraw Funds"
                     )}
