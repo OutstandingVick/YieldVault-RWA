@@ -157,6 +157,45 @@ describe('Backend API', () => {
     });
   });
 
+  describe('Cache Middleware', () => {
+    it('should cache repeated list endpoint requests and mark hits', async () => {
+      const first = await request(app).get('/api/v1/transactions');
+      expect(first.headers['x-cache-hit']).toBe('false');
+
+      const second = await request(app).get('/api/v1/transactions');
+      expect(second.headers['x-cache-hit']).toBe('true');
+    });
+
+    it('should separate cache entries by query string', async () => {
+      const first = await request(app).get('/api/v1/transactions?limit=1');
+      expect(first.headers['x-cache-hit']).toBe('false');
+
+      const second = await request(app).get('/api/v1/transactions?limit=2');
+      expect(second.headers['x-cache-hit']).toBe('false');
+
+      const third = await request(app).get('/api/v1/transactions?limit=2');
+      expect(third.headers['x-cache-hit']).toBe('true');
+    });
+
+    it('should invalidate cached list responses after a vault deposit', async () => {
+      await request(app).get('/api/v1/transactions');
+      const cached = await request(app).get('/api/v1/transactions');
+      expect(cached.headers['x-cache-hit']).toBe('true');
+
+      await request(app)
+        .post('/api/v1/vault/deposits')
+        .send({
+          amount: '100',
+          asset: 'USDC',
+          walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567',
+          email: 'user@example.com',
+        });
+
+      const afterInvalidate = await request(app).get('/api/v1/transactions');
+      expect(afterInvalidate.headers['x-cache-hit']).toBe('false');
+    });
+  });
+
   // ─── Configuration Tests ─────────────────────────────────────────────────
 
   describe('Configuration', () => {

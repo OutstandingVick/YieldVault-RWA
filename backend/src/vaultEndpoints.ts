@@ -5,7 +5,7 @@ import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
 import { withSpan, getCurrentTraceId } from './tracing';
 import { requireFlag } from './featureFlags';
-import { allowlistMiddleware } from './middleware/allowlist';
+import { invalidateCache } from './middleware/cache';
 import crypto from 'crypto';
 
 const router = Router();
@@ -144,6 +144,8 @@ async function handleVaultOperation(
   };
 
   try {
+    const invalidateReadCaches = () => invalidateCache();
+
     if (idempotencyKey) {
       const fingerprint = generateFingerprint(req.body);
       const { result, replayed } = await idempotencyStore.execute(
@@ -152,10 +154,12 @@ async function handleVaultOperation(
         operation,
       );
       if (replayed) res.setHeader('idempotency-status', 'replayed');
+      invalidateReadCaches();
       return res.status(result.statusCode).json(result.body);
     }
 
     const result = await operation();
+    invalidateReadCaches();
     return res.status(result.statusCode).json(result.body);
   } catch (err) {
     if (err instanceof IdempotencyConflictError) {

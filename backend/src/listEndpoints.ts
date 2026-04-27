@@ -18,9 +18,10 @@ import {
   encodeCursor,
   PaginationConfig,
 } from './pagination';
-import { getApyHistory } from './apySnapshot';
+import { cacheMiddleware } from './middleware/cache';
 
 const router = Router();
+const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -306,7 +307,7 @@ function filterVaultHistory(
  *                 pagination:
  *                   $ref: '#/components/schemas/PaginationMeta'
  */
-router.get('/transactions', (req: Request, res: Response) => {
+router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, TRANSACTION_PAGINATION_CONFIG);
     const filters = {
@@ -361,7 +362,7 @@ router.get('/transactions', (req: Request, res: Response) => {
  *       200:
  *         description: List of holdings
  */
-router.get('/portfolio/holdings', (req: Request, res: Response) => {
+router.get('/portfolio/holdings', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, PORTFOLIO_PAGINATION_CONFIG);
     const filters = {
@@ -416,7 +417,7 @@ router.get('/portfolio/holdings', (req: Request, res: Response) => {
  *       200:
  *         description: Vault history points
  */
-router.get('/vault/history', (req: Request, res: Response) => {
+router.get('/vault/history', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, VAULT_HISTORY_PAGINATION_CONFIG);
     const filters = {
