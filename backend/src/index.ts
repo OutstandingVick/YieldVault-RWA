@@ -36,6 +36,8 @@ import {
   updateVaultMetrics,
 } from './metrics';
 import { sorobanCircuitBreaker } from './circuitBreaker';
+import { listAdminAuditLogs, recordAdminAuditLog } from './adminAudit';
+import { getPrismaRuntimeConfig, prisma } from './prisma';
 
 declare global {
   namespace Express {
@@ -269,7 +271,7 @@ app.post('/auth/refresh', apiLimiter, refreshHandler);
 const apiV1 = express.Router();
 app.use('/api/v1', apiV1);
 
-// Backward-compatible unversioned list endpoints used by existing clients/tests.
+// Backward-compatible list endpoints used by existing clients/tests.
 app.use('/api', listRouter);
 
 // Mount routers to v1
@@ -287,6 +289,21 @@ app.get(
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
     // This would typically fetch data from Stellar RPC or database
+    res.json({
+      totalAssets: 0,
+      totalShares: 0,
+      apy: 0,
+      timestamp: new Date().toISOString(),
+    });
+  },
+);
+
+app.get(
+  '/api/vault/summary',
+  apiLimiter,
+  cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  (_req: Request, res: Response) => {
+    res.setHeader('deprecation', 'true');
     res.json({
       totalAssets: 0,
       totalShares: 0,
@@ -538,7 +555,42 @@ app.get('/admin/audit/logs', validateApiKey, (req: Request, res: Response) => {
 });
 
 /**
- * GET /admin/prisma/config - operational prisma runtime settings
+ * GET /admin/audit-logs - list admin audit entries (Issue #253)
+ */
+app.get('/admin/audit-logs', validateApiKey, async (req: Request, res: Response) => {
+  const parseLimited = (v: unknown, fallback: number, min: number, max: number) => {
+    const n = parseInt(String(v ?? ''), 10);
+    return Number.isNaN(n) ? fallback : Math.min(Math.max(n, min), max);
+  };
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+  const statusCode = req.query.statusCode
+    ? parseLimited(req.query.statusCode, 0, 100, 599)
+    : undefined;
+
+  const rows = getAuditLogs({
+    action: typeof req.query.action === 'string' ? req.query.action : undefined,
+    actor: typeof req.query.actor === 'string' ? req.query.actor : undefined,
+    statusCode,
+    limit,
+  });
+
+  void recordAdminAuditLog(req, 'audit-logs.read', 200, {
+    limit,
+    returned: rows.length,
+  });
+
+  res.json({
+    data: rows,
+    meta: {
+      count: rows.length,
+      limit,
+      timestamp: new Date().toISOString(),
+    },
+  });
+});
+
+/**
+ * GET /admin/prisma/config - operational prisma runtime settings (Issue #254)
  */
 app.get('/admin/prisma/config', validateApiKey, (_req: Request, res: Response) => {
   res.status(200).json({
@@ -555,6 +607,28 @@ app.get('/admin/jobs/monitor', validateApiKey, (_req: Request, res: Response) =>
     jobHealth: getJobHealthStatus(),
     jobs: getJobMetrics(),
     webhooks: getWebhookDeliveryMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/metrics - JSON metrics dashboard for background jobs (Issue #255)
+ */
+app.get('/admin/jobs/metrics', validateApiKey, (req: Request, res: Response) => {
+  const metrics = getJobMetrics();
+  const summary = {
+    totalDeadLetters: metrics.totalDeadLetters,
+    recurringFailureJobs: Object.keys(metrics.recurringFailures),
+    jobHealth: getJobHealthStatus(),
+    activeJobs: Object.values(metrics.runtime).filter((job) => job.inFlight > 0).length,
+  };
+
+  void recordAdminAuditLog(req, 'jobs.metrics.read', 200);
+
+  res.json({
+    summary,
+    metrics,
+    prisma: getPrismaRuntimeConfig(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -759,6 +833,10 @@ shutdownHandler.onShutdown(async () => {
   // Register database shutdown task
   shutdownHandler.onShutdown(async () => {
     await db.shutdown();
+  });
+
+  shutdownHandler.onShutdown(async () => {
+    await prisma.$disconnect();
   });
 
   // Flush and shut down the OTel SDK on process exit
