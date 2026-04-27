@@ -26,7 +26,7 @@ interface VaultDashboardProps {
   usdcBalance?: number;
 }
 
-type TransactionTab = "deposit" | "withdraw";
+import { formatCurrency, formatNumber } from "../lib/formatters";
 
 const MIN_DEPOSIT_AMOUNT = 1;
 const INITIAL_TOUCHED_STATE: Record<TransactionTab, boolean> = {
