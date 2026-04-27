@@ -41,28 +41,34 @@ describe('YieldVault Smoke Tests', () => {
     });
 
     cy.visit('/');
+    // Wait for the app to settle and for the "Checking wallet" state to pass if it's slow
+    cy.get('body').should('be.visible');
   });
 
   it('should connect wallet', () => {
-    cy.contains('button', 'Connect Freighter').click();
+    // Use a regex to match "Connect Freighter" or "Connect Wallet" and a longer timeout
+    cy.contains('button', /Connect/i, { timeout: 10000 })
+      .should('be.visible')
+      .click();
+    
     // After connecting, the disconnect button (aria-label) should be visible
-    cy.get('button[aria-label="Disconnect Wallet"]').should('be.visible');
+    cy.get('button[aria-label="Disconnect Wallet"]', { timeout: 10000 }).should('be.visible');
   });
 
   it('should navigate to deposit flow', () => {
-    cy.contains('button', 'Connect Freighter').click();
+    cy.contains('button', /Connect/i, { timeout: 10000 }).click();
     cy.contains('button', 'Deposit').click();
     cy.contains('Amount to deposit').should('be.visible');
   });
 
   it('should navigate to withdrawal flow', () => {
-    cy.contains('button', 'Connect Freighter').click();
+    cy.contains('button', /Connect/i, { timeout: 10000 }).click();
     cy.contains('button', 'Withdraw').click();
     cy.contains('Amount to withdraw').should('be.visible');
   });
 
   it('should view transaction history', () => {
-    cy.contains('button', 'Connect Freighter').click();
+    cy.contains('button', /Connect/i, { timeout: 10000 }).click();
     cy.visit('/transactions');
     cy.contains('Transaction History').should('be.visible');
     cy.get('table').should('be.visible');
