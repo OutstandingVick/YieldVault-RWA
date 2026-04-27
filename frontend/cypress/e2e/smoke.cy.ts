@@ -7,7 +7,7 @@ const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
  */
 function stubFreighterConnected(win: Cypress.AUTWindow): void {
   const stub = { connected: true };
-  (win as any).__freighterStub = stub;
+  (win as Window & { __freighterStub?: unknown }).__freighterStub = stub;
 
   win.addEventListener('message', (event: MessageEvent) => {
     if (
@@ -19,7 +19,7 @@ function stubFreighterConnected(win: Cypress.AUTWindow): void {
 
     const { messageId, type } = event.data as { messageId: number; type: string };
 
-    let response: Record<string, unknown> = {
+    const response: Record<string, unknown> = {
       source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
       messagedId: messageId, // freighter-api uses this typo internally
     };
