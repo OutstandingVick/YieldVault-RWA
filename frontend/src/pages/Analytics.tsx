@@ -1,9 +1,10 @@
 import React from "react";
-import { Activity } from "../components/icons";
+import { Activity, PackageSearch } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
 import Skeleton from "../components/Skeleton";
+import EmptyState from "../components/shared/EmptyState";
 
 const Analytics: React.FC = () => {
     const { formattedTvl, summary, error, isLoading } = useVault();
@@ -57,8 +58,14 @@ const Analytics: React.FC = () => {
                 </div>
             </div>
 
-            <div className="glass-panel" style={{ marginTop: '32px', padding: '48px', textAlign: 'center', background: 'var(--bg-muted)' }}>
-                <div style={{ color: 'var(--text-secondary)' }}>Interactive Charts coming soon...</div>
+            <div className="glass-panel" style={{ marginTop: '32px', padding: '0', background: 'var(--bg-muted)', overflow: 'hidden' }}>
+                <EmptyState
+                    title="No Analytics Data"
+                    description="Historical performance data is not yet available for this vault. Analytics will populate once the first yield epoch is processed."
+                    icon={<PackageSearch />}
+                    ctaLabel="Deposit USDC"
+                    onAction={() => window.dispatchEvent(new Event("TRIGGER_DEPOSIT"))}
+                />
             </div>
         </div>
     );

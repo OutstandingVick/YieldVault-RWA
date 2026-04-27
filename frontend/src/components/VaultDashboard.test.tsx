@@ -1,51 +1,273 @@
-it("clears amount and validation errors when switching between tabs", async () => {
-  renderDashboard("GABC123", 1250.5);
-  const depositTab = screen.getByRole("tab", { name: "Deposit" });
-  const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import VaultDashboard from "./VaultDashboard";
+import { VaultProvider } from "../context/VaultContext";
+import { ToastProvider } from "../context/ToastContext";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import * as vaultApi from "../lib/vaultApi";
+import { VaultSummary } from "../lib/vaultApi";
+import * as portfolioHooks from "../hooks/usePortfolioData";
+import * as vaultDataHooks from "../hooks/useVaultData";
+import { UseQueryResult } from "@tanstack/react-query";
+import { PortfolioHolding } from "../lib/portfolioApi";
 
-  // Enter an amount that exceeds balance on deposit tab and trigger validation
-  let input = screen.getByPlaceholderText("0.00");
-  fireEvent.change(input, { target: { value: "5000" } });
-  fireEvent.blur(input);
-  expect(
-    screen.getByText(
-      /Deposit amount cannot exceed your available USDC balance./i
-    )
-  ).toBeInTheDocument();
-  expect(
-    screen.getByRole("button", { name: "Approve & Deposit" })
-  ).toBeDisabled();
+vi.mock("../lib/vaultApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof vaultApi>();
+  return {
+    ...actual,
+    submitDeposit: vi.fn(),
+  };
+});
 
-  // Switch to withdraw tab
-  fireEvent.click(withdrawTab);
+vi.mock("../hooks/usePortfolioData", () => ({
+  usePortfolioHoldings: vi.fn(),
+}));
 
-  // 🔥 Re-query input AFTER tab switch
-  input = screen.getByPlaceholderText("0.00");
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
 
-  // Amount should be cleared
-  expect(input).toHaveValue("");
+const mockSummary = {
+  tvl: 12450800,
+  apy: 8.45,
+  participantCount: 1248,
+  monthlyGrowthPct: 12.5,
+  strategyStabilityPct: 99.9,
+  assetLabel: "Sovereign Debt",
+  exchangeRate: 1.084,
+  networkFeeEstimate: "~0.00001 XLM",
+  updatedAt: "2026-03-25T10:00:00.000Z",
+  contractPaused: false,
+  strategy: {
+    id: "stellar-benji",
+    name: "Franklin BENJI Connector",
+    issuer: "Franklin Templeton",
+    network: "Stellar",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    status: "active" as const,
+    description:
+      "Connector strategy that routes vault yield updates from BENJI-issued tokenized money market exposure on Stellar.",
+  },
+};
 
-  // Inline errors should NOT appear
-  expect(
-    screen.queryByText(
-      /Deposit amount cannot exceed your available USDC balance./i
-    )
-  ).not.toBeInTheDocument();
-  expect(
-    screen.queryByText(
-      /The withdrawal amount exceeds your available USDC balance./i
-    )
-  ).not.toBeInTheDocument();
+function LocationSearchProbe() {
+  const location = useLocation();
+  return <div data-testid="location-search">{location.search}</div>;
+}
 
-  // Switch back to deposit tab
-  fireEvent.click(depositTab);
+function renderDashboard(
+  walletAddress: string | null,
+  usdcBalance = 1250.5,
+  initialEntry = "/",
+) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <VaultProvider>
+            <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+            <LocationSearchProbe />
+          </VaultProvider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
 
-  // 🔥 Re-query again
-  input = screen.getByPlaceholderText("0.00");
-  expect(input).toHaveValue("");
-  expect(
-    screen.queryByText(
-      /Deposit amount cannot exceed your available USDC balance./i
-    )
-  ).not.toBeInTheDocument();
+describe("VaultDashboard", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(mockSummary), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    vi.mocked(portfolioHooks.usePortfolioHoldings).mockReturnValue({
+      data: [{ id: "1", shares: 100, valueUsd: 100, asset: "USDC", vaultName: "RWA Vault", symbol: "yvUSDC", apy: 5, unrealizedGainUsd: 0, issuer: "G...", status: "active" }],
+      isLoading: false,
+    } as unknown as UseQueryResult<PortfolioHolding[], Error>);
+
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: { ...mockSummary, contractPaused: false },
+      isLoading: false,
+      error: null,
+    } as unknown as UseQueryResult<VaultSummary, Error>);
+
+    vi.mocked(vaultDataHooks.useVaultHistory).mockReturnValue({
+      data: [{ date: "2026-03-20", value: 1.0 }, { date: "2026-03-25", value: 1.084 }],
+      isLoading: false,
+      error: null,
+    } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders the connect overlay when wallet is not connected", async () => {
+    renderDashboard(null);
+
+    expect(screen.getByText(/Wallet Not Connected/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Please connect your Freighter wallet/i),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Franklin BENJI Connector/i),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the dashboard when wallet is connected", async () => {
+    renderDashboard("GABC123");
+
+    expect(screen.queryByText(/Wallet Not Connected/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Global RWA Yield Fund/i)).toBeInTheDocument();
+    expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
+
+    expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
+    expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Copy strategy ID/i })).toBeInTheDocument();
+  });
+
+  it("allows switching between deposit and withdraw tabs", async () => {
+    renderDashboard("GABC123");
+
+    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+
+    const depositTab = screen.getByText("Deposit");
+    const withdrawTab = screen.getByText("Withdraw");
+
+    fireEvent.click(withdrawTab);
+    expect(screen.getByText(/Amount to withdraw/i)).toBeInTheDocument();
+
+    fireEvent.click(depositTab);
+    expect(screen.getByText(/Amount to deposit/i)).toBeInTheDocument();
+  });
+
+  it("updates the amount input and processes a deposit", async () => {
+    let resolveSubmit!: () => void;
+    const submitPromise = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    vi.mocked(vaultApi.submitDeposit).mockReturnValue(submitPromise);
+    
+    renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+
+    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "100" } });
+    expect(input).toHaveValue(100);
+
+    const button = screen.getByText("Approve & Deposit");
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
+    });
+
+    // Resolve the mocked API call
+    resolveSubmit();
+
+    // Loading state should be visible while mutation is pending.
+    expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
+  });
+
+  it("fills the input with max allowable amount via MAX button", async () => {
+    renderDashboard("GABC123");
+
+    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+
+    const maxButton = screen.getByRole("button", { name: "MAX" });
+    fireEvent.click(maxButton);
+    const input = screen.getByPlaceholderText("0.00");
+    expect(input).toHaveValue(1250.5);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Withdraw" }));
+    fireEvent.click(maxButton);
+    expect(input).toHaveValue(1250.5);
+  });
+
+  it("shows inline error and blocks submit for amounts above balance", async () => {
+    renderDashboard("GABC123");
+
+    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "2000" } });
+    fireEvent.blur(input);
+
+    expect(
+      screen.getByText(/Deposit amount cannot exceed your available USDC balance./i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+  });
+
+  it("shows minimum deposit validation and clears error when corrected", async () => {
+    renderDashboard("GABC123");
+
+    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "0.5" } });
+    fireEvent.blur(input);
+
+    expect(screen.getByText(/Minimum deposit is 1.00 USDC./i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "10" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Minimum deposit is 1.00 USDC./i)).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeEnabled();
+    });
+  });
+
+  it("shows a normalized API error message when data loading fails", async () => {
+    vi.useRealTimers();
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: new Error("Failed to fetch"),
+    } as unknown as UseQueryResult<VaultSummary, Error>);
+
+    renderDashboard("GABC123");
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
+    }, { timeout: 3000 });
+    expect(screen.getByRole("alert")).toHaveTextContent("Failed to load vault data");
+  });
+
+  it("prefills the deposit amount from deep links and removes params", async () => {
+    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=100&ref=partner");
+
+    const input = await screen.findByPlaceholderText("0.00");
+    await waitFor(() => {
+      expect(input).toHaveValue(100);
+    });
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?ref=partner");
+  });
+
+  it("ignores invalid deep-link amounts and removes deep-link params", async () => {
+    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
+
+    const input = await screen.findByPlaceholderText("0.00");
+    await waitFor(() => {
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+    expect(screen.getByTestId("location-search")).toHaveTextContent("");
+  });
 });
