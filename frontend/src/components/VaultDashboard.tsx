@@ -10,6 +10,7 @@ import {
   Loader2, 
   Share2
 } from "./icons";
+import HelpIcon from "./ui/HelpIcon";
 import Skeleton from "./Skeleton";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
@@ -205,32 +206,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     activeTab
   );
 
-  const resetWizard = () => {
-    setAmount("");
-    setTouched(INITIAL_TOUCHED_STATE);
-    setCurrentStep("amount");
-    setTransactionResult(null);
-  };
-
-  const goToReview = () => {
-    const validationError = getAmountValidationError(
-      activeTab,
-      amount,
-      availableBalance,
-      isCapReached,
-    );
-
-    if (validationError) {
-      setTouched((previous) => ({ ...previous, [activeTab]: true }));
-      toast.warning({
-        title: "Enter a valid amount",
-        description: validationError,
-      });
-      return;
-    }
-
-    setCurrentStep("review");
-  };
+  const { data: holdings = [] } = usePortfolioHoldings(walletAddress);
+  const totalShares = holdings.reduce((sum, h) => sum + h.shares, 0);
+  const hasNoPositions = holdings.length === 0 || totalShares === 0;
 
   useEffect(() => {
     const handleTrigger = () => {
@@ -605,199 +583,106 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   <VaultCapWarning utilization={utilization} isReached={isCapReached} />
                 )}
 
-                  <div style={{ minHeight: "380px", display: "flex", flexDirection: "column" }}>
-                    {currentStep === "amount" && (
-                      <div className="animate-in fade-in duration-300">
-                        <div style={{ marginBottom: "24px" }}>
-                          <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
-                            <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                              {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
-                            </div>
-                            <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                              Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
-                            </div>
-                          </div>
-
-                          <FormField
-                            label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
-                            name={`${tab}-amount`}
-                            type="number"
-                            step="any"
-                            placeholder="0.00"
-                            value={amount}
-                            onChange={(event) => {
-                              setAmount(event.target.value);
-                              setTouched((previous) => ({ ...previous, [tab]: true }));
-                            }}
-                            onBlur={() =>
-                              setTouched((previous) => ({ ...previous, [tab]: true }))
-                            }
-                            disabled={isBusy || (tab === "deposit" && isCapReached)}
-                            error={showInlineError ? activeAmountError ?? undefined : undefined}
-                          />
-
-                          <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
-                            <div className="flex items-center gap-sm">
-                              <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Asset: USDC</span>
-                              {tab === "deposit" && (
-                                <>
-                                  <div style={{ width: "1px", height: "14px", background: "var(--border-glass)", margin: "0 4px" }} />
-                                  <button
-                                    type="button"
-                                    className="btn-link flex items-center gap-xs"
-                                    style={{ fontSize: "0.75rem", color: "var(--accent-cyan)", padding: 0 }}
-                                    onClick={async () => {
-                                      const baseUrl = window.location.origin + window.location.pathname;
-                                      const shareUrl = amount && !isNaN(Number(amount)) && Number(amount) > 0
-                                        ? `${baseUrl}?action=deposit&amount=${amount}`
-                                        : baseUrl;
-                                      
-                                      try {
-                                        await copyTextToClipboard(shareUrl);
-                                        toast.success({
-                                          title: "Link copied",
-                                          description: "Shareable vault link is ready to paste."
-                                        });
-                                      } catch {
-                                        toast.error({
-                                          title: "Copy failed",
-                                          description: "Could not copy link to clipboard."
-                                        });
-                                      }
-                                    }}
-                                  >
-                                    <Share2 size={12} />
-                                    Share Link
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              className="btn-max"
-                              onClick={() => {
-                                setAmount(availableBalance.toFixed(2));
-                                setTouched((previous) => ({ ...previous, [tab]: true }));
-                              }}
-                              disabled={
-                                !walletAddress ||
-                                availableBalance <= 0 ||
-                                isBusy ||
-                                (tab === "deposit" && isCapReached)
-                              }
-                            >
-                              MAX
-                            </button>
-                          </div>
+                {tab === "withdraw" && hasNoPositions ? (
+                  <div style={{ padding: "24px 0" }}>
+                    <EmptyState
+                      variant="minimal"
+                      title="No positions to withdraw"
+                      description="You haven't deposited any assets into this vault yet. Deposit USDC to start earning yield."
+                      icon={<Share2 size={32} color="var(--accent-cyan)" />}
+                      actionLabel="Go to Deposit"
+                      onAction={() => setActiveTab("deposit")}
+                    />
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleTransaction(tab);
+                    }}
+                  >
+                    <div style={{ marginBottom: "24px" }}>
+                      <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
+                        <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
+                          {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
                         </div>
-
-                        <div
-                          className="glass-panel"
-                          style={{
-                            padding: "14px 16px",
-                            background: "rgba(0, 0, 0, 0.15)",
-                            marginBottom: "24px",
-                          }}
-                        >
-                          <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
-                            <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                              Estimated protocol fee
-                              <HelpIcon
-                                variant="popover"
-                                content="A protocol fee of 35 basis points (0.35%) of the transaction amount is applied. This fee is deducted before settlement."
-                              />
-                            </span>
-                            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                              {isValidAmount ? `${estimatedFee.toFixed(4)} USDC` : "0.0000 USDC"}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                              {tab === "deposit" ? "Estimated net deposit" : "Estimated net withdrawal"}
-                            </span>
-                            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                              {isValidAmount ? `${estimatedNetAmount.toFixed(4)} USDC` : "0.0000 USDC"}
-                            </span>
-                          </div>
+                        <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+                          Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
                         </div>
+                      </div>
 
+                      <FormField
+                        label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
+                        name={`${tab}-amount`}
+                        type="number"
+                        step="any"
+                        placeholder="0.00"
+                        value={amount}
+                        onChange={(event) => {
+                          setAmount(event.target.value);
+                          setTouched((previous) => ({ ...previous, [tab]: true }));
+                        }}
+                        onBlur={() =>
+                          setTouched((previous) => ({ ...previous, [tab]: true }))
+                        }
+                        disabled={isBusy || (tab === "deposit" && isCapReached)}
+                        error={showInlineError ? activeAmountError ?? undefined : undefined}
+                      />
+
+                      <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
+                        <div className="flex items-center gap-sm">
+                          <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Asset: USDC</span>
+                          {tab === "deposit" && (
+                            <>
+                              <div style={{ width: "1px", height: "14px", background: "var(--border-glass)", margin: "0 4px" }} />
+                              <button
+                                type="button"
+                                className="btn-link flex items-center gap-xs"
+                                style={{ fontSize: "0.75rem", color: "var(--accent-cyan)", padding: 0 }}
+                                onClick={async () => {
+                                  const baseUrl = window.location.origin + window.location.pathname;
+                                  const shareUrl = amount && !isNaN(Number(amount)) && Number(amount) > 0
+                                    ? `${baseUrl}?amount=${amount}`
+                                    : baseUrl;
+                                  
+                                  try {
+                                    await copyTextToClipboard(shareUrl);
+                                    toast.success({
+                                      title: "Link copied",
+                                      description: "Shareable vault link is ready to paste."
+                                    });
+                                  } catch {
+                                    toast.error({
+                                      title: "Copy failed",
+                                      description: "Could not copy link to clipboard."
+                                    });
+                                  }
+                                }}
+                              >
+                                <Share2 size={12} />
+                                Share Link
+                              </button>
+                            </>
+                          )}
+                        </div>
                         <button
-                          className="btn btn-primary"
-                          style={{ width: "100%", padding: "16px" }}
                           type="button"
-                          onClick={goToReview}
-                          disabled={isSubmitDisabled}
+                          className="btn-max"
+                          onClick={() => {
+                            setAmount(availableBalance.toFixed(2));
+                            setTouched((previous) => ({ ...previous, [tab]: true }));
+                          }}
+                          disabled={
+                            !walletAddress ||
+                            availableBalance <= 0 ||
+                            isBusy ||
+                            (tab === "deposit" && isCapReached)
+                          }
                         >
-                          Review Transaction
+                          MAX
                         </button>
                       </div>
-                    )}
-
-                    {currentStep === "review" && (
-                      <div className="animate-in fade-in slide-in-from-right-4 duration-300 flex-1 flex flex-col">
-                        <div className="flex-1">
-                          <h4 style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-                            <AlertCircle size={20} color="var(--accent-cyan)" />
-                            Confirm Transaction
-                          </h4>
-                          
-                          <div 
-                            className="glass-panel" 
-                            style={{ 
-                              padding: "20px", 
-                              background: "rgba(255, 255, 255, 0.02)",
-                              border: "1px solid var(--border-glass)",
-                              marginBottom: "20px"
-                            }}
-                          >
-                            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                              <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Action</span>
-                                <span style={{ fontWeight: 600, textTransform: "capitalize" }}>{tab}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Amount</span>
-                                <span style={{ fontWeight: 600 }}>{enteredAmount.toFixed(2)} USDC</span>
-                              </div>
-                              <div style={{ height: "1px", background: "var(--border-glass)" }} />
-                              <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Protocol Fee (0.35%)</span>
-                                <span style={{ fontWeight: 600 }}>{estimatedFee.toFixed(4)} USDC</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Network Fee</span>
-                                <span style={{ fontWeight: 600, textAlign: "right" }}>
-                                  {isEstimating ? <Skeleton width="60px" height="1.1rem" /> : `${feeXlm.toFixed(4)} XLM`}
-                                </span>
-                              </div>
-                              <div style={{ height: "1px", background: "var(--border-glass)" }} />
-                              <div className="flex justify-between items-center">
-                                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>Total To {tab === "deposit" ? "Vault" : "Wallet"}</span>
-                                <span style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--accent-cyan)" }}>
-                                  {estimatedNetAmount.toFixed(4)} USDC
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {isHighFee && (
-                            <div
-                              className="flex items-start gap-sm"
-                              style={{
-                                marginBottom: "20px",
-                                padding: "12px",
-                                borderRadius: "8px",
-                                background: "rgba(255, 69, 58, 0.1)",
-                                border: "1px solid rgba(255, 69, 58, 0.2)",
-                              }}
-                            >
-                              <AlertTriangle size={16} color="var(--text-error)" style={{ marginTop: "2px" }} />
-                              <div style={{ fontSize: "0.82rem", color: "var(--text-error)", lineHeight: "1.4" }}>
-                                <strong style={{ display: "block", marginBottom: "2px" }}>High network fee</strong>
-                                The estimated network fee exceeds 1% of your transaction value.
-                              </div>
-                            </div>
-                          )}
+                    </div>
 
                           {tab === "deposit" && isValidAmount && needsApproval(enteredAmount) && (
                             <div
