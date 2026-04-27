@@ -13,20 +13,17 @@ import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
 import { validateApiKey, registerApiKey } from './middleware/apiKeyAuth';
+import {
+  addAddress,
+  removeAddress,
+  listAddresses,
+  allowlistSize,
+} from './middleware/allowlist';
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
 import listRouter from './listEndpoints';
-import { createAdminAuditMiddleware, getAuditLogMetrics, getAuditLogs } from './auditLog';
-import {
-  getWebhookDeliveryMetrics,
-  listWebhookDeliveries,
-  listWebhookEndpoints,
-  registerWebhookEndpoint,
-  updateWebhookEndpoint,
-} from './webhookDelivery';
-import { getPrismaConfig, getPrismaHealth } from './prismaClient';
-import { getJobHealthStatus, getJobMetrics } from './jobGovernance';
+import { loginHandler, refreshHandler } from './auth';
 import {
   register,
   httpRequestCount,
@@ -245,6 +242,29 @@ app.get('/ready', async (_req: Request, res: Response) => {
 
 // ─── API Routes (with strict rate limiting) ────────────────────────────────
 
+/**
+ * Version redirect for unversioned API routes (Issue #150)
+ */
+app.get('/api/vault/summary', (req: Request, res: Response) => {
+  res.setHeader('deprecation', 'true');
+  res.redirect(308, '/api/v1/vault/summary');
+});
+
+// ─── Auth Routes (Issue #377) ────────────────────────────────────────────────
+
+/**
+ * POST /auth/login
+ * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
+ */
+app.post('/auth/login', apiLimiter, loginHandler);
+
+/**
+ * POST /auth/refresh
+ * Rotate the refresh token and issue a new access JWT.
+ * Reuse of a revoked refresh token invalidates the entire session (401).
+ */
+app.post('/auth/refresh', apiLimiter, refreshHandler);
+
 // Versioned API v1
 const apiV1 = express.Router();
 app.use('/api/v1', apiV1);
@@ -342,6 +362,65 @@ app.get('/admin/cache/stats', validateApiKey, (_req: Request, res: Response) => 
   res.json({
     cache: getCacheStats(),
     timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Allowlist Admin Endpoints (Issue #375) ──────────────────────────────────
+
+/**
+ * POST /admin/allowlist/add
+ * Adds a wallet address to the private beta allowlist.
+ * Requires API key authentication.
+ * Body: { "walletAddress": "G..." }
+ */
+app.post('/admin/allowlist/add', validateApiKey, (req: Request, res: Response) => {
+  const { walletAddress } = req.body;
+  if (!walletAddress || typeof walletAddress !== 'string') {
+    res.status(400).json({ error: 'Missing or invalid walletAddress in request body' });
+    return;
+  }
+  const added = addAddress(walletAddress);
+  res.status(added ? 201 : 200).json({
+    message: added ? 'Wallet added to allowlist' : 'Wallet already in allowlist',
+    walletAddress: walletAddress.trim().toUpperCase(),
+    count: allowlistSize(),
+  });
+});
+
+/**
+ * DELETE /admin/allowlist/remove
+ * Removes a wallet address from the private beta allowlist.
+ * Requires API key authentication.
+ * Body: { "walletAddress": "G..." }
+ */
+app.delete('/admin/allowlist/remove', validateApiKey, (req: Request, res: Response) => {
+  const { walletAddress } = req.body;
+  if (!walletAddress || typeof walletAddress !== 'string') {
+    res.status(400).json({ error: 'Missing or invalid walletAddress in request body' });
+    return;
+  }
+  const removed = removeAddress(walletAddress);
+  if (!removed) {
+    res.status(404).json({ error: 'Wallet address not found in allowlist' });
+    return;
+  }
+  res.json({
+    message: 'Wallet removed from allowlist',
+    walletAddress: walletAddress.trim().toUpperCase(),
+    count: allowlistSize(),
+  });
+});
+
+/**
+ * GET /admin/allowlist
+ * Lists all wallet addresses on the allowlist.
+ * Requires API key authentication.
+ */
+app.get('/admin/allowlist', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    addresses: listAddresses(),
+    count: allowlistSize(),
+    enabled: process.env.ALLOWLIST_ENABLED !== 'false',
   });
 });
 
@@ -737,11 +816,16 @@ if (process.env.NODE_ENV !== 'test') {
   const shutdownHandler = new GracefulShutdownHandler(drainTimeout);
   shutdownHandler.register(server);
 
-  if (metricsInterval) {
-    shutdownHandler.onShutdown(async () => {
-      clearInterval(metricsInterval);
-    });
-  }
+// ─── APY Snapshot Scheduler (Issue #374) ────────────────────────────────────
+const stopApyScheduler = startApySnapshotScheduler();
+shutdownHandler.onShutdown(async () => {
+  stopApyScheduler();
+});
+
+// Register database shutdown task
+shutdownHandler.onShutdown(async () => {
+  await db.shutdown();
+});
 
   // Register database shutdown task
   shutdownHandler.onShutdown(async () => {

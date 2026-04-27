@@ -1,7 +1,7 @@
 /**
  * @file pagination.ts
  * Pagination utilities and types for consistent list endpoint behavior.
- * 
+ *
  * Provides:
  * - Cursor-based pagination for stable ordering
  * - Offset-based pagination for simple use cases
@@ -92,7 +92,7 @@ export const DEFAULT_PAGINATION_CONFIG: PaginationConfig = {
 
 /**
  * Parse and validate pagination query parameters from request.
- * 
+ *
  * @param req - Express request object
  * @param config - Pagination configuration
  * @returns Parsed and validated pagination query
@@ -151,7 +151,7 @@ export function parsePaginationQuery(
 
 /**
  * Apply cursor-based pagination to an array of items.
- * 
+ *
  * @param items - Array of items to paginate
  * @param query - Pagination query parameters
  * @param getCursor - Function to extract cursor from an item
@@ -164,6 +164,7 @@ export function paginateWithCursor<T>(
 ): { data: T[]; pagination: PaginationMeta } {
   const limit = query.limit || DEFAULT_PAGINATION_CONFIG.defaultLimit;
   let startIndex = 0;
+  let invalidCursor = false;
 
   if (query.page && query.page > 0) {
     startIndex = (query.page - 1) * limit;
@@ -188,8 +189,24 @@ export function paginateWithCursor<T>(
             : {}),
         },
       };
+    if (cursorIndex !== -1) {
+      startIndex = cursorIndex + 1;
+    } else {
+      invalidCursor = true;
     }
     startIndex = cursorIndex + 1;
+  }
+
+  if (invalidCursor) {
+    return {
+      data: [],
+      pagination: {
+        count: 0,
+        total: items.length,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+    };
   }
 
   // Extract page items
@@ -200,6 +217,7 @@ export function paginateWithCursor<T>(
   // Build pagination metadata
   const pagination: PaginationMeta = {
     count: data.length,
+    total: items.length,
     hasNextPage: hasMore,
     hasPrevPage: startIndex > 0,
     ...(query.page
@@ -228,7 +246,7 @@ export function paginateWithCursor<T>(
 
 /**
  * Apply offset-based pagination to an array of items.
- * 
+ *
  * @param items - Array of items to paginate
  * @param query - Pagination query parameters
  * @returns Paginated result with metadata
@@ -259,7 +277,7 @@ export function paginateWithOffset<T>(
 
 /**
  * Sort items by a specified field.
- * 
+ *
  * @param items - Array of items to sort
  * @param sortBy - Field name to sort by
  * @param sortOrder - Sort direction
@@ -300,7 +318,7 @@ export function sortItems<T extends Record<string, unknown>>(
 
 /**
  * Create a standardized paginated response.
- * 
+ *
  * @param data - Array of data items
  * @param pagination - Pagination metadata
  * @returns Formatted paginated response
@@ -318,7 +336,7 @@ export function createPaginatedResponse<T>(
 
 /**
  * Send a paginated JSON response.
- * 
+ *
  * @param res - Express response object
  * @param data - Array of data items
  * @param pagination - Pagination metadata
@@ -337,13 +355,16 @@ export function sendPaginatedResponse<T>(
 
 /**
  * Middleware to parse and attach pagination query to request.
- * 
+ *
  * @param config - Pagination configuration
  * @returns Express middleware function
  */
 export function paginationMiddleware(config: Partial<PaginationConfig> = {}) {
   return (req: Request, _res: Response, next: NextFunction) => {
-    (req as Request & { pagination: PaginationQuery }).pagination = parsePaginationQuery(req, config);
+    (req as Request & { pagination: PaginationQuery }).pagination = parsePaginationQuery(
+      req,
+      config
+    );
     next();
   };
 }
@@ -352,7 +373,7 @@ export function paginationMiddleware(config: Partial<PaginationConfig> = {}) {
 
 /**
  * Encode a cursor value to a URL-safe base64 string.
- * 
+ *
  * @param value - Value to encode
  * @returns Encoded cursor string
  */
@@ -362,11 +383,10 @@ export function encodeCursor(value: string): string {
 
 /**
  * Decode a cursor value from a URL-safe base64 string.
- * 
+ *
  * @param cursor - Encoded cursor string
  * @returns Decoded cursor value
  */
 export function decodeCursor(cursor: string): string {
   return Buffer.from(cursor, 'base64url').toString('utf-8');
 }
-
