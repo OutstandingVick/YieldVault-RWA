@@ -245,14 +245,6 @@ app.get('/ready', async (_req: Request, res: Response) => {
 
 // ─── API Routes (with strict rate limiting) ────────────────────────────────
 
-/**
- * Version redirect for unversioned API routes (Issue #150)
- */
-app.get('/api/vault/summary', (req: Request, res: Response) => {
-  res.setHeader('deprecation', 'true');
-  res.redirect(308, '/api/v1/vault/summary');
-});
-
 // Versioned API v1
 const apiV1 = express.Router();
 app.use('/api/v1', apiV1);
@@ -288,6 +280,7 @@ app.get(
   apiLimiter,
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
+    res.setHeader('deprecation', 'true');
     res.json({
       totalAssets: 0,
       totalShares: 0,
@@ -483,12 +476,16 @@ app.get('/admin/audit/logs', validateApiKey, (req: Request, res: Response) => {
  * GET /admin/audit-logs - list admin audit entries (Issue #253)
  */
 app.get('/admin/audit-logs', validateApiKey, async (req: Request, res: Response) => {
-  const limit = parseBoundedInt(req.query.limit, 50, 1, 200);
+  const parseLimited = (v: unknown, fallback: number, min: number, max: number) => {
+    const n = parseInt(String(v ?? ''), 10);
+    return Number.isNaN(n) ? fallback : Math.min(Math.max(n, min), max);
+  };
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
   const statusCode = req.query.statusCode
-    ? parseBoundedInt(req.query.statusCode, 0, 100, 599)
+    ? parseLimited(req.query.statusCode, 0, 100, 599)
     : undefined;
 
-  const rows = await listAdminAuditLogs({
+  const rows = getAuditLogs({
     action: typeof req.query.action === 'string' ? req.query.action : undefined,
     actor: typeof req.query.actor === 'string' ? req.query.actor : undefined,
     statusCode,

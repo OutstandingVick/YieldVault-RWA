@@ -1,5 +1,6 @@
 import type { Request } from 'express';
 import { prisma } from './prisma';
+import { resetAuditLogs } from './auditLog';
 
 type AuditStorageMode = 'memory' | 'prisma' | 'hybrid';
 
@@ -174,4 +175,5 @@ function safeParseMetadata(raw: string): Record<string, unknown> {
 
 export function clearAdminAuditLogsForTests(): void {
   inMemoryLogs.length = 0;
+  resetAuditLogs();
 }
