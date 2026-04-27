@@ -209,12 +209,38 @@ export function useFloating({
     });
   }, [placement, offset]);
 
-  // Recalculate when isOpen becomes true
+  // Recalculate when isOpen becomes true — inline to satisfy react-hooks/set-state-in-effect
   useEffect(() => {
-    if (isOpen) {
-      calculatePosition();
+    if (!isOpen) return;
+
+    const trigger = triggerRef.current;
+    const floating = floatingRef.current;
+    if (!trigger) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+
+    if (isTriggerOutOfViewport(triggerRect)) {
+      setIsHidden(true);
+      return;
     }
-  }, [isOpen, calculatePosition]);
+    setIsHidden(false);
+
+    const panelWidth = floating ? floating.offsetWidth : 0;
+    const panelHeight = floating ? floating.offsetHeight : 0;
+
+    let effectivePlacement = placement;
+    if (wouldOverflow(triggerRect, panelWidth, panelHeight, placement, offset)) {
+      const flipped = getOppositePlacement(placement);
+      if (!wouldOverflow(triggerRect, panelWidth, panelHeight, flipped, offset)) {
+        effectivePlacement = flipped;
+      }
+    }
+
+    const { top, left } = computePosition(triggerRect, panelWidth, panelHeight, effectivePlacement, offset);
+    setActualPlacement(effectivePlacement);
+    setFloatingStyle({ position: "fixed", top, left });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // Attach debounced scroll/resize listeners when open
   useEffect(() => {

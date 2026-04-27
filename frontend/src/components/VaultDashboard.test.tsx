@@ -4,7 +4,13 @@ import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import * as vaultApi from "../lib/vaultApi";
+import { VaultSummary } from "../lib/vaultApi";
+import * as portfolioHooks from "../hooks/usePortfolioData";
+import * as vaultDataHooks from "../hooks/useVaultData";
+import { UseQueryResult } from "@tanstack/react-query";
+import { PortfolioHolding } from "../lib/portfolioApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
@@ -13,6 +19,15 @@ vi.mock("../lib/vaultApi", async (importOriginal) => {
     submitDeposit: vi.fn(),
   };
 });
+
+vi.mock("../hooks/usePortfolioData", () => ({
+  usePortfolioHoldings: vi.fn(),
+}));
+
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
 
 const mockSummary = {
   tvl: 12450800,
@@ -24,6 +39,7 @@ const mockSummary = {
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
   updatedAt: "2026-03-25T10:00:00.000Z",
+  contractPaused: false,
   strategy: {
     id: "stellar-benji",
     name: "Franklin BENJI Connector",
@@ -36,20 +52,32 @@ const mockSummary = {
   },
 };
 
-function renderDashboard(walletAddress: string | null, usdcBalance = 1250.5) {
+function LocationSearchProbe() {
+  const location = useLocation();
+  return <div data-testid="location-search">{location.search}</div>;
+}
+
+function renderDashboard(
+  walletAddress: string | null,
+  usdcBalance = 1250.5,
+  initialEntry = "/",
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
     },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <VaultProvider>
-          <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
-        </VaultProvider>
-      </ToastProvider>
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <VaultProvider>
+            <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+            <LocationSearchProbe />
+          </VaultProvider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -67,6 +95,22 @@ describe("VaultDashboard", () => {
         }),
       ),
     );
+    vi.mocked(portfolioHooks.usePortfolioHoldings).mockReturnValue({
+      data: [{ id: "1", shares: 100, valueUsd: 100, asset: "USDC", vaultName: "RWA Vault", symbol: "yvUSDC", apy: 5, unrealizedGainUsd: 0, issuer: "G...", status: "active" }],
+      isLoading: false,
+    } as unknown as UseQueryResult<PortfolioHolding[], Error>);
+
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: { ...mockSummary, contractPaused: false },
+      isLoading: false,
+      error: null,
+    } as unknown as UseQueryResult<VaultSummary, Error>);
+
+    vi.mocked(vaultDataHooks.useVaultHistory).mockReturnValue({
+      data: [{ date: "2026-03-20", value: 1.0 }, { date: "2026-03-25", value: 1.084 }],
+      isLoading: false,
+      error: null,
+    } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
   });
 
   afterEach(() => {
@@ -131,14 +175,14 @@ describe("VaultDashboard", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(screen.getByText(/Processing Transaction/i)).toBeInTheDocument();
+      expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
     });
 
     // Resolve the mocked API call
     resolveSubmit();
 
     // Loading state should be visible while mutation is pending.
-    expect(screen.getByText(/Processing Transaction/i)).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
@@ -193,10 +237,11 @@ describe("VaultDashboard", () => {
 
   it("shows a normalized API error message when data loading fails", async () => {
     vi.useRealTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
-    );
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: new Error("Failed to fetch"),
+    } as unknown as UseQueryResult<VaultSummary, Error>);
 
     renderDashboard("GABC123");
 
@@ -204,5 +249,25 @@ describe("VaultDashboard", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
     }, { timeout: 3000 });
     expect(screen.getByRole("alert")).toHaveTextContent("Failed to load vault data");
+  });
+
+  it("prefills the deposit amount from deep links and removes params", async () => {
+    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=100&ref=partner");
+
+    const input = await screen.findByPlaceholderText("0.00");
+    await waitFor(() => {
+      expect(input).toHaveValue(100);
+    });
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?ref=partner");
+  });
+
+  it("ignores invalid deep-link amounts and removes deep-link params", async () => {
+    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
+
+    const input = await screen.findByPlaceholderText("0.00");
+    await waitFor(() => {
+      expect((input as HTMLInputElement).value).toBe("");
+    });
+    expect(screen.getByTestId("location-search")).toHaveTextContent("");
   });
 });
