@@ -23,16 +23,7 @@ import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
 import listRouter from './listEndpoints';
-import { createAdminAuditMiddleware, getAuditLogMetrics, getAuditLogs } from './auditLog';
-import {
-  getWebhookDeliveryMetrics,
-  listWebhookDeliveries,
-  listWebhookEndpoints,
-  registerWebhookEndpoint,
-  updateWebhookEndpoint,
-} from './webhookDelivery';
-import { getPrismaConfig, getPrismaHealth } from './prismaClient';
-import { getJobHealthStatus, getJobMetrics } from './jobGovernance';
+import { startApySnapshotScheduler } from './apySnapshot';
 import {
   register,
   httpRequestCount,
@@ -736,11 +727,16 @@ if (process.env.NODE_ENV !== 'test') {
   const shutdownHandler = new GracefulShutdownHandler(drainTimeout);
   shutdownHandler.register(server);
 
-  if (metricsInterval) {
-    shutdownHandler.onShutdown(async () => {
-      clearInterval(metricsInterval);
-    });
-  }
+// ─── APY Snapshot Scheduler (Issue #374) ────────────────────────────────────
+const stopApyScheduler = startApySnapshotScheduler();
+shutdownHandler.onShutdown(async () => {
+  stopApyScheduler();
+});
+
+// Register database shutdown task
+shutdownHandler.onShutdown(async () => {
+  await db.shutdown();
+});
 
   // Register database shutdown task
   shutdownHandler.onShutdown(async () => {
