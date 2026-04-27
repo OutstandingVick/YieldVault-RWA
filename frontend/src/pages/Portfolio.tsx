@@ -29,7 +29,7 @@ interface PortfolioProps {
 }
 
 import { formatCurrency, formatNumber } from "../lib/formatters";
-import HelpIcon from "../components/ui/HelpIcon";
+
 
 const columns: DataTableColumn<PortfolioHolding>[] = [
   {

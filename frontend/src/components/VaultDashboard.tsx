@@ -245,7 +245,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
 
-  const { feeXlm, feeUsd, isEstimating, isHighFee } = useFeeEstimate(
+  const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
     walletAddress,
     amount,
     activeTab
