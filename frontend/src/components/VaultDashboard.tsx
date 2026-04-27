@@ -7,7 +7,6 @@ import {
   ShieldCheck, 
   TrendingUp, 
   Wallet as WalletIcon, 
-  Loader2,
   Loader2, 
   Share2
 } from "./icons";
@@ -26,6 +25,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { AlertTriangle } from "./icons";
 import HelpIcon from "./ui/HelpIcon";
+import { EarningsCalculator } from "./EarningsCalculator/EarningsCalculator";
 
 interface VaultDashboardProps {
   walletAddress: string | null;
@@ -865,6 +865,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             ))}
           </Tabs>
         </div>
+        <EarningsCalculator />
       </div>
     </div>
   );
