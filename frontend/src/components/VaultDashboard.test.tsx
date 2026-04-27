@@ -12,6 +12,7 @@ vi.mock("../lib/vaultApi", async (importOriginal) => {
   return {
     ...actual,
     submitDeposit: vi.fn(),
+    getSharePrice: vi.fn().mockResolvedValue(1.0842),
   };
 });
 

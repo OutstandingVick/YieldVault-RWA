@@ -4,6 +4,7 @@ import VaultDashboard from "../components/VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
 import { BrowserRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // Mock hooks
 vi.mock("../hooks/useVaultMutations", () => ({
@@ -35,13 +36,19 @@ vi.mock("../hooks/useFeeEstimate", () => ({
   }),
 }));
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
 const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <BrowserRouter>
-    <ToastProvider>
-      <VaultProvider>
-        {children}
-      </VaultProvider>
-    </ToastProvider>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <VaultProvider>
+          {children}
+        </VaultProvider>
+      </ToastProvider>
+    </QueryClientProvider>
   </BrowserRouter>
 );
 
