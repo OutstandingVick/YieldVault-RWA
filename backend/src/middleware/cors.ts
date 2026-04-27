@@ -72,7 +72,7 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction) 
       });
       return;
     }
-
-    return next();
+    next();
+    return;
   });
 };

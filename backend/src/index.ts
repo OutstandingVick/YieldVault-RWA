@@ -1,3 +1,8 @@
+// Load environment variables FIRST before any other imports
+// This ensures OTEL_ENABLED is set before tracing initialization
+import dotenv from 'dotenv';
+dotenv.config();
+
 // Tracing must be initialised before any other imports so auto-instrumentation
 // can patch http/express/prisma before they are first required.
 import { initTracing, shutdownTracing, getCurrentTraceId } from './tracing';
@@ -6,7 +11,6 @@ initTracing();
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
 import NodeCache from 'node-cache';
-import dotenv from 'dotenv';
 import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
 import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
 import { corsMiddleware } from './middleware/cors';
@@ -23,7 +27,7 @@ import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
 import listRouter from './listEndpoints';
-import { loginHandler, refreshHandler } from './auth';
+import referralRouter from './referralEndpoints';
 import {
   register,
   httpRequestCount,
@@ -44,8 +48,6 @@ declare global {
     }
   }
 }
-
-dotenv.config();
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
@@ -273,6 +275,7 @@ app.use('/api', listRouter);
 // Mount routers to v1
 apiV1.use('/vault', vaultRouter);
 apiV1.use('/', listRouter);
+apiV1.use('/referrals', referralRouter);
 
 /**
  * Example protected API endpoint with caching
