@@ -1,6 +1,5 @@
 it("clears amount and validation errors when switching between tabs", async () => {
   renderDashboard("GABC123", 1250.5);
-
   const depositTab = screen.getByRole("tab", { name: "Deposit" });
   const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
 
@@ -8,13 +7,11 @@ it("clears amount and validation errors when switching between tabs", async () =
   let input = screen.getByPlaceholderText("0.00");
   fireEvent.change(input, { target: { value: "5000" } });
   fireEvent.blur(input);
-
   expect(
     screen.getByText(
       /Deposit amount cannot exceed your available USDC balance./i
     )
   ).toBeInTheDocument();
-
   expect(
     screen.getByRole("button", { name: "Approve & Deposit" })
   ).toBeDisabled();
@@ -34,7 +31,6 @@ it("clears amount and validation errors when switching between tabs", async () =
       /Deposit amount cannot exceed your available USDC balance./i
     )
   ).not.toBeInTheDocument();
-
   expect(
     screen.queryByText(
       /The withdrawal amount exceeds your available USDC balance./i
@@ -46,9 +42,7 @@ it("clears amount and validation errors when switching between tabs", async () =
 
   // 🔥 Re-query again
   input = screen.getByPlaceholderText("0.00");
-
   expect(input).toHaveValue("");
-
   expect(
     screen.queryByText(
       /Deposit amount cannot exceed your available USDC balance./i
