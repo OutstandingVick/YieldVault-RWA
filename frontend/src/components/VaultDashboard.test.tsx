@@ -278,13 +278,27 @@ describe("VaultDashboard", () => {
     expect(screen.getByTestId("location-search")).toHaveTextContent("?ref=partner");
   });
 
-  it("ignores invalid deep-link amounts and removes deep-link params", async () => {
-    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
+   it("ignores invalid deep-link amounts and removes deep-link params", async () => {
+     renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
 
-    const input = await screen.findByPlaceholderText("0.00");
-    await waitFor(() => {
-      expect((input as HTMLInputElement).value).toBe("");
-    });
-    expect(screen.getByTestId("location-search")).toHaveTextContent("");
-  });
-});
+     const input = await screen.findByPlaceholderText("0.00");
+     await waitFor(() => {
+       expect((input as HTMLInputElement).value).toBe("");
+     });
+     expect(screen.getByTestId("location-search")).toHaveTextContent("");
+   });
+
+   it("clears amount input when switching tabs", async () => {
+     renderDashboard("GABC123");
+
+     const input = await screen.findByPlaceholderText("0.00");
+     fireEvent.change(input, { target: { value: "100" } });
+     expect(input).toHaveValue("100");
+
+     const withdrawTab = screen.getByText("Withdraw");
+     fireEvent.click(withdrawTab);
+
+     const clearedInput = screen.getByPlaceholderText("0.00");
+     expect(clearedInput).toHaveValue("");
+   });
+ });

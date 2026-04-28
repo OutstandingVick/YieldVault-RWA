@@ -612,7 +612,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             defaultValue="deposit"
             onValueChange={(value) => {
               setActiveTab(value as TransactionTab);
-              resetWizard();
+              setAmount("");
+              setTouched(INITIAL_TOUCHED_STATE);
             }}
           >
             {currentStep === "amount" && (
