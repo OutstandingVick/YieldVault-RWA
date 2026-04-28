@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useReferralCode } from "../hooks/useReferral";
 import { 
   Activity, 
   AlertCircle, 
@@ -197,15 +198,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const [activeTab, setActiveTab] = useState<TransactionTab>("deposit");
   const [amount, setAmount] = useState("");
-  const [touched, setTouched] =
-    useState<Record<TransactionTab, boolean>>(INITIAL_TOUCHED_STATE);
-  
+  const [touched, setTouched] = useState<Record<TransactionTab, boolean>>(INITIAL_TOUCHED_STATE);
+  const [referralCode, setReferralCode] = useState<string | undefined>();
+
   // Wizard state
   const [currentStep, setCurrentStep] = useState<TransactionStep>("amount");
-  const [transactionResult, setTransactionResult] = useState<{ 
-    success: boolean; 
-    message: string; 
-    txHash?: string 
+  const [transactionResult, setTransactionResult] = useState<{
+    success: boolean;
+    message: string;
+    txHash?: string
   } | null>(null);
 
   // Handle deep link parameters
