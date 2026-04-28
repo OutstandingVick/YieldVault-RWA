@@ -17,6 +17,7 @@ import { clearWalletSessionState } from "./lib/sessionCleanup";
 import ErrorFallback from "./components/ErrorFallback";
 import RouteLoadingFallback from "./components/RouteLoadingFallback";
 import { PreferencesProvider } from "./context/PreferencesContext";
+import NetworkWarningBanner from "./components/NetworkWarningBanner";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -69,6 +70,7 @@ function AppContent() {
           Skip to main content
         </a>
         <div className="app-container">
+          <NetworkWarningBanner walletAddress={walletAddress} />
           <Navbar
             walletAddress={walletAddress}
             usdcBalance={usdcBalance}
