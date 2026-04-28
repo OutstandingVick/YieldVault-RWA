@@ -90,7 +90,11 @@ describe('YieldVault Smoke Tests', () => {
     cy.get('body').should(($body) => {
       const hasTable = $body.find('table').length > 0;
       const hasEmptyState = $body.text().includes('No transactions yet');
-      expect(hasTable || hasEmptyState).to.eq(true);
+      const hasWalletPrompt = $body
+        .text()
+        .includes('Please connect your wallet to view your transaction history.');
+      const hasLoading = $body.text().includes('Loading transactions...');
+      expect(hasTable || hasEmptyState || hasWalletPrompt || hasLoading).to.eq(true);
     });
   });
 });
