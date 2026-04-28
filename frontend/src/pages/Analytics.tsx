@@ -1,5 +1,5 @@
 import React from "react";
-import { Activity, PackageSearch } from "../components/icons";
+import { Activity } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";

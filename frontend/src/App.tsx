@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import Navbar from "./components/Navbar";
@@ -18,6 +18,8 @@ import ErrorFallback from "./components/ErrorFallback";
 import RouteLoadingFallback from "./components/RouteLoadingFallback";
 import { PreferencesProvider } from "./context/PreferencesContext";
 import NetworkWarningBanner from "./components/NetworkWarningBanner";
+import OfflineBanner from "./components/OfflineBanner";
+import { useVault, VaultProvider } from "./context/VaultContext";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -27,6 +29,7 @@ const Analytics = lazy(() => import("./pages/Analytics"));
 const UIPreview = lazy(() => import("./pages/UIPreview"));
 const TransactionHistory = lazy(() => import("./pages/TransactionHistory"));
 const Settings = lazy(() => import("./pages/Settings"));
+const TransactionReceipt = lazy(() => import("./pages/TransactionReceipt"));
 
 // Removed simple fallback in favor of components/ErrorFallback
 
@@ -36,6 +39,16 @@ function AppContent() {
   const location = useLocation();
   const { sessionState, intendedPath, setSessionExpired, clearSessionExpired, dismissSessionWarning } = useAuth();
   const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
+  const { tvl } = useVault();
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then(() => console.log("[SW] Registered"))
+        .catch((err) => console.error("[SW] Registration failed:", err));
+    }
+  }, []);
 
   const handleConnect = useCallback((address: string) => {
     clearSessionExpired();
@@ -69,6 +82,7 @@ function AppContent() {
         <a className="skip-link" href="#main-content">
           Skip to main content
         </a>
+        <OfflineBanner lastKnownTvl={tvl} lastKnownBalance={usdcBalance} />
         <div className="app-container">
           <NetworkWarningBanner walletAddress={walletAddress} />
           <Navbar
@@ -106,6 +120,7 @@ function AppContent() {
                   }
                 />
                 <Route path="/transactions" element={<TransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/ui-kit" element={<UIPreview />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
@@ -146,7 +161,9 @@ function App() {
     >
       <AuthProvider>
         <FeatureFlagProvider>
-          <AppContent />
+          <VaultProvider>
+            <AppContent />
+          </VaultProvider>
         </FeatureFlagProvider>
       </AuthProvider>
     </Sentry.ErrorBoundary>

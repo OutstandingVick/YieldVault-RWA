@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import EmptyState from "./EmptyState";
-import React from "react";
 
 describe("EmptyState", () => {
   const defaultProps = {
