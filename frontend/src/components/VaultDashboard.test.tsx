@@ -118,6 +118,7 @@ describe("VaultDashboard", () => {
     } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
 
     vi.mocked(tokenAllowanceHooks.useTokenAllowance).mockReturnValue({
+      allowance: 1_000_000,
       approvalStatus: "confirmed",
       needsApproval: vi.fn().mockReturnValue(false),
       approve: vi.fn().mockResolvedValue(undefined),
