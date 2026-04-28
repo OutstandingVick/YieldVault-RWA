@@ -5,6 +5,15 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { ToastProvider } from '../context/ToastContext';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PreferencesProvider } from '../context/PreferencesContext';
+
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            retry: false,
+        },
+    },
+});
 
 describe('Navbar', () => {
     const mockOnConnect = vi.fn();
@@ -17,7 +26,8 @@ describe('Navbar', () => {
         render(
             <MemoryRouter>
                 <QueryClientProvider client={queryClient}>
-                    <ToastProvider>
+                    <PreferencesProvider>
+                        <ToastProvider>
                         <ThemeProvider>
                             <Navbar
                                 walletAddress={null}
@@ -26,22 +36,24 @@ describe('Navbar', () => {
                             />
                         </ThemeProvider>
                     </ToastProvider>
-                </QueryClientProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
             </MemoryRouter>
         );
 
         expect(screen.getByText(/YieldVault/)).toBeInTheDocument();
         expect(screen.getByText(/RWA/)).toBeInTheDocument();
-        expect(screen.getByText('Vaults')).toBeInTheDocument();
-        expect(screen.getByText('Analytics')).toBeInTheDocument();
-        expect(screen.getByText('Portfolio')).toBeInTheDocument();
+        expect(screen.getAllByText('Vaults')[0]).toBeInTheDocument();
+        expect(screen.getAllByText('Analytics')[0]).toBeInTheDocument();
+        expect(screen.getAllByText('Portfolio')[0]).toBeInTheDocument();
     });
 
     it('renders the wallet connect button', () => {
         render(
             <MemoryRouter>
                 <QueryClientProvider client={queryClient}>
-                    <ToastProvider>
+                    <PreferencesProvider>
+                        <ToastProvider>
                         <ThemeProvider>
                             <Navbar
                                 walletAddress={null}
@@ -50,7 +62,8 @@ describe('Navbar', () => {
                             />
                         </ThemeProvider>
                     </ToastProvider>
-                </QueryClientProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
             </MemoryRouter>
         );
 
@@ -62,15 +75,19 @@ describe('Navbar', () => {
         const expectedAddress = 'GABC1...9012';
         render(
             <MemoryRouter>
-                <ToastProvider>
-                    <ThemeProvider>
-                        <Navbar
-                            walletAddress={fullAddress}
-                            onConnect={mockOnConnect}
-                            onDisconnect={mockOnDisconnect}
-                        />
-                    </ThemeProvider>
-                </ToastProvider>
+                <QueryClientProvider client={queryClient}>
+                    <PreferencesProvider>
+                        <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={fullAddress}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
             </MemoryRouter>
         );
 
@@ -82,7 +99,8 @@ describe('Navbar', () => {
         render(
             <MemoryRouter>
                 <QueryClientProvider client={queryClient}>
-                    <ToastProvider>
+                    <PreferencesProvider>
+                        <ToastProvider>
                         <ThemeProvider>
                             <Navbar
                                 walletAddress={fullAddress}
@@ -91,10 +109,11 @@ describe('Navbar', () => {
                             />
                         </ThemeProvider>
                     </ToastProvider>
-                </QueryClientProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
             </MemoryRouter>
         );
 
-        expect(screen.getByText(/testnet|mainnet/i)).toBeInTheDocument();
+        expect(screen.getAllByText(/testnet|mainnet/i)[0]).toBeInTheDocument();
     });
 });

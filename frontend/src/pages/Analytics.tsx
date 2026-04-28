@@ -1,9 +1,10 @@
 import React from "react";
-import { Activity } from "../components/icons";
+import { Activity, PackageSearch } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
 import Skeleton from "../components/Skeleton";
+import EmptyState from "../components/ui/EmptyState";
 
 const Analytics: React.FC = () => {
     const { formattedTvl, summary, error, isLoading } = useVault();
@@ -57,9 +58,12 @@ const Analytics: React.FC = () => {
                 </div>
             </div>
 
-            <div className="glass-panel" style={{ marginTop: '32px', padding: '48px', textAlign: 'center', background: 'var(--bg-muted)' }}>
-                <div style={{ color: 'var(--text-secondary)' }}>Interactive Charts coming soon...</div>
-            </div>
+            <EmptyState
+                variant="minimal"
+                title="Advanced Analytics Coming Soon"
+                description="We're currently indexing historical data to provide you with deeper insights into pool health and asset stability."
+                icon={<Activity size={32} />}
+            />
         </div>
     );
 };

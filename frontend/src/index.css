@@ -11,8 +11,11 @@
   --accent-purple: #7000ff;
   
   --text-primary: #ffffff;
-  --text-secondary: #94a3b8;
-  --text-tertiary: #64748b;
+  --text-secondary: #a8b8cc;
+  --text-tertiary: #8494a7;
+
+  --text-warning: #f59e0b;
+  --accent-green: #22c55e;
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: "Avenir Next", "Inter", "Segoe UI", system-ui, sans-serif;
@@ -91,8 +94,11 @@
   --accent-purple: #7e22ce;
   
   --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-tertiary: #64748b;
+  --text-secondary: #40505f;
+  --text-tertiary: #5a6a7d;
+
+  --text-warning: #b45309;
+  --accent-green: #16a34a;
 
   --shadow-glow: 0 0 20px rgba(2, 132, 199, 0.1);
   --shadow-glass: 0 8px 32px 0 rgba(15, 23, 42, 0.1);
@@ -107,6 +113,32 @@
   --text-error: #dc2626;
   --border-error: rgba(239, 68, 68, 0.2);
 }
+
+/* ── Utility Classes ────────────────────────────────────────── */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.text-center { text-align: center; }
+.w-full { width: 100%; }
+.mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); }
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-6 { margin-bottom: var(--space-6); }
+.mb-8 { margin-bottom: var(--space-8); }
+.p-xl { padding: var(--space-12) var(--space-8); }
+.px-8 { padding-left: var(--space-8); padding-right: var(--space-8); }
+.py-3 { padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-2xl { font-size: var(--text-2xl); }
+.text-md { font-size: var(--text-base); }
+.leading-relaxed { line-height: var(--leading-relaxed); }
+.gap-sm { gap: var(--space-2); }
+.gap-md { gap: var(--space-4); }
+.gap-lg { gap: var(--space-6); }
+.gap-xl { gap: var(--space-8); }
 
 * {
   box-sizing: border-box;
@@ -787,6 +819,22 @@ button {
 
 .animate-glow {
   animation: puiseGlow 3s infinite;
+}
+
+/* ── Respect reduced motion preference (WCAG 2.3.3) ────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-glow {
+    animation: none;
+  }
 }
 
 /* Form Elements */
