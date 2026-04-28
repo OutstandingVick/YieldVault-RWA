@@ -125,6 +125,53 @@ export class ReferralService {
   }
 
   /**
+   * Get or create a referral code for a wallet address.
+   * Generates a unique 8-character alphanumeric code if one doesn't exist.
+   */
+  async getOrCreateReferralCode(ownerAddress: string): Promise<string> {
+    const prisma = getPrisma();
+
+    // Check if code already exists
+    const existing = await prisma.referralCode.findUnique({
+      where: { ownerAddress },
+    });
+
+    if (existing) {
+      return existing.code;
+    }
+
+    // Generate unique code
+    let code: string;
+    let attempts = 0;
+    do {
+      code = this.generateReferralCode();
+      attempts++;
+      if (attempts > 10) {
+        throw new Error("Failed to generate unique referral code after 10 attempts");
+      }
+    } while (await prisma.referralCode.findUnique({ where: { code } }));
+
+    // Create new code
+    await prisma.referralCode.create({
+      data: { code, ownerAddress },
+    });
+
+    return code;
+  }
+
+  /**
+   * Generate a random 8-character alphanumeric referral code.
+   */
+  private generateReferralCode(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  /**
    * Create a referral code for a wallet (helper for testing/bootstrapping).
    */
   async createReferralCode(ownerAddress: string, code: string): Promise<void> {

@@ -12,10 +12,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
 import axe from "axe-core";
+import type { AxeResults } from "axe-core";
 
 // ─── Helper ────────────────────────────────────────────────────────────────────
 
-async function runAxe(container: HTMLElement) {
+async function runAxe(container: HTMLElement): Promise<AxeResults> {
   const results = await axe.run(container, {
     runOnly: {
       type: "tag",
@@ -29,7 +30,7 @@ async function runAxe(container: HTMLElement) {
   return results;
 }
 
-function expectNoViolations(results: Awaited<ReturnType<typeof axe.run>>) {
+function expectNoViolations(results: AxeResults): void {
   const violations = results.violations.map(
     (v) =>
       `[${v.impact}] ${v.id}: ${v.description}\n` +

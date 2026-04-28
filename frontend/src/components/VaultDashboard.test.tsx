@@ -6,11 +6,12 @@ import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import * as vaultApi from "../lib/vaultApi";
-import { VaultSummary } from "../lib/vaultApi";
+import type { VaultSummary } from "../lib/vaultApi";
 import * as portfolioHooks from "../hooks/usePortfolioData";
 import * as vaultDataHooks from "../hooks/useVaultData";
-import { UseQueryResult } from "@tanstack/react-query";
-import { PortfolioHolding } from "../lib/portfolioApi";
+import * as tokenAllowanceHooks from "../hooks/useTokenAllowance";
+import type { UseQueryResult } from "@tanstack/react-query";
+import type { PortfolioHolding } from "../lib/portfolioApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
@@ -27,6 +28,10 @@ vi.mock("../hooks/usePortfolioData", () => ({
 vi.mock("../hooks/useVaultData", () => ({
   useVaultSummary: vi.fn(),
   useVaultHistory: vi.fn(),
+}));
+
+vi.mock("../hooks/useTokenAllowance", () => ({
+  useTokenAllowance: vi.fn(),
 }));
 
 const mockSummary = {
@@ -111,6 +116,14 @@ describe("VaultDashboard", () => {
       isLoading: false,
       error: null,
     } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
+
+    vi.mocked(tokenAllowanceHooks.useTokenAllowance).mockReturnValue({
+      allowance: 1_000_000,
+      approvalStatus: "confirmed",
+      needsApproval: vi.fn().mockReturnValue(false),
+      approve: vi.fn().mockResolvedValue(undefined),
+      resetApproval: vi.fn(),
+    });
   });
 
   afterEach(() => {
@@ -144,7 +157,7 @@ describe("VaultDashboard", () => {
   it("allows switching between deposit and withdraw tabs", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const depositTab = screen.getByText("Deposit");
     const withdrawTab = screen.getByText("Withdraw");
@@ -165,30 +178,34 @@ describe("VaultDashboard", () => {
     
     renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "100" } });
     expect(input).toHaveValue(100);
 
-    const button = screen.getByText("Approve & Deposit");
-    fireEvent.click(button);
+    const reviewButton = screen.getByRole("button", { name: "Review Transaction" });
+    fireEvent.click(reviewButton);
+
+    const confirmButton = await screen.findByRole("button", { name: /Confirm deposit/i });
+    fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
+      expect(vaultApi.submitDeposit).toHaveBeenCalled();
     });
 
     // Resolve the mocked API call
     resolveSubmit();
 
-    // Loading state should be visible while mutation is pending.
-    expect(screen.getByText(/Waiting for confirmation/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
+    });
   });
 
   it("fills the input with max allowable amount via MAX button", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const maxButton = screen.getByRole("button", { name: "MAX" });
     fireEvent.click(maxButton);
@@ -203,7 +220,7 @@ describe("VaultDashboard", () => {
   it("shows inline error and blocks submit for amounts above balance", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "2000" } });
@@ -212,26 +229,26 @@ describe("VaultDashboard", () => {
     expect(
       screen.getByText(/Deposit amount cannot exceed your available USDC balance./i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review Transaction" })).toBeDisabled();
   });
 
   it("shows minimum deposit validation and clears error when corrected", async () => {
     renderDashboard("GABC123");
 
-    expect(await screen.findByText(/Approve & Deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText("0.00");
     fireEvent.change(input, { target: { value: "0.5" } });
     fireEvent.blur(input);
 
     expect(screen.getByText(/Minimum deposit is 1.00 USDC./i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review Transaction" })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "10" } });
 
     await waitFor(() => {
       expect(screen.queryByText(/Minimum deposit is 1.00 USDC./i)).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Approve & Deposit" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Review Transaction" })).toBeEnabled();
     });
   });
 
@@ -261,13 +278,27 @@ describe("VaultDashboard", () => {
     expect(screen.getByTestId("location-search")).toHaveTextContent("?ref=partner");
   });
 
-  it("ignores invalid deep-link amounts and removes deep-link params", async () => {
-    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
+   it("ignores invalid deep-link amounts and removes deep-link params", async () => {
+     renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
 
-    const input = await screen.findByPlaceholderText("0.00");
-    await waitFor(() => {
-      expect((input as HTMLInputElement).value).toBe("");
-    });
-    expect(screen.getByTestId("location-search")).toHaveTextContent("");
-  });
-});
+     const input = await screen.findByPlaceholderText("0.00");
+     await waitFor(() => {
+       expect((input as HTMLInputElement).value).toBe("");
+     });
+     expect(screen.getByTestId("location-search")).toHaveTextContent("");
+   });
+
+   it("clears amount input when switching tabs", async () => {
+     renderDashboard("GABC123");
+
+     const input = await screen.findByPlaceholderText("0.00");
+     fireEvent.change(input, { target: { value: "100" } });
+     expect(input).toHaveValue("100");
+
+     const withdrawTab = screen.getByText("Withdraw");
+     fireEvent.click(withdrawTab);
+
+     const clearedInput = screen.getByPlaceholderText("0.00");
+     expect(clearedInput).toHaveValue("");
+   });
+ });
