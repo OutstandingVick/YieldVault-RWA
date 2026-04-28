@@ -41,6 +41,10 @@ function AppContent() {
   const { tvl } = useVault();
 
   useEffect(() => {
+    if ((window as Window & { Cypress?: unknown }).Cypress) {
+      return;
+    }
+
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")

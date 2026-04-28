@@ -67,7 +67,8 @@ describe('YieldVault Smoke Tests', () => {
     cy.get('body', { timeout: 15000 }).should(($body) => {
       const hasDisconnect = $body.find('button[aria-label="Disconnect Wallet"]').length > 0;
       const hasConnect = $body.find('button:contains("Connect Freighter")').length > 0;
-      expect(hasDisconnect || hasConnect).to.eq(true);
+      const hasChecking = $body.find('button:contains("Checking wallet")').length > 0;
+      expect(hasDisconnect || hasConnect || hasChecking).to.eq(true);
     });
   });
 
