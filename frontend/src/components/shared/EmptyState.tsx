@@ -1,4 +1,5 @@
-import React, { ReactNode } from "react";
+import React from "react";
+import type { ReactNode } from "react";
 import { PackageSearch } from "../icons";
 
 interface EmptyStateProps {
@@ -39,7 +40,7 @@ const EmptyState: React.FC<EmptyStateProps> = ({
           boxShadow: "var(--shadow-glow)"
         }}
       >
-        {React.cloneElement(icon as React.ReactElement, { size: 40 })}
+        {React.cloneElement(icon as React.ReactElement<{ size?: number }>, { size: 40 })}
       </div>
       <h3 className="text-2xl mb-3 text-primary">{title}</h3>
       <p 

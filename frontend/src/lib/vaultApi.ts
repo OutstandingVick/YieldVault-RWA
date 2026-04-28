@@ -42,12 +42,6 @@ export async function getSharePrice(): Promise<number> {
     };
   });
 
-  type TxSourceAccount = {
-    accountId: () => string;
-    sequenceNumber: () => string;
-    incrementSequenceNumber: () => void;
-  };
-
   const tx = new TransactionBuilder(
     sourceAccount as ConstructorParameters<typeof TransactionBuilder>[0],
     {
@@ -82,7 +76,7 @@ export async function getSharePrice(): Promise<number> {
   }
 
   const raw = returnValue.i128();
-  const rawBigInt = (BigInt(raw.hi()) << 64n) | BigInt(raw.lo());
+  const rawBigInt = (BigInt(raw.hi().toString()) << 64n) | BigInt(raw.lo().toString());
 
   return decodeSharePrice(rawBigInt);
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useFloating, type Placement } from "./useFloating";
+import { useFloating, type Placement, type UseFloatingReturn } from "./useFloating";
 
 // Helper to create a mock DOMRect
 function mockRect(
