@@ -42,9 +42,9 @@ type TransactionStep = "amount" | "review" | "result";
  */
 const StepIndicator: React.FC<{ currentStep: TransactionStep }> = ({ currentStep }) => {
   const steps = [
-    { id: "amount", label: "Amount" },
-    { id: "review", label: "Review" },
-    { id: "result", label: "Result" },
+    { id: "amount", label: "Enter Amount" },
+    { id: "review", label: "Review & Confirm" },
+    { id: "result", label: "Success / Failure" },
   ];
 
   const getStepStatus = (stepId: TransactionStep) => {
