@@ -110,6 +110,10 @@ const portfolioHoldings = [
  * Intercept mock API routes so tests are fully deterministic.
  */
 export async function interceptApiRoutes(page: Page) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('hasSeenWalkthrough', 'true');
+  });
+
   await page.route('**/mock-api/vault-summary.json', (route) =>
     route.fulfill({
       status: 200,
