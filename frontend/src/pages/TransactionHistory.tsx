@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
@@ -21,6 +21,7 @@ import {
 } from "../lib/transactionApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useDataTableState } from "../hooks/useDataTableState";
+import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { getStellarExplorerUrl } from "../lib/security";
 import { networkConfig } from "../config/network";
 
@@ -29,11 +30,17 @@ interface TransactionHistoryProps {
 }
 
 type TxTypeFilter = "all" | "deposit" | "withdrawal";
+type ViewMode = "paginated" | "infinite";
 const DEFAULT_PAGE_SIZE = 10;
+const INFINITE_SCROLL_BATCH_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
 function getPageSizeStorageKey(walletAddress: string | null): string {
   return `yieldvault:transactions:page-size:${walletAddress ?? "guest"}`;
+}
+
+function getViewModeStorageKey(walletAddress: string | null): string {
+  return `yieldvault:transactions:view-mode:${walletAddress ?? "guest"}`;
 }
 
 function loadPreferredPageSize(walletAddress: string | null): number {
@@ -54,6 +61,26 @@ function persistPreferredPageSize(walletAddress: string | null, pageSize: number
     localStorage.setItem(getPageSizeStorageKey(walletAddress), String(pageSize));
   } catch {
     // localStorage unavailable; silently ignore
+  }
+}
+
+function loadViewMode(walletAddress: string | null): ViewMode {
+  try {
+    const raw = localStorage.getItem(getViewModeStorageKey(walletAddress));
+    if (raw === "paginated" || raw === "infinite") {
+      return raw;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return "paginated";
+}
+
+function persistViewMode(walletAddress: string | null, mode: ViewMode): void {
+  try {
+    localStorage.setItem(getViewModeStorageKey(walletAddress), mode);
+  } catch {
+    // localStorage unavailable
   }
 }
 
@@ -117,6 +144,14 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     () => loadPreferredPageSize(walletAddress),
     [walletAddress],
   );
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<ViewMode>(() => loadViewMode(walletAddress));
+
+  // Infinite scroll state
+  const [visibleCount, setVisibleCount] = useState(INFINITE_SCROLL_BATCH_SIZE);
+  const [hasMoreItems, setHasMoreItems] = useState(true);
+  const loadMoreLockRef = useRef(false);
 
   const { state, setSearch, setSort, setPage, setPageSize } = useDataTableState(
     {
@@ -265,6 +300,51 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     },
   );
 
+  // Infinite scroll: compute visible rows from sorted/filtered set
+  const infiniteScrollRows = React.useMemo(() => {
+    return sortedRows.slice(0, visibleCount);
+  }, [sortedRows, visibleCount]);
+
+  // Update hasMoreItems when the data or visibleCount changes
+  useEffect(() => {
+    setHasMoreItems(visibleCount < sortedRows.length);
+  }, [visibleCount, sortedRows.length]);
+
+  // Reset visible count when filters/search/sort change
+  useEffect(() => {
+    setVisibleCount(INFINITE_SCROLL_BATCH_SIZE);
+  }, [state.search, state.sortBy, state.sortDirection, txType, dateFrom, dateTo]);
+
+  // Handle loading more items for infinite scroll
+  const handleLoadMore = useCallback(() => {
+    if (loadMoreLockRef.current || !hasMoreItems) return;
+    loadMoreLockRef.current = true;
+
+    setVisibleCount((prev) => {
+      const next = Math.min(prev + INFINITE_SCROLL_BATCH_SIZE, sortedRows.length);
+      return next;
+    });
+
+    // Release lock after a small delay to prevent rapid-fire calls
+    setTimeout(() => {
+      loadMoreLockRef.current = false;
+    }, 100);
+  }, [hasMoreItems, sortedRows.length]);
+
+  const { sentinelRef, isLoadingMore } = useInfiniteScroll(handleLoadMore, {
+    enabled: viewMode === "infinite" && hasMoreItems && !isLoading,
+    threshold: 200,
+  });
+
+  // View mode toggle handler
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    persistViewMode(walletAddress, mode);
+    if (mode === "infinite") {
+      setVisibleCount(INFINITE_SCROLL_BATCH_SIZE);
+    }
+  };
+
   const buildCsvContent = (transactionsToExport: Transaction[]) => {
     const headers = ["date", "type", "amount", "share price", "fee", "tx hash"];
 
@@ -321,6 +401,9 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       icon={<Activity size={24} />}
     />
   );
+
+  // Determine which rows to show based on view mode
+  const displayRows = viewMode === "infinite" ? infiniteScrollRows : rows;
 
   return (
     <div className="glass-panel" style={{ padding: "32px" }}>
@@ -469,6 +552,45 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                   </div>
                 </label>
 
+                {/* View Mode Toggle */}
+                <div className="input-group" style={{ minWidth: "140px" }}>
+                  <span className="text-body-sm">View</span>
+                  <div className="infinite-scroll-toggle" role="radiogroup" aria-label="View mode">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={viewMode === "paginated"}
+                      className={`infinite-scroll-toggle-btn ${viewMode === "paginated" ? "active" : ""}`}
+                      onClick={() => handleViewModeChange("paginated")}
+                      title="Paginated view"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <rect x="1" y="1" width="14" height="3" rx="0.5" fill="currentColor" opacity="0.8" />
+                        <rect x="1" y="6" width="14" height="3" rx="0.5" fill="currentColor" opacity="0.5" />
+                        <rect x="1" y="11" width="14" height="3" rx="0.5" fill="currentColor" opacity="0.3" />
+                      </svg>
+                      <span className="sr-only">Pages</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={viewMode === "infinite"}
+                      className={`infinite-scroll-toggle-btn ${viewMode === "infinite" ? "active" : ""}`}
+                      onClick={() => handleViewModeChange("infinite")}
+                      title="Infinite scroll view"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <rect x="1" y="1" width="14" height="2" rx="0.5" fill="currentColor" opacity="0.9" />
+                        <rect x="1" y="4.5" width="14" height="2" rx="0.5" fill="currentColor" opacity="0.7" />
+                        <rect x="1" y="8" width="14" height="2" rx="0.5" fill="currentColor" opacity="0.5" />
+                        <rect x="1" y="11.5" width="14" height="2" rx="0.5" fill="currentColor" opacity="0.3" />
+                        <path d="M8 14.5L5 12.5H11L8 14.5Z" fill="currentColor" opacity="0.6" />
+                      </svg>
+                      <span className="sr-only">Scroll</span>
+                    </button>
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -497,7 +619,9 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             >
               {isLoading
                 ? "Loading transactions..."
-                : `${totalItems} transactions found`}
+                : viewMode === "infinite"
+                  ? `Showing ${infiniteScrollRows.length} of ${sortedRows.length} transactions`
+                  : `${totalItems} transactions found`}
             </div>
 
             {isLoading ? (
@@ -510,11 +634,70 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               >
                 Loading transactions...
               </div>
+            ) : viewMode === "infinite" ? (
+              /* Infinite Scroll View */
+              <div className="infinite-scroll-container">
+                <DataTable
+                  caption="Transaction history"
+                  columns={columns}
+                  rows={displayRows}
+                  rowKey={(row) => row.id}
+                  emptyMessage={emptyMessage}
+                  isLoading={isLoading}
+                  skeletonRows={state.pageSize}
+                  sortBy={state.sortBy}
+                  sortDirection={state.sortDirection}
+                  onSortChange={setSort}
+                />
+
+                {/* Infinite scroll sentinel & status */}
+                {sortedRows.length > 0 && (
+                  <div className="infinite-scroll-footer">
+                    {hasMoreItems ? (
+                      <>
+                        <div
+                          ref={sentinelRef}
+                          className="infinite-scroll-sentinel"
+                          data-testid="infinite-scroll-sentinel"
+                          aria-hidden="true"
+                        />
+                        {isLoadingMore && (
+                          <div className="infinite-scroll-loader" aria-live="polite">
+                            <div className="infinite-scroll-spinner" />
+                            <span>Loading more transactions...</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div
+                        className="infinite-scroll-end"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <div className="infinite-scroll-end-line" />
+                        <span>All {sortedRows.length} transactions loaded</span>
+                        <div className="infinite-scroll-end-line" />
+                      </div>
+                    )}
+
+                    {/* Progress indicator */}
+                    <div className="infinite-scroll-progress" aria-hidden="true">
+                      <div
+                        className="infinite-scroll-progress-bar"
+                        style={{
+                          width: `${Math.min(100, (infiniteScrollRows.length / sortedRows.length) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
+              /* Paginated View (original) */
               <DataTable
                 caption="Transaction history"
                 columns={columns}
-                rows={rows}
+                rows={displayRows}
                 rowKey={(row) => row.id}
                 emptyMessage={emptyMessage}
                 isLoading={isLoading}
