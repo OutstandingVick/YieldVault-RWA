@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
-import { Loader2, LogOut, Wallet, AlertCircle, Check } from './icons';
+import { Loader2, LogOut, Wallet, AlertCircle } from './icons';
 import { hasCustomRpcConfig, networkConfig } from '../config/network';
 import { useToast } from '../context/ToastContext';
 import { useTranslation } from '../i18n';
 import CopyButton from './CopyButton';
 import { discoverConnectedAddress } from "../lib/stellarAccount";
+const usdcNumberFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
 
 interface WalletConnectProps {
     walletAddress: string | null;
@@ -214,7 +218,9 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ walletAddress, usdcBalanc
                     }}
                     aria-label="USDC wallet balance"
                 >
-                    USDC: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{usdcBalance.toFixed(2)}</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+              USDC: {usdcNumberFormatter.format(usdcBalance)}
+            </span>
                 </div>
                 <button
                     className="btn btn-outline"

@@ -116,6 +116,26 @@ export async function interceptApiRoutes(page: Page) {
       body: JSON.stringify(portfolioHoldings),
     }),
   );
+
+  // Stub Horizon balance lookups so connected-wallet flows are deterministic in CI.
+  // The app uses the Horizon "accounts/{id}" endpoint to locate the USDC balance.
+  await page.route('**/accounts/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        balances: [
+          { asset_type: 'native', balance: '100.0000000' },
+          {
+            asset_type: 'credit_alphanum4',
+            asset_code: 'USDC',
+            asset_issuer: 'GAUSDCISSUERMOCK0000000000000000000000000000000000000',
+            balance: '1250.50',
+          },
+        ],
+      }),
+    }),
+  );
 }
 
 /**
@@ -161,6 +181,72 @@ export async function stubFreighterConnected(page: Page, address: string) {
         case 'REQUEST_PUBLIC_KEY':
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
+        case 'REQUEST_ACCESS':
+          response = { ...response, publicKey: stub.connected ? addr : '' };
+          break;
+        case 'REQUEST_CONNECTION_STATUS':
+          response = { ...response, isConnected: stub.connected };
+          break;
+        case 'REQUEST_NETWORK_DETAILS':
+          response = {
+            ...response,
+            networkDetails: {
+              network: 'TESTNET',
+              networkName: 'Test SDF Network',
+              networkUrl: 'https://horizon-testnet.stellar.org',
+              networkPassphrase: 'Test SDF Network ; September 2015',
+              sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+            },
+          };
+          break;
+        default:
+          return;
+      }
+
+      window.postMessage(response, window.location.origin);
+    });
+  }, address);
+}
+
+/**
+ * Stub Freighter such that the app starts disconnected, but clicking
+ * "Connect Freighter" (setAllowed) will transition the stub into a connected
+ * state and return a public key for subsequent calls.
+ *
+ * This matches the WalletConnect flow:
+ * setAllowed() -> isAllowed() -> getAddress()
+ */
+export async function stubFreighterManualConnect(page: Page, address: string) {
+  await page.addInitScript((addr) => {
+    const stub = { connected: false };
+    (window as unknown as Record<string, unknown>).__freighterStub = stub;
+
+    window.addEventListener('message', (event) => {
+      if (
+        event.source !== window ||
+        !event.data ||
+        event.data.source !== 'FREIGHTER_EXTERNAL_MSG_REQUEST'
+      ) {
+        return;
+      }
+
+      const { messageId, type } = event.data as { messageId: number; type: string };
+
+      let response: Record<string, unknown> = {
+        source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
+        messagedId: messageId,
+      };
+
+      switch (type) {
+        case 'SET_ALLOWED_STATUS':
+          // Simulate user accepting the connection prompt.
+          stub.connected = true;
+          response = { ...response, isAllowed: true };
+          break;
+        case 'REQUEST_ALLOWED_STATUS':
+          response = { ...response, isAllowed: stub.connected };
+          break;
+        case 'REQUEST_PUBLIC_KEY':
         case 'REQUEST_ACCESS':
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;

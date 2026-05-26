@@ -91,8 +91,8 @@ describe('WalletConnect', () => {
 
     it('shows error state when permission is denied', async () => {
         mockedFreighter.isAllowed.mockResolvedValueOnce({ isAllowed: false });
-        mockedFreighter.setAllowed.mockResolvedValue({});
-        mockedFreighter.getAddress.mockResolvedValue({ address: undefined });
+        mockedFreighter.setAllowed.mockResolvedValue({ isAllowed: false } as any);
+        mockedFreighter.getAddress.mockResolvedValue({ address: "" } as any);
 
         render(
             <WalletConnectWrapper 

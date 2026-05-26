@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryClient";
-import type { PortfolioHolding } from "../lib/portfolioApi";
 
 /**
  * Simulated deposit mutation with optimistic UI updates.
@@ -14,18 +13,27 @@ export function useDepositMutation() {
       // Simulate tx broadcast + confirmation delay
       await new Promise((resolve) => setTimeout(resolve, 1500));
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (Math.random() < 0.1) {
-        throw new Error(
-          "Deposit confirmation failed. Check network status and wallet approval.",
-        );
-      }
       return { success: true, ...params };
+    },
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.balance.usdc(variables.walletAddress),
+      });
+
+      const previousBalance = queryClient.getQueryData<number>(
+        queryKeys.balance.usdc(variables.walletAddress),
+      );
+
+      const nextBalance = (previousBalance ?? 0) + variables.amount;
+      queryClient.setQueryData(
+        queryKeys.balance.usdc(variables.walletAddress),
+        nextBalance,
+      );
+
+      return { previousBalance };
     },
     onSuccess: (_, variables) => {
       // Refresh related queries after confirmation
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.balance.usdc(variables.walletAddress),
-      });
       queryClient.invalidateQueries({
         queryKey: queryKeys.portfolio.holdings(variables.walletAddress),
       });
@@ -35,6 +43,14 @@ export function useDepositMutation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.transactions.list(variables.walletAddress),
       });
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previousBalance !== undefined) {
+        queryClient.setQueryData(
+          queryKeys.balance.usdc(variables.walletAddress),
+          context.previousBalance,
+        );
+      }
     },
   });
 }
@@ -51,18 +67,27 @@ export function useWithdrawMutation() {
       // Simulate tx broadcast + confirmation delay
       await new Promise((resolve) => setTimeout(resolve, 1500));
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (Math.random() < 0.1) {
-        throw new Error(
-          "Withdrawal confirmation failed. Verify liquidity and retry.",
-        );
-      }
       return { success: true, ...params };
+    },
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.balance.usdc(variables.walletAddress),
+      });
+
+      const previousBalance = queryClient.getQueryData<number>(
+        queryKeys.balance.usdc(variables.walletAddress),
+      );
+
+      const nextBalance = Math.max((previousBalance ?? 0) - variables.amount, 0);
+      queryClient.setQueryData(
+        queryKeys.balance.usdc(variables.walletAddress),
+        nextBalance,
+      );
+
+      return { previousBalance };
     },
     onSuccess: (_, variables) => {
       // Refresh related queries after confirmation
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.balance.usdc(variables.walletAddress),
-      });
       queryClient.invalidateQueries({
         queryKey: queryKeys.portfolio.holdings(variables.walletAddress),
       });
@@ -72,6 +97,14 @@ export function useWithdrawMutation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.transactions.list(variables.walletAddress),
       });
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previousBalance !== undefined) {
+        queryClient.setQueryData(
+          queryKeys.balance.usdc(variables.walletAddress),
+          context.previousBalance,
+        );
+      }
     },
   });
 }

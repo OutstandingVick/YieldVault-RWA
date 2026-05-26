@@ -14,7 +14,12 @@ export function useTransactionHistory(walletAddress: string | null) {
       if (!walletAddress) {
         throw new Error("Wallet address required");
       }
-      return getTransactions(walletAddress);
+      return getTransactions({
+        walletAddress,
+        limit: 50,
+        order: "desc",
+        type: "all",
+      });
     },
     staleTime: 15000, // 15 seconds
     enabled: !!walletAddress, // Only fetch when wallet is connected

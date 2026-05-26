@@ -1,4 +1,5 @@
 import { render, screen, act } from "@testing-library/react";
+import { vi } from "vitest";
 import { describe, it, expect } from "vitest";
 import { AuthProvider, useAuth } from "./AuthContext";
 

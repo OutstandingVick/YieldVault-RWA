@@ -1,11 +1,11 @@
-import React from "react";
+import type { FC } from "react";
 import { Activity } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
 import ViewState from "../components/ViewState";
 
-const Analytics: React.FC = () => {
+const Analytics: FC = () => {
     const { formattedTvl, summary, error, isLoading } = useVault();
 
     return (
@@ -28,7 +28,7 @@ const Analytics: React.FC = () => {
                 statusChips={[
                     {
                         label: isLoading ? "Syncing" : "Live",
-                        variant: (isLoading ? "warning" : "success") as const,
+                        variant: isLoading ? "warning" : "success",
                     },
                 ]}
             />
