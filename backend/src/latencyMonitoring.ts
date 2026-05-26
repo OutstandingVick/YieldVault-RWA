@@ -221,17 +221,15 @@ export class LatencyMonitoringService {
   }
 
   private normalizeEndpoint(endpoint: string): string {
+    if (this.trackers.has(endpoint)) {
+      return endpoint;
+    }
+
     // Convert dynamic paths like /api/v1/vault/123 to /api/v1/vault/:id
     if (endpoint.match(/^\/api\/v1\/vault\/[^\/]+$/)) {
       return '/api/v1/vault/:id';
     }
-    
-    // Handle other dynamic patterns like /api/v1/resource/123
-    const match = endpoint.match(/^\/api\/v1\/([^\/]+)\/[^\/]+$/);
-    if (match) {
-      return `/api/v1/${match[1]}/:id`;
-    }
-    
+
     return endpoint;
   }
 
@@ -316,6 +314,14 @@ export class LatencyMonitoringService {
     } catch (error: any) {
       logger.log('error', 'Failed to send some alerts', { error: error.message });
     }
+  }
+
+  resetForTests(): void {
+    this.stopMonitoring();
+    this.trackers.clear();
+    this.alertIntegrations = [];
+    this.initializeEndpointMappings();
+    this.initializeAlertIntegrations();
   }
 
   private getSLOConfig(): SLOConfig {

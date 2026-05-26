@@ -222,6 +222,7 @@ export class EventPollingService {
           method: 'getEvents',
           params: {
             startLedger,
+            endLedger,
             filters: [
               {
                 type: 'contract',
@@ -255,7 +256,7 @@ export class EventPollingService {
         endLedger,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      return [];
+      throw error;
     }
   }
 }

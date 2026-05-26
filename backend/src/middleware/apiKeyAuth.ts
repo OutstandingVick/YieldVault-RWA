@@ -58,6 +58,21 @@ export function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
+export function authenticateApiKeyValue(
+  key: string,
+): { hash: string; role: ApiKeyRole } | null {
+  const hash = hashApiKey(key);
+  const metadata = API_KEYS.get(hash);
+  if (!metadata) {
+    return null;
+  }
+
+  return {
+    hash,
+    role: metadata.role,
+  };
+}
+
 export function registerApiKey(
   key: string,
   options: { role?: ApiKeyRole } = {},
