@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Portfolio from "./Portfolio";
 import { ToastProvider } from "../context/ToastContext";
 import * as portfolioApi from "../lib/portfolioApi";
-import * as referralHooks from "../hooks/useReferral";
 import type { PortfolioHolding } from "../lib/portfolioApi";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
