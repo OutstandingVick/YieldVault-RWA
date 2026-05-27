@@ -66,8 +66,8 @@ function LocationSearchProbe() {
 function renderDashboard(
   walletAddress: string | null,
   usdcBalance = 1250.5,
-  xlmBalance = 10.0,
   initialEntry = "/",
+  xlmBalance = 10.0,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -309,7 +309,7 @@ describe("VaultDashboard", () => {
     });
 
     it("shows inline error and disables submit when XLM balance is insufficient for network fees", async () => {
-      renderDashboard("GABC123", 1250.5, 0.01);
+      renderDashboard("GABC123", 1250.5, "/", 0.01);
 
       expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
@@ -326,7 +326,7 @@ describe("VaultDashboard", () => {
     });
 
     it("shows warning banner and disables confirm button on review step when XLM balance is insufficient", async () => {
-      renderDashboard("GABC123", 1250.5, 0.01);
+      renderDashboard("GABC123", 1250.5, "/", 0.01);
 
       expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
