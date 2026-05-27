@@ -177,6 +177,59 @@ export function startApySnapshotScheduler(): () => void {
   };
 }
 
+// ─── Backfill ─────────────────────────────────────────────────────────────────
+
+export interface BackfillResult {
+  created: number;
+  skipped: number;
+  dates: string[];
+}
+
+/**
+ * Backfills APY snapshots for all missing dates in [startDate, endDate] (inclusive).
+ * Existing snapshots are not overwritten.
+ */
+export async function backfillApySnapshots(
+  startDate: string,
+  endDate: string,
+): Promise<BackfillResult> {
+  const start = Date.now();
+  let created = 0;
+  let skipped = 0;
+  const createdDates: string[] = [];
+
+  // Fetch existing snapshot dates in range to avoid duplicates
+  const { rows } = await db.query<{ date: string }>(
+    `SELECT date FROM apy_snapshots WHERE date >= $1 AND date <= $2`,
+    [startDate, endDate],
+  );
+  const existing = new Set(rows.map((r) => r.date));
+
+  let cursor = startDate;
+  while (cursor <= endDate) {
+    if (existing.has(cursor)) {
+      skipped += 1;
+    } else {
+      const apy = await fetchCurrentApy();
+      await persistSnapshot(cursor, apy);
+      createdDates.push(cursor);
+      created += 1;
+    }
+    cursor = datePlusDays(cursor, 1);
+  }
+
+  const durationMs = Date.now() - start;
+  logger.log('info', 'APY backfill completed', {
+    startDate,
+    endDate,
+    created,
+    skipped,
+    durationMs,
+  });
+
+  return { created, skipped, dates: createdDates };
+}
+
 // ─── History Query ───────────────────────────────────────────────────────────
 
 /**
