@@ -57,6 +57,7 @@ const mockSummary: VaultSummary = {
 function renderDashboard(
   walletAddress: string | null,
   usdcBalance = 0,
+  xlmBalance = 10.0,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -69,6 +70,7 @@ function renderDashboard(
             <VaultDashboard
               walletAddress={walletAddress}
               usdcBalance={usdcBalance}
+              xlmBalance={xlmBalance}
             />
           </VaultProvider>
         </ToastProvider>
