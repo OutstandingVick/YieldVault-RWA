@@ -26,6 +26,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
+import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import confetti from "canvas-confetti";
 
 /**
@@ -205,6 +206,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     message: string;
     txHash?: string
   } | null>(null);
+
+  const { isOffline, countdown } = useOfflineRetryCountdown();
 
   // Handle deep link parameters
   useEffect(() => {
@@ -460,15 +463,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 <span
                   className="flex items-center gap-xs"
                   style={{
-                    color: "var(--accent-cyan)",
+                    color: isOffline ? "rgba(255, 159, 10, 0.9)" : "var(--accent-cyan)",
                     fontSize: "0.7rem",
                     fontWeight: 600,
                     textTransform: "uppercase",
                     letterSpacing: "0.05em",
                   }}
                 >
-                  <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />
-                  {isLoading ? "Syncing" : "Live"}
+                  {!isOffline && <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />}
+                  {isOffline ? `Retrying in ${countdown}s...` : isLoading ? "Syncing" : "Live"}
                 </span>
               </div>
               <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>

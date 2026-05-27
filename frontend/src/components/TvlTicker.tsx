@@ -2,29 +2,34 @@ import React from "react";
 import { Activity, AlertCircle } from "./icons";
 import { useTvlTicker } from "../hooks/useTvlTicker";
 import { formatCurrency } from "../lib/formatters";
+import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 
 /**
  * Live TVL ticker for the dashboard header / navbar.
  * Polls every 15 s, animates number changes, shows a stale indicator
  * when the last successful poll is older than 60 s.
+ * Displays offline retry countdown when connection is lost.
  */
 const TvlTicker: React.FC = () => {
   const { displayTvl, isStale } = useTvlTicker();
+  const { isOffline, countdown } = useOfflineRetryCountdown();
+
+  const isWarning = isStale || isOffline;
 
   return (
     <div
       aria-live="polite"
-      aria-label={`Total Value Locked: ${formatCurrency(displayTvl, "USD", 0)}`}
+      aria-label={isOffline ? `Offline, retrying in ${countdown}s` : `Total Value Locked: ${formatCurrency(displayTvl, "USD", 0)}`}
       style={{
         display: "flex",
         alignItems: "center",
         gap: "6px",
         padding: "6px 12px",
         borderRadius: "999px",
-        border: isStale
+        border: isWarning
           ? "1px solid rgba(255, 159, 10, 0.45)"
           : "1px solid rgba(0, 240, 255, 0.25)",
-        background: isStale
+        background: isWarning
           ? "rgba(255, 159, 10, 0.08)"
           : "rgba(0, 240, 255, 0.06)",
         fontSize: "0.78rem",
@@ -34,11 +39,11 @@ const TvlTicker: React.FC = () => {
         whiteSpace: "nowrap",
       }}
     >
-      {isStale ? (
+      {isWarning ? (
         <AlertCircle
           size={12}
           color="rgba(255, 159, 10, 0.9)"
-          aria-label="Data may be stale"
+          aria-label={isOffline ? "Connection lost" : "Data may be stale"}
         />
       ) : (
         <Activity
@@ -48,23 +53,32 @@ const TvlTicker: React.FC = () => {
           aria-hidden="true"
         />
       )}
-      <span style={{ color: "var(--text-secondary)" }}>TVL</span>
-      <span
-        style={{
-          color: isStale ? "rgba(255, 159, 10, 0.9)" : "var(--accent-cyan)",
-          fontFamily: "var(--font-display)",
-          transition: "color 0.3s",
-        }}
-      >
-        {formatCurrency(displayTvl, "USD", 0)}
-      </span>
-      {isStale && (
-        <span
-          style={{ color: "rgba(255, 159, 10, 0.7)", fontSize: "0.7rem" }}
-          title="Data may be outdated"
-        >
-          stale
+      
+      {isOffline ? (
+        <span style={{ color: "rgba(255, 159, 10, 0.9)" }}>
+          Connection lost. Retrying in {countdown}s...
         </span>
+      ) : (
+        <>
+          <span style={{ color: "var(--text-secondary)" }}>TVL</span>
+          <span
+            style={{
+              color: isStale ? "rgba(255, 159, 10, 0.9)" : "var(--accent-cyan)",
+              fontFamily: "var(--font-display)",
+              transition: "color 0.3s",
+            }}
+          >
+            {formatCurrency(displayTvl, "USD", 0)}
+          </span>
+          {isStale && (
+            <span
+              style={{ color: "rgba(255, 159, 10, 0.7)", fontSize: "0.7rem" }}
+              title="Data may be outdated"
+            >
+              stale
+            </span>
+          )}
+        </>
       )}
     </div>
   );
