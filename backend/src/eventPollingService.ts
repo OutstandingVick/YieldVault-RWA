@@ -1,5 +1,6 @@
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
+import { redisClientManager } from './rateLimiter';
 
 const prisma = getPrismaClient();
 
@@ -24,6 +25,10 @@ export class EventPollingService {
   private config: EventPollingConfig;
   private isRunning = false;
   private pollTimer?: NodeJS.Timeout;
+  private lockKey: string = 'event-polling:leader-lock';
+  private lockValue: string = '';
+  private lockRenewalTimer?: NodeJS.Timeout;
+  private isLeader = false;
 
   constructor(config: EventPollingConfig) {
     this.config = config;
@@ -38,19 +43,28 @@ export class EventPollingService {
     this.isRunning = true;
     logger.log('info', 'Starting event polling service');
 
+    // Acquire leader lock before starting polling
+    await this.acquireLeaderLock();
+
     // Replay missed events on startup - let errors propagate
     await this.replayMissedEvents();
 
-    // Start continuous polling
-    this.pollTimer = setInterval(() => {
-      this.pollEvents().catch((err) => {
-        logger.log('error', 'Event polling error', { error: err.message });
-      });
-    }, this.config.pollIntervalMs);
+    // Start continuous polling only if we are the leader
+    if (this.isLeader) {
+      this.pollTimer = setInterval(() => {
+        this.pollEvents().catch((err) => {
+          logger.log('error', 'Event polling error', { error: err.message });
+        });
+      }, this.config.pollIntervalMs);
 
-    logger.log('info', 'Event polling service started', {
-      pollIntervalMs: this.config.pollIntervalMs,
-    });
+      logger.log('info', 'Event polling service started as leader', {
+        pollIntervalMs: this.config.pollIntervalMs,
+      });
+    } else {
+      logger.log('info', 'Event polling service started as follower - waiting for leadership', {
+        pollIntervalMs: this.config.pollIntervalMs,
+      });
+    }
   }
 
   async stop(): Promise<void> {
@@ -62,7 +76,177 @@ export class EventPollingService {
       this.pollTimer = undefined;
     }
 
+    // Release leader lock on shutdown
+    await this.releaseLeaderLock();
+
     logger.log('info', 'Event polling service stopped');
+  }
+
+  /**
+   * Acquires a Redis-based leader lock using SET key value NX PX pattern.
+   * Returns true if lock was acquired, false otherwise.
+   */
+  private async acquireLeaderLock(): Promise<void> {
+    const client = redisClientManager.getClient();
+    if (!client || !redisClientManager.isReady()) {
+      logger.log('warn', 'Redis client not available - running in single-instance mode', {
+        lockKey: this.lockKey,
+      });
+      this.isLeader = true;
+      return;
+    }
+
+    try {
+      // Generate unique lock value for this instance
+      this.lockValue = `leader-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Try to acquire lock with 30 second expiry
+      const result = await client.set(this.lockKey, this.lockValue, 'NX', 'PX', 30000);
+      
+      if (result === 'OK') {
+        this.isLeader = true;
+        logger.log('info', 'Leader lock acquired successfully', {
+          lockKey: this.lockKey,
+          lockValue: this.lockValue,
+        });
+        
+        // Start lock renewal timer (renew every 15 seconds)
+        this.startLockRenewal();
+      } else {
+        this.isLeader = false;
+        logger.log('info', 'Leader lock acquisition failed - another instance is leader', {
+          lockKey: this.lockKey,
+        });
+      }
+    } catch (error) {
+      logger.log('error', 'Failed to acquire leader lock', {
+        lockKey: this.lockKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.isLeader = false;
+    }
+  }
+
+  /**
+   * Releases the leader lock if held by this instance.
+   */
+  private async releaseLeaderLock(): Promise<void> {
+    if (!this.isLeader || !this.lockValue) return;
+
+    const client = redisClientManager.getClient();
+    if (!client || !redisClientManager.isReady()) return;
+
+    try {
+      // Use Lua script to safely delete only if value matches
+      const script = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end`;
+      await client.eval(script, 1, this.lockKey, this.lockValue);
+      
+      logger.log('info', 'Leader lock released successfully', {
+        lockKey: this.lockKey,
+      });
+    } catch (error) {
+      logger.log('error', 'Failed to release leader lock', {
+        lockKey: this.lockKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Starts periodic lock renewal to prevent expiration.
+   */
+  private startLockRenewal(): void {
+    if (this.lockRenewalTimer) {
+      clearInterval(this.lockRenewalTimer);
+    }
+
+    this.lockRenewalTimer = setInterval(async () => {
+      if (!this.isLeader || !this.lockValue) return;
+
+      const client = redisClientManager.getClient();
+      if (!client || !redisClientManager.isReady()) return;
+
+      try {
+        // Renew lock with new 30 second expiry
+        const result = await client.set(this.lockKey, this.lockValue, 'XX', 'PX', 30000);
+        if (result !== 'OK') {
+          logger.log('warn', 'Failed to renew leader lock - may have lost leadership', {
+            lockKey: this.lockKey,
+          });
+          this.isLeader = false;
+        }
+      } catch (error) {
+        logger.log('error', 'Failed to renew leader lock', {
+          lockKey: this.lockKey,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }, 15000); // Renew every 15 seconds
+  }
+
+  /**
+   * Checks if this instance is the current leader.
+   */
+  public isCurrentLeader(): boolean {
+    return this.isLeader;
+  }
+
+  /**
+   * Replays events for a specific ledger range.
+   * Used by admin endpoint to trigger manual replay of known ledger ranges.
+   * @param fromLedger The starting ledger sequence number (inclusive)
+   * @param toLedger The ending ledger sequence number (inclusive)
+   */
+  public async replayEventsForRange(fromLedger: number, toLedger: number): Promise<{ processedCount: number; duplicateCount: number }> {
+    const startTime = Date.now();
+    logger.log('info', 'Starting manual event replay for ledger range', {
+      fromLedger,
+      toLedger,
+    });
+
+    if (fromLedger > toLedger) {
+      throw new Error(`Invalid ledger range: fromLedger (${fromLedger}) must be <= toLedger (${toLedger})`);
+    }
+
+    // Validate range bounds - limit to reasonable size to prevent overload
+    const rangeSize = toLedger - fromLedger + 1;
+    const maxRangeSize = parseInt(process.env.EVENT_REPLAY_MAX_RANGE_SIZE || '1000', 10);
+    if (rangeSize > maxRangeSize) {
+      throw new Error(`Ledger range too large: ${rangeSize} ledgers exceeds maximum allowed ${maxRangeSize}`);
+    }
+
+    let processedCount = 0;
+    let duplicateCount = 0;
+
+    // Process in batches
+    for (let ledger = fromLedger; ledger <= toLedger; ledger += this.config.batchSize) {
+      const endLedger = Math.min(ledger + this.config.batchSize - 1, toLedger);
+      const events = await this.fetchEventsForLedgerRange(ledger, endLedger);
+
+      for (const event of events) {
+        const isDuplicate = await this.isEventProcessed(event.id);
+        if (!isDuplicate) {
+          await this.processEvent(event);
+          processedCount++;
+        } else {
+          duplicateCount++;
+        }
+      }
+
+      // Update cursor to the last processed ledger for progress tracking
+      await this.updateCursor(endLedger);
+    }
+
+    const duration = Date.now() - startTime;
+    logger.log('info', 'Manual event replay completed', {
+      fromLedger,
+      toLedger,
+      processedCount,
+      duplicateCount,
+      durationMs: duration,
+    });
+
+    return { processedCount, duplicateCount };
   }
 
   private async replayMissedEvents(): Promise<void> {
@@ -284,4 +468,17 @@ export function stopEventPollingService(): void {
     });
     pollingService = null;
   }
+}
+
+/**
+ * Replays events for a specific ledger range.
+ * Used by admin endpoint to trigger manual replay of known ledger ranges.
+ */
+export async function replayEventsForRange(fromLedger: number, toLedger: number): Promise<{ processedCount: number; duplicateCount: number }> {
+  // Get the singleton instance
+  if (!pollingService) {
+    throw new Error('EventPollingService not initialized');
+  }
+  
+  return pollingService.replayEventsForRange(fromLedger, toLedger);
 }
