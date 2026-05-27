@@ -411,6 +411,75 @@ app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Respon
   }
 });
 
+/**
+ * POST /auth/logout
+ * Revokes the current session (all tokens in the same family).
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const walletAddress = getAuthenticatedWallet(req);
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    // Get the refresh token from the request body or headers
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'refreshToken is required in request body',
+      });
+      return;
+    }
+
+    revokeCurrentSession(refreshToken);
+
+    res.status(200).json({
+      message: 'Session revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke session',
+    });
+  }
+});
+
+/**
+ * POST /auth/logout-all
+ * Revokes all active sessions for the authenticated wallet.
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const walletAddress = getAuthenticatedWallet(req);
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    const revokedCount = revokeAllSessions(walletAddress);
+
+    res.status(200).json({
+      message: 'All sessions revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      revokedCount,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke all sessions',
+    });
+  }
+});
+
 // Versioned API v1
 const apiV1 = express.Router();
 app.use('/api/v1', apiV1);
