@@ -206,6 +206,82 @@ export function issueTokenPair(walletAddress: string, familyId?: string): TokenP
   };
 }
 
+// ─── Session Revocation ────────────────────────────────────────────────────────
+
+/**
+ * Revokes the current session (all tokens in the same family).
+ * This is used for /auth/logout.
+ */
+export function revokeCurrentSession(refreshToken: string): void {
+  const entry = refreshTokenStore.get(refreshToken);
+  if (!entry) {
+    return;
+  }
+
+  // Mark the entire family as revoked
+  revokedFamilies.add(entry.familyId);
+
+  // Revoke all tokens in the same family
+  for (const [token, e] of refreshTokenStore.entries()) {
+    if (e.familyId === entry.familyId) {
+      refreshTokenStore.delete(token);
+    }
+  }
+
+  logger.log('info', 'Current session revoked', {
+    familyId: entry.familyId,
+    wallet: entry.walletAddress.slice(0, 8) + '…',
+  });
+}
+
+/**
+ * Revokes all active sessions for the given wallet address.
+ * This is used for /auth/logout-all.
+ */
+export function revokeAllSessions(walletAddress: string): number {
+  let revokedCount = 0;
+
+  // First, find all family IDs associated with this wallet
+  const familiesToRevoke = new Set<string>();
+  for (const [token, entry] of refreshTokenStore.entries()) {
+    if (entry.walletAddress === walletAddress) {
+      familiesToRevoke.add(entry.familyId);
+      refreshTokenStore.delete(token);
+      revokedCount++;
+    }
+  }
+
+  // Then revoke all families
+  for (const familyId of familiesToRevoke) {
+    revokedFamilies.add(familyId);
+  }
+
+  logger.log('info', 'All sessions revoked for wallet', {
+    wallet: walletAddress.slice(0, 8) + '…',
+    revokedCount,
+  });
+
+  return revokedCount;
+}
+
+/**
+ * Middleware to extract wallet address from JWT payload or request headers.
+ * Used to get the authenticated wallet for logout endpoints.
+ */
+export function getAuthenticatedWallet(req: Request): string | null {
+  // Try JWT payload first
+  if (req.jwtPayload && req.jwtPayload.sub) {
+    return req.jwtPayload.sub;
+  }
+
+  // Fall back to headers
+  return (
+    req.headers['x-wallet-address'] as string ||
+    req.headers['x-api-key'] as string ||
+    null
+  );
+}
+
 // ─── Refresh Token Rotation ───────────────────────────────────────────────────
 
 export class InvalidRefreshTokenError extends Error {
