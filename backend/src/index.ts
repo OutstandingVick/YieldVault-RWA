@@ -10,6 +10,7 @@ initTracing();
 
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import NodeCache from 'node-cache';
+import { loginHandler, refreshHandler, revokeCurrentSession, revokeAllSessions, getAuthenticatedWallet } from './auth';
 import {
   depositsLimiter,
   summaryLimiter,
@@ -341,6 +342,75 @@ app.post('/auth/login', depositsLimiter, loginHandler);
  */
 app.post('/auth/refresh', depositsLimiter, refreshHandler);
 
+/**
+ * POST /auth/logout
+ * Revokes the current session (all tokens in the same family).
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const walletAddress = getAuthenticatedWallet(req);
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    // Get the refresh token from the request body or headers
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'refreshToken is required in request body',
+      });
+      return;
+    }
+
+    revokeCurrentSession(refreshToken);
+
+    res.status(200).json({
+      message: 'Session revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke session',
+    });
+  }
+});
+
+/**
+ * POST /auth/logout-all
+ * Revokes all active sessions for the authenticated wallet.
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const walletAddress = getAuthenticatedWallet(req);
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    const revokedCount = revokeAllSessions(walletAddress);
+
+    res.status(200).json({
+      message: 'All sessions revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      revokedCount,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke all sessions',
+    });
+  }
+});
+
 // Versioned API v1
 const apiV1 = express.Router();
 app.use('/api/v1', apiV1);
@@ -431,6 +501,97 @@ app.get('/admin/cache/stats', validateApiKey, (_req: Request, res: Response) => 
     cache: getCacheStats(),
     timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * GET /admin/cache/eviction-stats - Get cache eviction statistics
+ * Requires API key authentication
+ */
+app.get('/admin/cache/eviction-stats', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    cache: getCacheStats(),
+    evictionCount: cacheEvictionCount.get(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/events/replay - Manual admin endpoint to replay events for a specific ledger range
+ * Requires API key authentication
+ */
+app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { fromLedger, toLedger } = req.body;
+    
+    if (fromLedger === undefined || toLedger === undefined) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger and toLedger are required in request body',
+      });
+      return;
+    }
+    
+    if (typeof fromLedger !== 'number' || typeof toLedger !== 'number') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger and toLedger must be numbers',
+      });
+      return;
+    }
+    
+    // Validate ledger range
+    if (fromLedger < 0 || toLedger < 0 || fromLedger > toLedger) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger must be >= 0, toLedger must be >= 0, and fromLedger must be <= toLedger',
+      });
+      return;
+    }
+    
+    // Import the replay function
+    const { replayEventsForRange } = await import('./eventPollingService');
+    
+    const startTime = Date.now();
+    const result = await replayEventsForRange(fromLedger, toLedger);
+    const duration = Date.now() - startTime;
+    
+    // Record replay job metadata
+    void recordAdminAuditLog(req, 'events.replay.manual', 200, {
+      fromLedger,
+      toLedger,
+      processedCount: result.processedCount,
+      duplicateCount: result.duplicateCount,
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+    });
+    
+    res.status(200).json({
+      message: 'Event replay completed successfully',
+      fromLedger,
+      toLedger,
+      processedCount: result.processedCount,
+      duplicateCount: result.duplicateCount,
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    
+    // Record failed replay attempt
+    void recordAdminAuditLog(req, 'events.replay.manual.failed', 500, {
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+    
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: errorMessage,
+    });
+  }
 });
 
 // ─── Allowlist Admin Endpoints (Issue #375) ──────────────────────────────────
