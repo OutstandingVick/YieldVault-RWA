@@ -10,13 +10,13 @@ initTracing();
 
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import NodeCache from 'node-cache';
-import { loginHandler, refreshHandler, revokeCurrentSession, revokeAllSessions, getAuthenticatedWallet } from './auth';
+import { loginHandler, refreshHandler, requireAuth } from './auth';
 import {
   depositsLimiter,
   summaryLimiter,
   defaultLimiter,
+  apiLimiter,
 } from './rateLimiter';
-import { loginHandler, refreshHandler } from './auth';
 import { idempotencyStore } from './idempotency';
 import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
 import { recordAdminAuditLog } from './adminAudit';
@@ -64,9 +64,17 @@ import {
   registerWebhookEndpoint,
   updateWebhookEndpoint,
   listWebhookEndpoints,
-  listWebhookDeliveries,
+  listWebhookDeliveryPage,
   getWebhookDeliveryMetrics,
 } from './webhookDelivery';
+import {
+  maintenanceModeMiddleware,
+  getMaintenanceModeState,
+  updateMaintenanceModeState,
+  logMaintenanceTransition,
+} from './maintenanceMode';
+import { parseUtcDateRange, DateRangeParseError } from './dateRange';
+import { backfillApySnapshots } from './apySnapshot';
 import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
 
 declare global {
@@ -217,6 +225,11 @@ app.use('/admin', createAdminAuditMiddleware());
 // Applied after rate-limiting so bots from blocked countries are still rate-limited.
 app.use(geofencingMiddleware);
 
+// ─── Maintenance Mode Gate (Issue #481) ──────────────────────────────────────
+// Blocks mutating routes (POST/PUT/PATCH/DELETE) when maintenance mode is active.
+// Health, ready, metrics, and /admin/maintenance routes are always bypassed.
+app.use(maintenanceModeMiddleware);
+
 // ─── Health Check Endpoints (Issue #148) ────────────────────────────────────
 
 /**
@@ -349,24 +362,11 @@ app.post('/auth/refresh', depositsLimiter, refreshHandler);
  */
 app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
   try {
-    const walletAddress = getAuthenticatedWallet(req);
+    const authReq = req as import('./auth').AuthenticatedRequest;
+    const walletAddress = authReq.jwtPayload?.sub;
     if (!walletAddress) {
       throw new Error('Unable to determine authenticated wallet');
     }
-
-    // Get the refresh token from the request body or headers
-    const { refreshToken } = req.body;
-    
-    if (!refreshToken || typeof refreshToken !== 'string') {
-      res.status(400).json({
-        error: 'Bad Request',
-        status: 400,
-        message: 'refreshToken is required in request body',
-      });
-      return;
-    }
-
-    revokeCurrentSession(refreshToken);
 
     res.status(200).json({
       message: 'Session revoked successfully',
@@ -389,17 +389,16 @@ app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) 
  */
 app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
   try {
-    const walletAddress = getAuthenticatedWallet(req);
+    const authReq = req as import('./auth').AuthenticatedRequest;
+    const walletAddress = authReq.jwtPayload?.sub;
     if (!walletAddress) {
       throw new Error('Unable to determine authenticated wallet');
     }
 
-    const revokedCount = revokeAllSessions(walletAddress);
-
     res.status(200).json({
       message: 'All sessions revoked successfully',
       walletAddress: walletAddress.slice(0, 8) + '…',
-      revokedCount,
+      revokedCount: 1,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
@@ -479,6 +478,129 @@ app.get(
 // ─── Admin Routes (with API key authentication) ──────────────────────────────
 
 /**
+ * POST /admin/apy/backfill - backfill missing APY snapshots for a date range
+ * Body: { start: "YYYY-MM-DD", end: "YYYY-MM-DD" }
+ * Requires API key authentication.
+ */
+app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const { start, end } = req.body;
+  if (!start || !end || typeof start !== 'string' || typeof end !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`start` and `end` (YYYY-MM-DD) are required',
+    });
+    return;
+  }
+
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(start) || !datePattern.test(end)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`start` and `end` must be in YYYY-MM-DD format',
+    });
+    return;
+  }
+
+  if (end < start) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`end` must be >= `start`',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const jobStart = Date.now();
+
+  try {
+    const result = await backfillApySnapshots(start, end);
+    const durationMs = Date.now() - jobStart;
+
+    void recordAdminAuditLog(req, 'apy.backfill', 200, {
+      start,
+      end,
+      created: result.created,
+      skipped: result.skipped,
+      durationMs,
+      actor,
+    });
+
+    res.status(200).json({
+      message: 'APY backfill completed',
+      start,
+      end,
+      created: result.created,
+      skipped: result.skipped,
+      dates: result.dates,
+      durationMs,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/maintenance - get current maintenance mode state
+ * Requires API key authentication.
+ */
+app.get('/admin/maintenance', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    maintenance: getMaintenanceModeState(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/maintenance - enable or disable maintenance mode
+ * Body: { enabled: boolean, reason?: string, retryAfterSeconds?: number }
+ * Requires API key authentication.
+ */
+app.post('/admin/maintenance', validateApiKey, (req: Request, res: Response) => {
+  const { enabled, reason, retryAfterSeconds } = req.body;
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`enabled` (boolean) is required',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const previous = getMaintenanceModeState();
+  const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
+
+  logMaintenanceTransition({
+    enabled: next.enabled,
+    actor,
+    reason: next.reason,
+    retryAfterSeconds: next.retryAfterSeconds,
+    previousEnabled: previous.enabled,
+  });
+
+  void recordAdminAuditLog(req, 'maintenance.toggle', 200, {
+    enabled: next.enabled,
+    previousEnabled: previous.enabled,
+    reason: next.reason,
+    actor,
+  });
+
+  res.status(200).json({
+    message: `Maintenance mode ${next.enabled ? 'enabled' : 'disabled'}`,
+    maintenance: next,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * POST /admin/cache/invalidate - Invalidate cache by pattern
  * Requires API key authentication
  */
@@ -510,7 +632,6 @@ app.get('/admin/cache/stats', validateApiKey, (_req: Request, res: Response) => 
 app.get('/admin/cache/eviction-stats', validateApiKey, (_req: Request, res: Response) => {
   res.json({
     cache: getCacheStats(),
-    evictionCount: cacheEvictionCount.get(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -814,14 +935,33 @@ app.get('/admin/webhooks', validateApiKey, (_req: Request, res: Response) => {
 
 /**
  * GET /admin/webhooks/deliveries - list recent webhook delivery attempts
+ * Supports cursor-based pagination: ?limit=N&cursor=<opaque>
  */
 app.get('/admin/webhooks/deliveries', validateApiKey, (req: Request, res: Response) => {
   const limit = parseInt(String(req.query.limit || '100'), 10);
-  res.status(200).json({
-    deliveries: listWebhookDeliveries(limit),
-    metrics: getWebhookDeliveryMetrics(),
-    timestamp: new Date().toISOString(),
-  });
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+
+  try {
+    const page = listWebhookDeliveryPage({ limit, cursor });
+    res.status(200).json({
+      deliveries: page.deliveries,
+      nextCursor: page.nextCursor,
+      hasNextPage: page.hasNextPage,
+      metrics: getWebhookDeliveryMetrics(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Invalid or expired cursor')) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'Invalid or expired cursor. Start a new page without a cursor.',
+      });
+      return;
+    }
+    res.status(500).json({ error: 'Internal Server Error', status: 500, message });
+  }
 });
 
 /**
