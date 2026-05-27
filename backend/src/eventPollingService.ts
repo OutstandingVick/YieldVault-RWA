@@ -482,3 +482,10 @@ export async function replayEventsForRange(fromLedger: number, toLedger: number)
   
   return pollingService.replayEventsForRange(fromLedger, toLedger);
 }
+
+export { EventPollingService };
+
+/**
+ * Exports the EventPollingService class for direct instantiation and use.
+ */
+export { EventPollingService };
