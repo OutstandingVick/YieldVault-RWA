@@ -26,6 +26,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
+import confetti from "canvas-confetti";
 
 /**
  * Valid transaction tabs in the vault dashboard.
@@ -333,6 +334,32 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     try {
       if (actionType === "deposit") {
         await depositMutation.mutateAsync({ walletAddress, amount: value });
+        
+        try {
+          const depositKey = `has_deposited_${walletAddress}`;
+          const alreadyDeposited = localStorage.getItem(depositKey);
+          const isTest = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+          if (!alreadyDeposited && !isTest) {
+            confetti({
+              particleCount: 150,
+              spread: 80,
+              origin: { y: 0.6 },
+              colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"]
+            });
+            localStorage.setItem(depositKey, "true");
+          }
+        } catch (storageErr) {
+          console.warn("Storage access failed, triggering confetti anyway", storageErr);
+          const isTest = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+          if (!isTest) {
+            confetti({
+              particleCount: 150,
+              spread: 80,
+              origin: { y: 0.6 },
+              colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"]
+            });
+          }
+        }
       } else {
         await withdrawMutation.mutateAsync({ walletAddress, amount: value });
       }
