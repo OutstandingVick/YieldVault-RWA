@@ -6,7 +6,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
 import EmptyState from "../components/ui/EmptyState";
-import { Activity } from "../components/icons";
+import { Activity, Loader2 } from "../components/icons";
 import {
   normalizeApiError,
   isValidationError,
@@ -23,6 +23,7 @@ import {
 import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useDataTableState } from "../hooks/useDataTableState";
 import { useTransactionFilters } from "../hooks/useTransactionFilters";
+import { useTransactionHistory } from "../hooks/useTransactionData";
 import { getStellarExplorerUrl } from "../lib/security";
 import { networkConfig } from "../config/network";
 
@@ -80,7 +81,11 @@ const columns: DataTableColumn<Transaction>[] = [
     header: "Status",
     sortable: true,
     cell: (row) => (
-      <Badge variant="status" color={STATUS_COLOR_MAP[row.status]}>
+      <Badge 
+        variant="status" 
+        color={STATUS_COLOR_MAP[row.status]}
+        icon={row.status === "pending" ? <Loader2 size={12} className="animate-spin" /> : undefined}
+      >
         {row.status}
       </Badge>
     ),
@@ -127,9 +132,12 @@ const columns: DataTableColumn<Transaction>[] = [
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<ApiError | ValidationError | null>(null);
+  const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
+  const transactions = queryTransactions ?? [];
+
+  const error = queryError 
+    ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
+    : null;
 
   const preferredPageSize = React.useMemo(
     () => loadPreferredPageSize(walletAddress),
@@ -169,53 +177,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     }
   }, [searchParams, state.search, setSearch]);
 
-  // ── Derive "legacy" txType for the API call (first selected type or "all") ──
-  // The API only accepts a single type param; client-side multi-type filtering
-  // handles the rest after fetch.
-  const apiTxType =
-    filters.types.length === 1
-      ? (filters.types[0] as "deposit" | "withdrawal" | "all")
-      : "all";
-
-  // ── Fetch ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!walletAddress) return;
-
-    let isMounted = true;
-
-    const loadTransactions = async () => {
-      setIsLoading(true);
-
-      try {
-        const data = await getTransactions({
-          walletAddress,
-          limit: state.pageSize,
-          order: state.sortDirection,
-          type: apiTxType,
-        });
-        if (!isMounted) return;
-        setTransactions(data);
-        setError(null);
-      } catch (unknownError) {
-        if (!isMounted) return;
-        if (isValidationError(unknownError)) {
-          setError(unknownError);
-        } else {
-          setError(normalizeApiError(unknownError));
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void loadTransactions();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [walletAddress, state.pageSize, state.sortDirection, apiTxType]);
+  // Client-side filtering is handled by useClientDataTable.
 
   // ── Client-side filtering ───────────────────────────────────────────────
   const { rows, sortedRows, page, totalItems, totalPages } = useClientDataTable(
