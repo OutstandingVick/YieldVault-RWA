@@ -1924,36 +1924,46 @@ button {
 
 /* Skeleton Loaders */
 .skeleton {
-  background: rgba(255, 255, 255, 0.05);
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.05) 25%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.05) 75%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
+  background-color: rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
   min-height: 1em;
 }
 
-[data-theme='light'] .skeleton {
-  background: rgba(15, 23, 42, 0.05);
+.skeleton::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: linear-gradient(
     90deg,
-    rgba(15, 23, 42, 0.05) 25%,
-    rgba(15, 23, 42, 0.1) 50%,
-    rgba(15, 23, 42, 0.05) 75%
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
   );
-  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite linear;
+  transform: translateX(-100%);
 }
 
-@keyframes skeleton-loading {
-  0% {
-    background-position: 100% 0;
-  }
+[data-theme='light'] .skeleton {
+  background-color: rgba(15, 23, 42, 0.05);
+}
+
+[data-theme='light'] .skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(15, 23, 42, 0.05) 50%,
+    transparent 100%
+  );
+}
+
+@keyframes skeleton-shimmer {
   100% {
-    background-position: -100% 0;
+    transform: translateX(100%);
   }
 }
 

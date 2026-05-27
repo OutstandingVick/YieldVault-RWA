@@ -1,7 +1,8 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "../i18n";
 import { Pagination } from "./Pagination";
-import Skeleton from "./Skeleton";
+import { TableSkeleton } from "./Skeleton";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
 
 export type TableSortDirection = "asc" | "desc";
 
@@ -68,6 +69,8 @@ export function DataTable<T>({
   skeletonRows = 5,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
+  const delayedLoading = useDelayedLoading(isLoading);
+
   const handleHeaderKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     columnId: string,
@@ -79,7 +82,7 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="data-table-shell glass-panel">
+    <div className="data-table-shell glass-panel" aria-busy={delayedLoading}>
       <div className="data-table-scroll">
         <table className="data-table">
           <caption className="sr-only">{caption}</caption>
@@ -129,22 +132,9 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {isLoading ? (
-              Array.from({ length: skeletonRows }).map((_, rowIndex) => (
-                <tr key={`skeleton-${rowIndex}`} className="data-table-row">
-                  {columns.map((column) => (
-                    <td
-                      key={column.id}
-                      style={{
-                        textAlign: getCellAlignment(column.align),
-                      }}
-                    >
-                      <Skeleton className="skeleton-text" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : rows.length === 0 ? (
+            {delayedLoading ? (
+              <TableSkeleton columns={columns.length} rows={skeletonRows} />
+            ) : rows.length === 0 && !isLoading ? (
               <tr>
                 <td colSpan={columns.length} className="data-table-empty">
                   {emptyMessage}
