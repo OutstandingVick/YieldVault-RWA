@@ -7,7 +7,7 @@ import { ToastProvider } from "../context/ToastContext";
 import * as portfolioApi from "../lib/portfolioApi";
 import type { PortfolioHolding } from "../lib/portfolioApi";
 
-// ── Mocks ──────────────────────────────────────────────────────────────────
+// â”€â”€ Mocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 vi.mock("../lib/portfolioApi", async (importOriginal) => {
   const actual = await importOriginal<typeof portfolioApi>();
@@ -27,7 +27,7 @@ vi.mock("../components/ShareModal", () => ({
   default: () => null,
 }));
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function renderPortfolio(walletAddress: string | null) {
   const queryClient = new QueryClient({
@@ -57,9 +57,9 @@ const mockHolding: PortfolioHolding = {
   status: "active",
 };
 
-// ── Tests ──────────────────────────────────────────────────────────────────
+// â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("Portfolio — empty state", () => {
+describe("Portfolio â€” empty state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -106,7 +106,7 @@ describe("Portfolio — empty state", () => {
   });
 
   it("does NOT show the empty state while loading is in progress", () => {
-    // Never resolves — simulates in-flight request
+    // Never resolves â€” simulates in-flight request
     vi.mocked(portfolioApi.getPortfolioHoldings).mockReturnValue(
       new Promise(() => undefined),
     );
