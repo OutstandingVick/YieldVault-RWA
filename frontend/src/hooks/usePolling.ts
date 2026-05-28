@@ -56,26 +56,6 @@ export function usePolling(
     };
   }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const handleOnline = () => setIsOffline(false);
-    const handleOffline = () => setIsOffline(true);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  const shouldPoll =
-    enabled &&
-    !manualPause &&
-    !(pauseOnHidden && isHidden) &&
-    !(pauseOnOffline && isOffline);
-
   const getPauseReason = useCallback((): 'hidden' | 'offline' | 'manual' | null => {
     if (manualPause) return 'manual';
     if (pauseOnHidden && isHidden) return 'hidden';
@@ -92,6 +72,32 @@ export function usePolling(
       isRefetchingRef.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      // Immediately trigger a fetch when reconnecting if polling is supposed to be active
+      if (enabled && !manualPause && !(pauseOnHidden && isHidden)) {
+        doRefetch();
+      }
+    };
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [doRefetch, enabled, manualPause, pauseOnHidden, isHidden]);
+
+  const shouldPoll =
+    enabled &&
+    !manualPause &&
+    !(pauseOnHidden && isHidden) &&
+    !(pauseOnOffline && isOffline);
 
   useEffect(() => {
     if (!shouldPoll || interval <= 0) {

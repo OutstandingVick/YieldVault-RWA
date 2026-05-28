@@ -29,6 +29,7 @@ model Transaction {
   user         String
   amount       String
   type         String
+  status       String?
   referralCode String?
   timestamp    DateTime @default(now())
 }
