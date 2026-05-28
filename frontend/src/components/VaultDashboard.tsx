@@ -11,7 +11,8 @@ import {
   TrendingUp,
   Wallet as WalletIcon,
 } from "./icons";
-import Skeleton from "./Skeleton";
+import Skeleton, { DashboardCardSkeleton, SkeletonText } from "./Skeleton";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useVault } from "../context/VaultContext";
 import ApiStatusBanner from "./ApiStatusBanner";
 import SharePriceDisplay from "./SharePriceDisplay";
@@ -26,6 +27,7 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
+import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import confetti from "canvas-confetti";
 
 /**
@@ -194,6 +196,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     isCapReached,
   } = useVault();
   const toast = useToast();
+  const delayedLoading = useDelayedLoading(isLoading);
 
   const [activeTab, setActiveTab] = useState<TransactionTab>("deposit");
   const [amount, setAmount] = useState("");
@@ -205,6 +208,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     message: string;
     txHash?: string
   } | null>(null);
+
+  const { isOffline, countdown } = useOfflineRetryCountdown();
 
   // Handle deep link parameters
   useEffect(() => {
@@ -401,7 +406,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   return (
     <div className="vault-dashboard gap-lg">
-      <div className="vault-dashboard-stats">
+      <div className="vault-dashboard-stats" aria-busy={delayedLoading}>
         <div className="glass-panel vault-stats-panel">
           {error && (
             <ApiStatusBanner error={{ ...error, userMessage: "Failed to load vault data" }} />
@@ -431,7 +436,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 />
               </div>
               <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
-                {isLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
+                {delayedLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
               </div>
             </div>
           </div>
@@ -460,19 +465,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 <span
                   className="flex items-center gap-xs"
                   style={{
-                    color: "var(--accent-cyan)",
+                    color: isOffline ? "rgba(255, 159, 10, 0.9)" : "var(--accent-cyan)",
                     fontSize: "0.7rem",
                     fontWeight: 600,
                     textTransform: "uppercase",
                     letterSpacing: "0.05em",
                   }}
                 >
-                  <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />
-                  {isLoading ? "Syncing" : "Live"}
+                  {!isOffline && <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />}
+                  {isOffline ? `Retrying in ${countdown}s...` : isLoading ? "Syncing" : "Live"}
                 </span>
               </div>
               <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>
-                {isLoading ? <Skeleton width="140px" height="1.5rem" /> : formattedTvl}
+                {delayedLoading ? <Skeleton width="140px" height="1.5rem" /> : formattedTvl}
               </div>
             </div>
             <div>
@@ -487,8 +492,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           </div>
 
           <div className="glass-panel" style={{ padding: "20px", background: "var(--bg-muted)" }}>
-            <h3
-              style={{
+            {delayedLoading ? (
+              <DashboardCardSkeleton />
+            ) : (
+              <>
+                <h3
+                  style={{
                 fontSize: "1.1rem",
                 marginBottom: "12px",
                 display: "flex",
@@ -575,6 +584,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               <span className="copy-field-value copy-field-value-mono">{strategy.id}</span>
               <CopyButton value={strategy.id} label="strategy ID" />
             </div>
+          </>
+            )}
           </div>
 
           {/* Empty state: wallet connected, loading done, no USDC balance */}
