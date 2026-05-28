@@ -1,5 +1,6 @@
 import request from 'supertest';
 import app from '../index';
+import { registerApiKey } from '../middleware/apiKeyAuth';
 
 const DEFAULT_WALLET = 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567';
 
@@ -144,5 +145,62 @@ describe('GET /api/v1/transactions', () => {
       expect(transaction.timestamp >= startDate).toBe(true);
       expect(transaction.timestamp <= endDate).toBe(true);
     });
+  });
+});
+
+describe('GET /api/v1/vault/transactions/export', () => {
+  it('exports the authenticated user transaction history as JSON', async () => {
+    const login = await request(app).post('/auth/login').send({
+      walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/vault/transactions/export?format=json')
+      .set('Authorization', `Bearer ${login.body.accessToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['content-disposition']).toContain('attachment; filename="transaction-history-');
+    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(response.body.data.length).toBeGreaterThan(0);
+    response.body.data.forEach((transaction: { walletAddress: string }) => {
+      expect(transaction.walletAddress).toBe('GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567');
+    });
+  });
+
+  it('rejects exporting a different wallet for a bearer-authenticated user', async () => {
+    const login = await request(app).post('/auth/login').send({
+      walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/vault/transactions/export?format=json&walletAddress=GDIFFERENTWALLET123456789')
+      .set('Authorization', `Bearer ${login.body.accessToken}`);
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toContain('own wallet');
+  });
+
+  it('exports CSV for admin API keys with date scoping', async () => {
+    const apiKey = 'export-admin-key';
+    registerApiKey(apiKey, { role: 'admin' });
+
+    const fullResponse = await request(app).get('/api/v1/transactions?limit=100&sortBy=timestamp&sortOrder=desc');
+    const startDate = fullResponse.body.data[15].timestamp;
+    const endDate = fullResponse.body.data[5].timestamp;
+
+    const response = await request(app)
+      .get(
+        `/api/v1/vault/transactions/export?format=csv&walletAddress=GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
+      )
+      .set('Authorization', `ApiKey ${apiKey}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/csv');
+    expect(response.headers['content-disposition']).toContain('.csv"');
+
+    const lines = response.text.trim().split('\r\n');
+    expect(lines[0]).toBe('id,type,status,amount,asset,timestamp,transactionHash,walletAddress');
+    expect(lines.length).toBeGreaterThan(1);
   });
 });

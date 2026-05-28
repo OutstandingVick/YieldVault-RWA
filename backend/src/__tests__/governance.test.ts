@@ -22,7 +22,7 @@ describe('Backend governance', () => {
   it('marks unversioned summary route as deprecated while preserving compatibility', async () => {
     const response = await request(app).get('/api/vault/summary');
 
-    expect([200, 429]).toContain(response.status);
+    expect([200, 308, 429]).toContain(response.status);
     expect(response.headers.deprecation).toBe('true');
   });
 

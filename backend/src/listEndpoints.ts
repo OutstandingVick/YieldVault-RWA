@@ -47,7 +47,7 @@ const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000'
  *         transactionHash: { type: string }
  *         walletAddress: { type: string }
  */
-interface Transaction {
+export interface Transaction {
   id: string;
   type: 'deposit' | 'withdrawal';
   status: 'pending' | 'completed' | 'failed';
@@ -126,6 +126,11 @@ export interface WalletStateQuery {
   from?: string;
   to?: string;
   walletAddress?: string;
+}
+
+export interface TransactionExportQuery extends Omit<WalletStateQuery, 'limit' | 'cursor' | 'page'> {
+  startDate?: string;
+  endDate?: string;
 }
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────
@@ -430,6 +435,77 @@ export function buildTransactionsResponse(
   return createPaginatedResponse(paginated.data, paginated.pagination, {
     normalizedDateRange: normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
   });
+}
+
+export function getTransactionsForExport(query: TransactionExportQuery): Transaction[] {
+  const filters = {
+    type: query.type,
+    status: query.status,
+    from: query.startDate ?? query.from,
+    to: query.endDate ?? query.to,
+    walletAddress: query.walletAddress,
+  };
+  const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy;
+  const sortOrder = query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc';
+
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, filters);
+  if (sortBy) {
+    filtered = sortItems(filtered, sortBy, sortOrder);
+  }
+
+  return filtered;
+}
+
+export function createTransactionsJsonExportStream(query: TransactionExportQuery): Readable {
+  const transactions = getTransactionsForExport(query);
+
+  async function* generate(): AsyncGenerator<string> {
+    yield '{"data":[';
+    for (let index = 0; index < transactions.length; index += 1) {
+      if (index > 0) {
+        yield ',';
+      }
+      yield JSON.stringify(transactions[index]);
+    }
+    yield ']}';
+  }
+
+  return Readable.from(generate());
+}
+
+export function createTransactionsCsvExportStream(query: TransactionExportQuery): Readable {
+  const transactions = getTransactionsForExport(query);
+  const columns: Array<keyof Transaction> = [
+    'id',
+    'type',
+    'status',
+    'amount',
+    'asset',
+    'timestamp',
+    'transactionHash',
+    'walletAddress',
+  ];
+
+  async function* generate(): AsyncGenerator<string> {
+    yield `${columns.join(',')}\r\n`;
+    for (const transaction of transactions) {
+      const row = columns
+        .map((column) => escapeCsvValue(transaction[column]))
+        .join(',');
+      yield `${row}\r\n`;
+    }
+  }
+
+  return Readable.from(generate());
+}
+
+function escapeCsvValue(value: unknown): string {
+  const serialized = value == null ? '' : String(value);
+  const escaped = serialized.replace(/"/g, '""');
+  if (/[",\r\n]/.test(escaped)) {
+    return `"${escaped}"`;
+  }
+  return escaped;
 }
 
 export function buildPortfolioHoldingsResponse(

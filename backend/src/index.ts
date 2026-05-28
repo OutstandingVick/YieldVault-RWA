@@ -10,6 +10,8 @@ initTracing();
 
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import NodeCache from 'node-cache';
+import { loginHandler, refreshHandler } from './auth';
+import { verifyJwt } from './auth';
 import { loginHandler, refreshHandler, requireAuth } from './auth';
 import {
   depositsLimiter,
@@ -29,6 +31,7 @@ import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
 import {
   validateApiKey,
+  authenticateApiKeyValue,
   registerApiKey,
   hasRequiredApiKeyRole,
   normalizeApiKeyRole,
@@ -45,6 +48,8 @@ import vaultRouter from './vaultEndpoints';
 import transactionRouter from './transactionEndpoints';
 import {
   buildPortfolioHoldingsResponse,
+  createTransactionsCsvExportStream,
+  createTransactionsJsonExportStream,
   buildTransactionsResponse,
   buildVaultHistoryResponse,
 } from './listEndpoints';
@@ -67,6 +72,8 @@ import {
   listWebhookEndpoints,
   listWebhookDeliveryPage,
   getWebhookDeliveryMetrics,
+  createWebhookSignature,
+  verifyWebhookSignature,
 } from './webhookDelivery';
 import {
   maintenanceModeMiddleware,
@@ -153,6 +160,133 @@ async function buildImpersonatedVaultState(wallet: string) {
       body: { code: await referralService.getOrCreateReferralCode(wallet) },
     },
   };
+}
+
+function resolveTransactionExportAccess(req: Request):
+  | { kind: 'admin'; walletAddress?: string }
+  | { kind: 'user'; walletAddress: string }
+  | null {
+  const authHeader = req.get('authorization') || '';
+  const walletAddress =
+    typeof req.query.walletAddress === 'string' ? req.query.walletAddress.trim() : undefined;
+
+  const apiKeyMatch = authHeader.match(/^ApiKey\s+(.+)$/i);
+  if (apiKeyMatch) {
+    const authenticated = authenticateApiKeyValue(apiKeyMatch[1]);
+    if (!authenticated) {
+      return null;
+    }
+    req.authApiKeyHash = authenticated.hash;
+    req.authApiKeyRole = authenticated.role;
+    return {
+      kind: 'admin',
+      walletAddress: walletAddress || undefined,
+    };
+  }
+
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch) {
+    return null;
+  }
+
+  const payload = verifyJwt(bearerMatch[1]);
+  if (walletAddress && walletAddress !== payload.sub) {
+    throw new Error('FORBIDDEN_WALLET_EXPORT');
+  }
+
+  return {
+    kind: 'user',
+    walletAddress: payload.sub,
+  };
+}
+
+function buildTransactionExportFilename(format: 'csv' | 'json'): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `transaction-history-${timestamp}.${format}`;
+}
+
+function handleTransactionExport(req: Request, res: Response): void {
+  const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'json' ? 'json' : null;
+  if (!format) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'format query parameter must be either csv or json',
+    });
+    return;
+  }
+
+  let access;
+  try {
+    access = resolveTransactionExportAccess(req);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN_WALLET_EXPORT') {
+      res.status(403).json({
+        error: 'Forbidden',
+        status: 403,
+        message: 'Users may only export their own wallet transactions',
+      });
+      return;
+    }
+
+    res.status(401).json({
+      error: 'Unauthorized',
+      status: 401,
+      message: error instanceof Error ? error.message : 'Invalid authorization header',
+    });
+    return;
+  }
+
+  if (!access) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      status: 401,
+      message: 'Authorization header must contain a Bearer token or ApiKey',
+    });
+    return;
+  }
+
+  const exportQuery = {
+    type: typeof req.query.type === 'string' ? req.query.type : undefined,
+    status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
+    sortOrder: (
+      req.query.sortOrder === 'asc' || req.query.sortOrder === 'desc'
+        ? req.query.sortOrder
+        : undefined
+    ) as 'asc' | 'desc' | undefined,
+    walletAddress: access.walletAddress,
+    startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+    endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+  };
+
+  const stream =
+    format === 'csv'
+      ? createTransactionsCsvExportStream(exportQuery)
+      : createTransactionsJsonExportStream(exportQuery);
+
+  res.setHeader(
+    'Content-Type',
+    format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+  );
+  res.setHeader('Content-Disposition', `attachment; filename="${buildTransactionExportFilename(format)}"`);
+
+  stream.on('error', (error) => {
+    logger.log('error', 'Transaction export stream failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Internal Server Error',
+        status: 500,
+        message: 'Failed to stream transaction export',
+      });
+    } else {
+      res.end();
+    }
+  });
+
+  stream.pipe(res);
 }
 
 // ─── Rate Limiting Middleware ────────────────────────────────────────────────
@@ -338,6 +472,9 @@ app.get('/api/vault/summary', (req: Request, res: Response) => {
   res.setHeader('deprecation', 'true');
   res.redirect(308, '/api/v1/vault/summary');
 });
+
+app.get('/api/v1/vault/transactions/export', handleTransactionExport);
+app.get('/api/vault/transactions/export', handleTransactionExport);
 
 // ─── Auth Routes (Issue #377) ────────────────────────────────────────────────
 
@@ -1033,6 +1170,42 @@ app.get('/admin/webhooks/deliveries', validateApiKey, (req: Request, res: Respon
     }
     res.status(500).json({ error: 'Internal Server Error', status: 500, message });
   }
+});
+
+/**
+ * POST /webhooks/verify - verify webhook secret/signature pairing before go-live
+ */
+app.post('/webhooks/verify', (req: Request, res: Response) => {
+  const { secret, payload, signature } = req.body || {};
+  if (typeof secret !== 'string' || !secret.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'secret is required and must be a non-empty string',
+    });
+    return;
+  }
+
+  if (typeof payload === 'undefined') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'payload is required',
+    });
+    return;
+  }
+
+  const computedSignature = createWebhookSignature(secret, payload);
+  const verified =
+    typeof signature === 'string' && signature.length > 0
+      ? verifyWebhookSignature(secret, payload, signature)
+      : null;
+
+  res.status(200).json({
+    algorithm: 'HMAC-SHA256',
+    signature: computedSignature,
+    verified,
+  });
 });
 
 /**

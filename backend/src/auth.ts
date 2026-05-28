@@ -442,9 +442,6 @@ export function rotateRefreshToken(oldRefreshToken: string): TokenPair {
   // Issue new pair with same family
   const newPair = issueTokenPair(entry.walletAddress, entry.familyId);
 
-  // Remove the old token now that the new one is stored
-  refreshTokenStore.delete(oldRefreshToken);
-
   return newPair;
 }
 

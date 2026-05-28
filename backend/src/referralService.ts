@@ -1,13 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from './prismaClient';
-import Decimal from 'decimal.js';
 import { logger } from './middleware/structuredLogging';
 
 // Use the centralized Prisma Client instance
 const getPrisma = () => getPrismaClient();
 
 // Configurable reward percentage (default 5% if not set)
-const REFERRAL_REWARD_PERCENTAGE = new Decimal(process.env.REFERRAL_REWARD_PERCENTAGE || '0.05');
+const REFERRAL_REWARD_PERCENTAGE = parseFloat(process.env.REFERRAL_REWARD_PERCENTAGE || '0.05');
 
 export class ReferralService {
   /**
@@ -86,13 +85,13 @@ export class ReferralService {
       return null;
     }
 
-    let totalReward = new Decimal(0);
+    let totalReward = 0;
 
     for (const ref of referrals) {
       const yield_earned = await this.calculateUserYield(ref.referredAddress);
-      if (yield_earned.gt(0)) {
-        const reward = yield_earned.mul(REFERRAL_REWARD_PERCENTAGE);
-        totalReward = totalReward.plus(reward);
+      if (yield_earned > 0) {
+        const reward = yield_earned * REFERRAL_REWARD_PERCENTAGE;
+        totalReward += reward;
       }
     }
 
@@ -106,7 +105,7 @@ export class ReferralService {
    * Mock implementation of yield calculation.
    * In a real system, this would fetch user shares and current share price.
    */
-  private async calculateUserYield(walletAddress: string): Promise<any> {
+  private async calculateUserYield(walletAddress: string): Promise<number> {
     const prisma = getPrisma();
     // For the purpose of this task, we'll simulate yield.
     // In a real scenario, this would be: (shares * price) - totalDeposited
@@ -115,13 +114,13 @@ export class ReferralService {
       where: { user: walletAddress, type: 'deposit' },
     });
 
-    if (txs.length === 0) return new Decimal(0);
+    if (txs.length === 0) return 0;
 
-    const totalDeposited = txs.reduce((sum: any, tx: any) => sum.plus(new Decimal(tx.amount)), new Decimal(0));
+    const totalDeposited = txs.reduce((sum: number, tx: any) => sum + parseFloat(tx.amount), 0);
     
     // Simulate 10% gain for demonstration purposes if there's no real price source
     // Real logic would use: return currentUserValue.minus(totalDeposited).toDecimalPlaces(6);
-    return totalDeposited.mul('0.1').toDecimalPlaces(6);
+    return Number((totalDeposited * 0.1).toFixed(6));
   }
 
   /**

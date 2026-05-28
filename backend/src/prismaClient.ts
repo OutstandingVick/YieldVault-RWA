@@ -9,8 +9,11 @@
 
 import { PrismaClient } from '@prisma/client';
 import { logger } from './middleware/structuredLogging';
+import { observeDbQueryDuration } from './metrics';
 
 let prismaClientInstance: PrismaClient | null = null;
+let queryInstrumentationAttached = false;
+const SLOW_QUERY_THRESHOLD_MS = parsePositiveInt(process.env.SLOW_QUERY_THRESHOLD_MS, 500);
 
 /**
  * Get or create the shared Prisma Client instance.
@@ -28,18 +31,21 @@ export function getPrismaClient(): PrismaClient {
     const clientOptions: any = {};
 
     // In test environments, minimize logging
-    if (isTestEnv) {
-      clientOptions.log = [
-        {
-          emit: 'event',
-          level: 'error',
-        },
-      ];
-    }
+    clientOptions.log = [
+      {
+        emit: 'event',
+        level: 'error',
+      },
+      {
+        emit: 'event',
+        level: 'query',
+      },
+    ];
 
     // Create the Prisma Client instance with explicit options
     try {
       prismaClientInstance = new PrismaClient(clientOptions) as any;
+      attachQueryInstrumentation(prismaClientInstance!);
     } catch (error) {
       logger.log('error', 'Failed to create Prisma Client', {
         error: error instanceof Error ? error.message : String(error),
@@ -49,6 +55,52 @@ export function getPrismaClient(): PrismaClient {
   }
 
   return prismaClientInstance as PrismaClient;
+}
+
+function attachQueryInstrumentation(client: PrismaClient): void {
+  if (queryInstrumentationAttached) {
+    return;
+  }
+
+  client.$use(async (params, next) => {
+    const startedAt = process.hrtime.bigint();
+
+    try {
+      return await next(params);
+    } finally {
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      const model = params.model || 'raw';
+      const action = params.action || 'unknown';
+
+      observeDbQueryDuration(model, action, elapsedMs);
+
+      if (elapsedMs >= SLOW_QUERY_THRESHOLD_MS) {
+        logger.log('warn', 'Slow Prisma query detected', {
+          model,
+          action,
+          durationMs: Math.round(elapsedMs * 100) / 100,
+        });
+      }
+    }
+  });
+
+  client.$on('query' as never, (event: any) => {
+    logger.log('debug', 'Prisma query executed', {
+      durationMs: event.duration,
+      target: event.target,
+    });
+  });
+
+  queryInstrumentationAttached = true;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = parseInt(raw || '', 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
 }
 
 /**

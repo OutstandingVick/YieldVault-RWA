@@ -30,6 +30,7 @@ describe('EventPollingService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.useRealTimers();
     (prisma.eventCursor.findUnique as jest.Mock).mockReset();
     (prisma.eventCursor.upsert as jest.Mock).mockReset();
     (prisma.processedEvent.findUnique as jest.Mock).mockReset();
@@ -347,6 +348,185 @@ describe('EventPollingService', () => {
 
       // Should not crash
       expect(true).toBe(true);
+    });
+
+    it('retries a timed-out poll without advancing the cursor or dropping events', async () => {
+      (prisma.eventCursor.findUnique as jest.Mock).mockResolvedValue({
+        id: 1,
+        lastLedgerSeq: 1000,
+      });
+      (prisma.processedEvent.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.processedEvent.upsert as jest.Mock).mockResolvedValue({});
+      (prisma.eventCursor.upsert as jest.Mock).mockResolvedValue({});
+
+      (fetch as jest.Mock).mockImplementation((_url, options) => {
+        const body = JSON.parse((options as RequestInit).body as string);
+        if (body.method === 'getLatestLedger') {
+          return Promise.resolve({
+            json: async () => ({ result: { sequence: 1000 } }),
+          });
+        }
+
+        return Promise.resolve({
+          json: async () => ({ result: { events: [] } }),
+        });
+      });
+
+      await service.start();
+
+      (fetch as jest.Mock).mockReset();
+      (fetch as jest.Mock).mockImplementation((_url, options) => {
+        const body = JSON.parse((options as RequestInit).body as string);
+        if (body.method === 'getLatestLedger') {
+          return Promise.resolve({
+            json: async () => ({ result: { sequence: 1002 } }),
+          });
+        }
+
+        return Promise.reject(new Error('RPC timeout'));
+      });
+
+      await (service as any).pollEvents();
+      expect(prisma.eventCursor.upsert).not.toHaveBeenCalledWith({
+        where: { id: 1 },
+        update: { lastLedgerSeq: 1002 },
+        create: { id: 1, lastLedgerSeq: 1002 },
+      });
+
+      await service.stop();
+      service = new EventPollingService(mockConfig);
+
+      (fetch as jest.Mock).mockReset();
+      (fetch as jest.Mock).mockImplementation((_url, options) => {
+        const body = JSON.parse((options as RequestInit).body as string);
+        if (body.method === 'getLatestLedger') {
+          return Promise.resolve({
+            json: async () => ({ result: { sequence: 1002 } }),
+          });
+        }
+
+        return Promise.resolve({
+          json: async () => ({
+            result: {
+              events: [
+                {
+                  id: 'event-retry-1',
+                  type: 'contract',
+                  ledger: 1001,
+                  contractId: 'CTEST123',
+                  txHash: 'tx-retry-1',
+                },
+                {
+                  id: 'event-retry-2',
+                  type: 'contract',
+                  ledger: 1002,
+                  contractId: 'CTEST123',
+                  txHash: 'tx-retry-2',
+                },
+              ],
+            },
+          }),
+        });
+      });
+
+      await service.start();
+
+      expect(prisma.processedEvent.upsert).toHaveBeenCalledTimes(2);
+      expect(prisma.eventCursor.upsert).toHaveBeenLastCalledWith({
+        where: { id: 1 },
+        update: { lastLedgerSeq: 1002 },
+        create: { id: 1, lastLedgerSeq: 1002 },
+      });
+    });
+
+    it('re-fetches each missing replay range when a ledger gap must be recovered', async () => {
+      service = new EventPollingService({
+        ...mockConfig,
+        batchSize: 2,
+      });
+
+      (prisma.eventCursor.findUnique as jest.Mock).mockResolvedValue({
+        id: 1,
+        lastLedgerSeq: 1000,
+      });
+      (prisma.processedEvent.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.processedEvent.upsert as jest.Mock).mockResolvedValue({});
+      (prisma.eventCursor.upsert as jest.Mock).mockResolvedValue({});
+
+      const requestedRanges: Array<{ startLedger: number; endLedger: number }> = [];
+      (fetch as jest.Mock).mockImplementation((_url, options) => {
+        const body = JSON.parse((options as RequestInit).body as string);
+        if (body.method === 'getLatestLedger') {
+          return Promise.resolve({
+            json: async () => ({ result: { sequence: 1005 } }),
+          });
+        }
+
+        requestedRanges.push({
+          startLedger: body.params.startLedger,
+          endLedger: body.params.endLedger,
+        });
+
+        return Promise.resolve({
+          json: async () => ({ result: { events: [] } }),
+        });
+      });
+
+      await service.start();
+
+      expect(requestedRanges).toEqual([
+        { startLedger: 1001, endLedger: 1002 },
+        { startLedger: 1003, endLedger: 1004 },
+        { startLedger: 1005, endLedger: 1005 },
+      ]);
+    });
+
+    it('stores a duplicate event only once when the same payload is delivered twice', async () => {
+      (prisma.eventCursor.findUnique as jest.Mock).mockResolvedValue({
+        id: 1,
+        lastLedgerSeq: 1000,
+      });
+      (prisma.processedEvent.findUnique as jest.Mock)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'event-dup-1' });
+      (prisma.processedEvent.upsert as jest.Mock).mockResolvedValue({});
+      (prisma.eventCursor.upsert as jest.Mock).mockResolvedValue({});
+
+      (fetch as jest.Mock).mockImplementation((_url, options) => {
+        const body = JSON.parse((options as RequestInit).body as string);
+        if (body.method === 'getLatestLedger') {
+          return Promise.resolve({
+            json: async () => ({ result: { sequence: 1002 } }),
+          });
+        }
+
+        return Promise.resolve({
+          json: async () => ({
+            result: {
+              events: [
+                {
+                  id: 'event-dup-1',
+                  type: 'contract',
+                  ledger: 1001,
+                  contractId: 'CTEST123',
+                  txHash: 'tx-dup-1',
+                },
+                {
+                  id: 'event-dup-1',
+                  type: 'contract',
+                  ledger: 1001,
+                  contractId: 'CTEST123',
+                  txHash: 'tx-dup-1',
+                },
+              ],
+            },
+          }),
+        });
+      });
+
+      await service.start();
+
+      expect(prisma.processedEvent.upsert).toHaveBeenCalledTimes(1);
     });
   });
 });
