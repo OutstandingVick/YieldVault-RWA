@@ -10,6 +10,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import type { ParsedUtcDateRange } from './dateRange';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,8 @@ export interface PaginatedResponse<T> {
   pagination: PaginationMeta;
   /** Response timestamp. */
   timestamp: string;
+  /** Normalized UTC date range used by the query, when relevant. */
+  normalizedDateRange?: ParsedUtcDateRange;
 }
 
 /**
@@ -323,11 +326,13 @@ export function sortItems<T extends Record<string, unknown>>(
 export function createPaginatedResponse<T>(
   data: T[],
   pagination: PaginationMeta
+  , extras: Pick<PaginatedResponse<T>, 'normalizedDateRange'> = {}
 ): PaginatedResponse<T> {
   return {
     data,
     pagination,
     timestamp: new Date().toISOString(),
+    ...extras,
   };
 }
 

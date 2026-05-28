@@ -39,6 +39,12 @@ export interface WebhookDeliveryRecord {
   lastError?: string;
 }
 
+export interface WebhookDeliveryPage {
+  deliveries: WebhookDeliveryRecord[];
+  nextCursor?: string;
+  hasNextPage: boolean;
+}
+
 interface RegisterWebhookInput {
   url: string;
   eventTypes?: TransactionEventType[];
@@ -107,8 +113,43 @@ export function listWebhookEndpoints(): WebhookEndpoint[] {
 }
 
 export function listWebhookDeliveries(limit = 100): WebhookDeliveryRecord[] {
-  const normalizedLimit = Math.max(1, Math.min(limit, 500));
-  return deliveries.slice(0, normalizedLimit);
+  return listWebhookDeliveryPage({ limit }).deliveries;
+}
+
+export function listWebhookDeliveryPage(input: { limit?: number; cursor?: string } = {}): WebhookDeliveryPage {
+  const normalizedLimit = Math.max(1, Math.min(input.limit ?? 100, 500));
+  const sorted = [...deliveries].sort((a, b) => {
+    const createdComparison = b.createdAt.localeCompare(a.createdAt);
+    if (createdComparison !== 0) {
+      return createdComparison;
+    }
+
+    return b.id.localeCompare(a.id);
+  });
+
+  let startIndex = 0;
+  if (input.cursor) {
+    const cursor = decodeDeliveryCursor(input.cursor);
+    const cursorIndex = sorted.findIndex(
+      (delivery) => delivery.createdAt === cursor.createdAt && delivery.id === cursor.id,
+    );
+
+    if (cursorIndex === -1) {
+      throw new Error('Invalid or expired cursor');
+    }
+
+    startIndex = cursorIndex + 1;
+  }
+
+  const pageItems = sorted.slice(startIndex, startIndex + normalizedLimit + 1);
+  const hasNextPage = pageItems.length > normalizedLimit;
+  const deliveriesPage = hasNextPage ? pageItems.slice(0, normalizedLimit) : pageItems;
+
+  return {
+    deliveries: deliveriesPage,
+    hasNextPage,
+    nextCursor: hasNextPage && deliveriesPage.length > 0 ? encodeDeliveryCursor(deliveriesPage[deliveriesPage.length - 1]) : undefined,
+  };
 }
 
 export function getWebhookDeliveryMetrics() {
@@ -141,6 +182,24 @@ export function getWebhookDeliveryMetrics() {
 export function resetWebhookState(): void {
   endpoints.clear();
   deliveries.length = 0;
+}
+
+function encodeDeliveryCursor(delivery: WebhookDeliveryRecord): string {
+  return Buffer.from(JSON.stringify({ createdAt: delivery.createdAt, id: delivery.id })).toString('base64url');
+}
+
+function decodeDeliveryCursor(cursor: string): { createdAt: string; id: string } {
+  try {
+    const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+    const payload = JSON.parse(decoded) as { createdAt?: string; id?: string };
+    if (!payload.createdAt || !payload.id) {
+      throw new Error('Invalid cursor payload');
+    }
+
+    return { createdAt: payload.createdAt, id: payload.id };
+  } catch {
+    throw new Error('Invalid or expired cursor');
+  }
 }
 
 export async function emitTransactionEvent(

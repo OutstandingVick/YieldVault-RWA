@@ -21,6 +21,7 @@ import {
   createPaginatedResponse,
   PaginatedResponse,
 } from './pagination';
+import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
 import { getApyHistory } from './apySnapshot';
 import { cacheMiddleware } from './middleware/cache';
 import { requireAuth, AuthenticatedRequest } from './auth';
@@ -191,8 +192,8 @@ function filterTransactions(
   transactions: Transaction[],
   filters: { type?: string; status?: string; walletAddress?: string; from?: string; to?: string }
 ): Transaction[] {
-  const from = parseDateFilter(filters.from, 'start');
-  const to = parseDateFilter(filters.to, 'end');
+  const from = filters.from ? Date.parse(filters.from) : null;
+  const to = filters.to ? Date.parse(filters.to) : null;
 
   return transactions.filter((tx) => {
     if (filters.type && filters.type !== 'all' && tx.type !== filters.type) {
@@ -204,7 +205,14 @@ function filterTransactions(
     if (filters.walletAddress && tx.walletAddress !== filters.walletAddress) {
       return false;
     }
-    if (!isTransactionInDateRange(tx.timestamp, from, to)) {
+    const transactionTime = Date.parse(tx.timestamp);
+    if (Number.isNaN(transactionTime)) {
+      return false;
+    }
+    if (from !== null && transactionTime < from) {
+      return false;
+    }
+    if (to !== null && transactionTime > to) {
       return false;
     }
     return true;
@@ -347,7 +355,6 @@ function streamTransactionsAsCsv(res: Response, rows: Transaction[]): void {
 
   Readable.from(generate()).pipe(res);
 }
-
 /**
  * Filter portfolio holdings by status and wallet address.
  */
@@ -384,6 +391,10 @@ function filterVaultHistory(
   });
 }
 
+function parseDateRangeOrThrow(filters: { from?: string; to?: string }): ParsedUtcDateRange {
+  return parseUtcDateRange(filters);
+}
+
 export function buildTransactionsResponse(
   query: WalletStateQuery
 ): PaginatedResponse<Transaction> {
@@ -401,8 +412,13 @@ export function buildTransactionsResponse(
     to: query.to,
     walletAddress: query.walletAddress,
   };
+  const normalizedDateRange = parseDateRangeOrThrow({ from: query.from, to: query.to });
 
-  let filtered = filterTransactions(MOCK_TRANSACTIONS, filters);
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
+    ...filters,
+    from: normalizedDateRange.normalizedStart ?? undefined,
+    to: normalizedDateRange.normalizedEnd ?? undefined,
+  });
   if (pagination.sortBy) {
     filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
   }
@@ -411,7 +427,9 @@ export function buildTransactionsResponse(
     ? paginateWithOffset(filtered, pagination)
     : paginateWithCursor(filtered, pagination, (tx) => encodeCursor(tx.id));
 
-  return createPaginatedResponse(paginated.data, paginated.pagination);
+  return createPaginatedResponse(paginated.data, paginated.pagination, {
+    normalizedDateRange: normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
+  });
 }
 
 export function buildPortfolioHoldingsResponse(
@@ -453,8 +471,12 @@ export function buildVaultHistoryResponse(
     from: query.from,
     to: query.to,
   };
+  const normalizedDateRange = parseDateRangeOrThrow(filters);
 
-  let filtered = filterVaultHistory(MOCK_VAULT_HISTORY, filters);
+  let filtered = filterVaultHistory(MOCK_VAULT_HISTORY, {
+    from: normalizedDateRange.normalizedStart?.slice(0, 10),
+    to: normalizedDateRange.normalizedEnd?.slice(0, 10),
+  });
   if (pagination.sortBy) {
     filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
   }
@@ -463,7 +485,9 @@ export function buildVaultHistoryResponse(
     encodeCursor(point.date)
   );
 
-  return createPaginatedResponse(paginated.data, paginated.pagination);
+  return createPaginatedResponse(paginated.data, paginated.pagination, {
+    normalizedDateRange: normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
+  });
 }
 
 // ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -527,8 +551,16 @@ router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reques
       walletAddress: req.query.walletAddress as string | undefined,
     });
 
-    sendPaginatedResponse(res, response.data, response.pagination);
+    res.status(200).json(response);
   } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: error.message,
+      });
+      return;
+    }
     console.error('Error fetching transactions:', error);
     res.status(500).json({
       error: 'Internal Server Error',
@@ -670,8 +702,16 @@ router.get('/vault/history', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reque
       to: req.query.to as string | undefined,
     });
 
-    sendPaginatedResponse(res, response.data, response.pagination);
+    res.status(200).json(response);
   } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: error.message,
+      });
+      return;
+    }
     console.error('Error fetching vault history:', error);
     res.status(500).json({
       error: 'Internal Server Error',

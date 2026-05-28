@@ -9,9 +9,15 @@ import { initTracing, shutdownTracing, getCurrentTraceId } from './tracing';
 initTracing();
 
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
 import NodeCache from 'node-cache';
-import { loginHandler, refreshHandler } from './auth';
+import { loginHandler, refreshHandler, requireAuth } from './auth';
+import {
+  depositsLimiter,
+  summaryLimiter,
+  defaultLimiter,
+  apiLimiter,
+} from './rateLimiter';
+import { idempotencyStore } from './idempotency';
 import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
 import { recordAdminAuditLog } from './adminAudit';
 import { startApySnapshotScheduler } from './apySnapshot';
@@ -36,6 +42,7 @@ import {
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
+import transactionRouter from './transactionEndpoints';
 import {
   buildPortfolioHoldingsResponse,
   buildTransactionsResponse,
@@ -58,9 +65,17 @@ import {
   registerWebhookEndpoint,
   updateWebhookEndpoint,
   listWebhookEndpoints,
-  listWebhookDeliveries,
+  listWebhookDeliveryPage,
   getWebhookDeliveryMetrics,
 } from './webhookDelivery';
+import {
+  maintenanceModeMiddleware,
+  getMaintenanceModeState,
+  updateMaintenanceModeState,
+  logMaintenanceTransition,
+} from './maintenanceMode';
+import { parseUtcDateRange, DateRangeParseError } from './dateRange';
+import { backfillApySnapshots } from './apySnapshot';
 import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
 
 declare global {
@@ -141,54 +156,19 @@ async function buildImpersonatedVaultState(wallet: string) {
 }
 
 // ─── Rate Limiting Middleware ────────────────────────────────────────────────
-// Issue #145: Rate limiting per IP/user key
-
-/**
- * Global rate limiter
- * Default: 100 requests per 15 minutes per IP
- */
-const globalLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  skip: (req: Request) => {
-    // Skip rate limiting for health and ready checks
-    return req.path === '/health' || req.path === '/ready';
-  },
-  handler: (req: Request, res: Response) => {
-    const retryAfter = req.rateLimit?.resetTime ? Number(req.rateLimit.resetTime) : undefined;
-    res.status(429).json({
-      error: 'Too many requests',
-      status: 429,
-      message: 'Rate limit exceeded. Please try again later.',
-      retryAfter,
-    });
-  },
-});
-
-/**
- * API endpoint rate limiter (stricter)
- * Per-user or per-API-key rate limiting
- */
-const apiLimiter = rateLimit({
-  windowMs: parseInt(process.env.API_RATE_LIMIT_WINDOW_MS || '60000', 10), // 1 minute
-  max: parseInt(process.env.API_RATE_LIMIT_MAX_REQUESTS || '30', 10),
-  keyGenerator: (req: Request) => {
-    // Use API key if provided, otherwise use IP
-    return req.headers['x-api-key'] as string || req.ip || 'unknown';
-  },
-  handler: (req: Request, res: Response) => {
-    const retryAfter = req.rateLimit?.resetTime ? Number(req.rateLimit.resetTime) : undefined;
-    res.status(429).json({
-      error: 'API rate limit exceeded',
-      status: 429,
-      message: 'Too many API requests. Please try again later.',
-      retryAfter,
-    });
-  },
-});
+// Issue #455: Use the Redis-backed limiter factory from rateLimiter.ts.
+//
+// Three pre-built instances are imported from rateLimiter.ts:
+//   depositsLimiter – stricter limits for write-heavy deposit/withdrawal routes
+//   summaryLimiter  – relaxed limits for read-only summary/metrics routes
+//   defaultLimiter  – fallback for all other API routes
+//
+// All instances use fail-open behaviour: when Redis is configured but
+// unreachable the `skip` function returns true so requests are processed
+// normally. When Redis is not configured an in-memory store is used.
+//
+// Rate-limit policy information (RateLimit-* headers) and Retry-After are
+// included in all 429 responses by the handlers in rateLimiter.ts.
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
@@ -234,13 +214,22 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use(globalLimiter);
+// Apply the Redis-backed default limiter globally (skip health/ready probes).
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/health' || req.path === '/ready') return next();
+  return defaultLimiter(req, res, next);
+});
 
 // Capture immutable admin audit records for every /admin request.
 app.use('/admin', createAdminAuditMiddleware());
 // ─── Geofencing (Issue #379) ─────────────────────────────────────────────────
 // Applied after rate-limiting so bots from blocked countries are still rate-limited.
 app.use(geofencingMiddleware);
+
+// ─── Maintenance Mode Gate (Issue #481) ──────────────────────────────────────
+// Blocks mutating routes (POST/PUT/PATCH/DELETE) when maintenance mode is active.
+// Health, ready, metrics, and /admin/maintenance routes are always bypassed.
+app.use(maintenanceModeMiddleware);
 
 // ─── Health Check Endpoints (Issue #148) ────────────────────────────────────
 
@@ -355,15 +344,141 @@ app.get('/api/vault/summary', (req: Request, res: Response) => {
 /**
  * POST /auth/login
  * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
+ * Uses depositsLimiter (stricter) as auth is a write-heavy, security-sensitive operation.
  */
-app.post('/auth/login', apiLimiter, loginHandler);
+app.post('/auth/login', depositsLimiter, loginHandler);
 
 /**
  * POST /auth/refresh
  * Rotate the refresh token and issue a new access JWT.
  * Reuse of a revoked refresh token invalidates the entire session (401).
+ * Uses depositsLimiter (stricter) as token refresh is write-heavy.
  */
-app.post('/auth/refresh', apiLimiter, refreshHandler);
+app.post('/auth/refresh', depositsLimiter, refreshHandler);
+
+/**
+ * POST /auth/logout
+ * Revokes the current session (all tokens in the same family).
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const authReq = req as import('./auth').AuthenticatedRequest;
+    const walletAddress = authReq.jwtPayload?.sub;
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    res.status(200).json({
+      message: 'Session revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke session',
+    });
+  }
+});
+
+/**
+ * POST /auth/logout-all
+ * Revokes all active sessions for the authenticated wallet.
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const authReq = req as import('./auth').AuthenticatedRequest;
+    const walletAddress = authReq.jwtPayload?.sub;
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    res.status(200).json({
+      message: 'All sessions revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      revokedCount: 1,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke all sessions',
+    });
+  }
+});
+
+/**
+ * POST /auth/logout
+ * Revokes the current session (all tokens in the same family).
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const walletAddress = getAuthenticatedWallet(req);
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    // Get the refresh token from the request body or headers
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'refreshToken is required in request body',
+      });
+      return;
+    }
+
+    revokeCurrentSession(refreshToken);
+
+    res.status(200).json({
+      message: 'Session revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke session',
+    });
+  }
+});
+
+/**
+ * POST /auth/logout-all
+ * Revokes all active sessions for the authenticated wallet.
+ * Requires authentication via Bearer token.
+ */
+app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const walletAddress = getAuthenticatedWallet(req);
+    if (!walletAddress) {
+      throw new Error('Unable to determine authenticated wallet');
+    }
+
+    const revokedCount = revokeAllSessions(walletAddress);
+
+    res.status(200).json({
+      message: 'All sessions revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + '…',
+      revokedCount,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke all sessions',
+    });
+  }
+});
 
 // Versioned API v1
 const apiV1 = express.Router();
@@ -376,23 +491,26 @@ app.use('/api', listRouter);
 apiV1.use('/vault', vaultRouter);
 apiV1.use('/', listRouter);
 apiV1.use('/referrals', referralRouter);
+apiV1.use('/transactions', transactionRouter);
 
 /**
- * Example protected API endpoint with caching
- * Demonstrates rate limiting per API key and response caching
+ * GET /api/v1/vault/summary – read-only summary; relaxed rate limit.
  */
 app.get(
   '/api/v1/vault/summary',
-  apiLimiter,
+  summaryLimiter,
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
     res.json(buildVaultSummaryResponse());
   },
 );
 
+/**
+ * GET /api/vault/summary – deprecated unversioned alias; relaxed rate limit.
+ */
 app.get(
   '/api/vault/summary',
-  apiLimiter,
+  summaryLimiter,
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
     res.setHeader('deprecation', 'true');
@@ -431,6 +549,129 @@ app.get(
 // ─── Admin Routes (with API key authentication) ──────────────────────────────
 
 /**
+ * POST /admin/apy/backfill - backfill missing APY snapshots for a date range
+ * Body: { start: "YYYY-MM-DD", end: "YYYY-MM-DD" }
+ * Requires API key authentication.
+ */
+app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const { start, end } = req.body;
+  if (!start || !end || typeof start !== 'string' || typeof end !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`start` and `end` (YYYY-MM-DD) are required',
+    });
+    return;
+  }
+
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(start) || !datePattern.test(end)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`start` and `end` must be in YYYY-MM-DD format',
+    });
+    return;
+  }
+
+  if (end < start) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`end` must be >= `start`',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const jobStart = Date.now();
+
+  try {
+    const result = await backfillApySnapshots(start, end);
+    const durationMs = Date.now() - jobStart;
+
+    void recordAdminAuditLog(req, 'apy.backfill', 200, {
+      start,
+      end,
+      created: result.created,
+      skipped: result.skipped,
+      durationMs,
+      actor,
+    });
+
+    res.status(200).json({
+      message: 'APY backfill completed',
+      start,
+      end,
+      created: result.created,
+      skipped: result.skipped,
+      dates: result.dates,
+      durationMs,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/maintenance - get current maintenance mode state
+ * Requires API key authentication.
+ */
+app.get('/admin/maintenance', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    maintenance: getMaintenanceModeState(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/maintenance - enable or disable maintenance mode
+ * Body: { enabled: boolean, reason?: string, retryAfterSeconds?: number }
+ * Requires API key authentication.
+ */
+app.post('/admin/maintenance', validateApiKey, (req: Request, res: Response) => {
+  const { enabled, reason, retryAfterSeconds } = req.body;
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`enabled` (boolean) is required',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const previous = getMaintenanceModeState();
+  const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
+
+  logMaintenanceTransition({
+    enabled: next.enabled,
+    actor,
+    reason: next.reason,
+    retryAfterSeconds: next.retryAfterSeconds,
+    previousEnabled: previous.enabled,
+  });
+
+  void recordAdminAuditLog(req, 'maintenance.toggle', 200, {
+    enabled: next.enabled,
+    previousEnabled: previous.enabled,
+    reason: next.reason,
+    actor,
+  });
+
+  res.status(200).json({
+    message: `Maintenance mode ${next.enabled ? 'enabled' : 'disabled'}`,
+    maintenance: next,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * POST /admin/cache/invalidate - Invalidate cache by pattern
  * Requires API key authentication
  */
@@ -453,6 +694,96 @@ app.get('/admin/cache/stats', validateApiKey, (_req: Request, res: Response) => 
     cache: getCacheStats(),
     timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * GET /admin/cache/eviction-stats - Get cache eviction statistics
+ * Requires API key authentication
+ */
+app.get('/admin/cache/eviction-stats', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    cache: getCacheStats(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/events/replay - Manual admin endpoint to replay events for a specific ledger range
+ * Requires API key authentication
+ */
+app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { fromLedger, toLedger } = req.body;
+    
+    if (fromLedger === undefined || toLedger === undefined) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger and toLedger are required in request body',
+      });
+      return;
+    }
+    
+    if (typeof fromLedger !== 'number' || typeof toLedger !== 'number') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger and toLedger must be numbers',
+      });
+      return;
+    }
+    
+    // Validate ledger range
+    if (fromLedger < 0 || toLedger < 0 || fromLedger > toLedger) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger must be >= 0, toLedger must be >= 0, and fromLedger must be <= toLedger',
+      });
+      return;
+    }
+    
+    // Import the replay function
+    const { replayEventsForRange } = await import('./eventPollingService');
+    
+    const startTime = Date.now();
+    const result = await replayEventsForRange(fromLedger, toLedger);
+    const duration = Date.now() - startTime;
+    
+    // Record replay job metadata
+    void recordAdminAuditLog(req, 'events.replay.manual', 200, {
+      fromLedger,
+      toLedger,
+      processedCount: result.processedCount,
+      duplicateCount: result.duplicateCount,
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+    });
+    
+    res.status(200).json({
+      message: 'Event replay completed successfully',
+      fromLedger,
+      toLedger,
+      processedCount: result.processedCount,
+      duplicateCount: result.duplicateCount,
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    
+    // Record failed replay attempt
+    void recordAdminAuditLog(req, 'events.replay.manual.failed', 500, {
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+    
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: errorMessage,
+    });
+  }
 });
 
 // ─── Allowlist Admin Endpoints (Issue #375) ──────────────────────────────────
@@ -675,14 +1006,33 @@ app.get('/admin/webhooks', validateApiKey, (_req: Request, res: Response) => {
 
 /**
  * GET /admin/webhooks/deliveries - list recent webhook delivery attempts
+ * Supports cursor-based pagination: ?limit=N&cursor=<opaque>
  */
 app.get('/admin/webhooks/deliveries', validateApiKey, (req: Request, res: Response) => {
   const limit = parseInt(String(req.query.limit || '100'), 10);
-  res.status(200).json({
-    deliveries: listWebhookDeliveries(limit),
-    metrics: getWebhookDeliveryMetrics(),
-    timestamp: new Date().toISOString(),
-  });
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+
+  try {
+    const page = listWebhookDeliveryPage({ limit, cursor });
+    res.status(200).json({
+      deliveries: page.deliveries,
+      nextCursor: page.nextCursor,
+      hasNextPage: page.hasNextPage,
+      metrics: getWebhookDeliveryMetrics(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Invalid or expired cursor')) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'Invalid or expired cursor. Start a new page without a cursor.',
+      });
+      return;
+    }
+    res.status(500).json({ error: 'Internal Server Error', status: 500, message });
+  }
 });
 
 /**
@@ -826,6 +1176,82 @@ app.get('/admin/jobs/dashboard', validateApiKey, (_req: Request, res: Response) 
       </body>
     </html>
   `);
+});
+
+// ─── Idempotency Admin Endpoints (Issues #457 & #466) ────────────────────────
+
+/**
+ * GET /admin/idempotency/keys
+ * Lists idempotency keys with metadata.
+ * Optional query param: ?prefix=<string> to filter keys by prefix.
+ * Requires API key authentication.
+ */
+app.get('/admin/idempotency/keys', validateApiKey, (req: Request, res: Response) => {
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : undefined;
+  const keys = idempotencyStore.inspectKeys(prefix);
+  res.status(200).json({
+    keys,
+    count: keys.length,
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/idempotency/keys/:key
+ * Removes a single idempotency key from the store.
+ * Requires API key authentication.
+ */
+app.delete('/admin/idempotency/keys/:key', validateApiKey, (req: Request, res: Response) => {
+  const key = decodeURIComponent(req.params.key);
+  const deleted = idempotencyStore.deleteKey(key);
+  if (!deleted) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: `Idempotency key '${key}' not found`,
+    });
+    return;
+  }
+  res.status(200).json({
+    message: `Idempotency key '${key}' deleted`,
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/idempotency/keys
+ * Flushes the entire idempotency store.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/idempotency/keys', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to flush the idempotency store',
+    });
+    return;
+  }
+  idempotencyStore.clear();
+  res.status(200).json({
+    message: 'Idempotency store flushed',
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/idempotency/metrics
+ * Returns hit/conflict/eviction counters for the idempotency store.
+ * Requires API key authentication.
+ */
+app.get('/admin/idempotency/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // ─── Vault Metrics Poll Cycle ────────────────────────────────────────────────
