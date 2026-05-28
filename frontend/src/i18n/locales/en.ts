@@ -88,6 +88,12 @@ export const en = {
     close: "Close",
     hint: "Press Esc to close this dialog",
   },
+  palette: {
+    placeholder: "Search actions…",
+    noResults: "No matching actions",
+    hint: "↑↓ navigate · Enter run · Esc close",
+    open: "Open command palette",
+  },
   refresh: {
     live: "Live",
     stopped: "Stopped",
@@ -114,6 +120,12 @@ export const en = {
       message: "Your wallet session will expire in {{minutes}} minutes. Reconnect to continue without interruption.",
       reconnect: "Reconnect",
     },
+  },
+  reconnect: {
+    title: "Welcome back",
+    description: "Reconnect with {{provider}} to continue.",
+    confirm: "Reconnect",
+    dismiss: "Use a different wallet",
   },
   common: {
     dismiss: "Dismiss",

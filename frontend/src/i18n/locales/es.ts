@@ -88,6 +88,12 @@ export const es = {
     close: "Cerrar",
     hint: "Presiona Esc para cerrar este diálogo",
   },
+  palette: {
+    placeholder: "Buscar acciones…",
+    noResults: "Sin resultados",
+    hint: "↑↓ navegar · Enter ejecutar · Esc cerrar",
+    open: "Abrir paleta de comandos",
+  },
   refresh: {
     live: "En vivo",
     stopped: "Detenido",
@@ -107,5 +113,21 @@ export const es = {
     empty: "No hay actividad para mostrar",
     today: "Hoy",
     yesterday: "Ayer",
+  },
+  session: {
+    warning: {
+      title: "La sesión expirará pronto",
+      message: "Tu sesión de billetera expirará en {{minutes}} minutos. Vuelve a conectar para continuar sin interrupciones.",
+      reconnect: "Reconectar",
+    },
+  },
+  reconnect: {
+    title: "Bienvenido de nuevo",
+    description: "Reconecta con {{provider}} para continuar.",
+    confirm: "Reconectar",
+    dismiss: "Usar otra billetera",
+  },
+  common: {
+    dismiss: "Descartar",
   },
 } as const;

@@ -13,7 +13,11 @@ import {
   clearWalletManualDisconnect,
   isWalletManualDisconnectSet,
   setWalletManualDisconnect,
+  getLastWalletProvider,
+  setLastWalletProvider,
+  clearLastWalletProvider,
 } from "../lib/walletSession";
+import WalletReconnectPrompt from "./WalletReconnectPrompt";
 
 const IS_AUTOMATED_TEST =
   typeof process !== "undefined" &&
@@ -47,10 +51,21 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       typeof window !== "undefined" &&
       !isWalletManualDisconnectSet(),
   );
+  const [reconnectProvider, setReconnectProvider] = useState<ReturnType<typeof getLastWalletProvider>>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const initialSyncDoneRef = useRef(false);
   const toast = useToast();
   const { t } = useTranslation();
+
+  // Show reconnect prompt for returning users who have a persisted provider
+  useEffect(() => {
+    if (!walletAddress && !isWalletManualDisconnectSet()) {
+      const provider = getLastWalletProvider();
+      if (provider) {
+        setReconnectProvider(provider);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let mounted = true;
@@ -113,6 +128,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           // Set session start time for expiry tracking
           localStorage.setItem("wallet_session_start", Date.now().toString());
           clearWalletManualDisconnect();
+          setLastWalletProvider("freighter");
+          setReconnectProvider(null);
           onConnect(userInfo.address);
           setConnectionError(null);
           toast.success({
@@ -271,6 +288,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           onClick={() => {
             setConnectionError(null);
             setWalletManualDisconnect();
+            clearLastWalletProvider();
             onDisconnect("manual");
             toast.info({
               title: t("toast.walletDisconnected.title"),
@@ -289,6 +307,19 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
 
   return (
     <div style={{ position: "relative" }}>
+      {reconnectProvider && !walletAddress && !isConnecting && (
+        <WalletReconnectPrompt
+          provider={reconnectProvider}
+          onConfirm={() => {
+            setReconnectProvider(null);
+            void handleConnect();
+          }}
+          onDismiss={() => {
+            setReconnectProvider(null);
+            clearLastWalletProvider();
+          }}
+        />
+      )}
       <button
         ref={buttonRef}
         className={`btn ${connectionError ? "btn-error" : "btn-primary"} ${isConnecting || showDiscovering ? "animate-glow" : ""}`}

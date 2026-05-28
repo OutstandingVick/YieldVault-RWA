@@ -8,6 +8,9 @@ interface KeyboardShortcutContextValue {
   isHelpModalOpen: boolean;
   openHelpModal: () => void;
   closeHelpModal: () => void;
+  isPaletteOpen: boolean;
+  openPalette: () => void;
+  closePalette: () => void;
   formatShortcut: typeof formatShortcut;
 }
 
@@ -20,6 +23,7 @@ interface KeyboardShortcutProviderProps {
 export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> = ({ children }) => {
   const navigate = useNavigate();
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
   const openHelpModal = useCallback(() => {
     setIsHelpModalOpen(true);
@@ -27,6 +31,14 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
 
   const closeHelpModal = useCallback(() => {
     setIsHelpModalOpen(false);
+  }, []);
+
+  const openPalette = useCallback(() => {
+    setIsPaletteOpen(true);
+  }, []);
+
+  const closePalette = useCallback(() => {
+    setIsPaletteOpen(false);
   }, []);
 
   const shortcuts = useMemo<ShortcutDefinition[]>(() => [
@@ -86,12 +98,22 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
       scope: 'General'
     },
     {
+      key: 'k',
+      metaKey: true,
+      action: openPalette,
+      description: 'Open command palette',
+      scope: 'General'
+    },
+    {
       key: 'Escape',
-      action: closeHelpModal,
+      action: () => {
+        closePalette();
+        closeHelpModal();
+      },
       description: 'Close modal',
       scope: 'General'
     }
-  ], [navigate, openHelpModal, closeHelpModal]);
+  ], [navigate, openHelpModal, closeHelpModal, openPalette, closePalette]);
 
   useKeyboardShortcuts(shortcuts, true);
 
@@ -100,8 +122,11 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
     isHelpModalOpen,
     openHelpModal,
     closeHelpModal,
+    isPaletteOpen,
+    openPalette,
+    closePalette,
     formatShortcut
-  }), [shortcuts, isHelpModalOpen, openHelpModal, closeHelpModal]);
+  }), [shortcuts, isHelpModalOpen, openHelpModal, closeHelpModal, isPaletteOpen, openPalette, closePalette]);
 
   return (
     <KeyboardShortcutContext.Provider value={contextValue}>
