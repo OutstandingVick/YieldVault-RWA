@@ -25,6 +25,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/instrumentation-express": "^0.66.0",
+    "@opentelemetry/instrumentation-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
     "@prisma/client": "^5.10.0",
     "cors": "^2.8.6",
     "decimal.js": "^10.6.0",

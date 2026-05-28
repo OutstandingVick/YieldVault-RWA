@@ -9,6 +9,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { Readable } from 'stream';
 import {
   parsePaginationQuery,
   paginateWithCursor,
@@ -23,6 +24,8 @@ import {
 import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
 import { getApyHistory } from './apySnapshot';
 import { cacheMiddleware } from './middleware/cache';
+import { requireAuth, AuthenticatedRequest } from './auth';
+import { validateApiKey, hasRequiredApiKeyRole } from './middleware/apiKeyAuth';
 
 const router = Router();
 const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
@@ -54,6 +57,12 @@ interface Transaction {
   transactionHash: string;
   walletAddress: string;
   [key: string]: unknown;
+}
+
+type ExportFormat = 'csv' | 'json';
+
+interface ExportRequest extends AuthenticatedRequest {
+  exportAsAdmin?: boolean;
 }
 
 /**
@@ -210,6 +219,142 @@ function filterTransactions(
   });
 }
 
+function parseDateFilter(value: string | undefined, boundary: 'start' | 'end'): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const hasTimeComponent = value.includes('T');
+  const normalizedValue = hasTimeComponent
+    ? value
+    : boundary === 'start'
+      ? `${value}T00:00:00.000Z`
+      : `${value}T23:59:59.999Z`;
+  const timestamp = Date.parse(normalizedValue);
+
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function isTransactionInDateRange(
+  timestamp: string,
+  from: number | null,
+  to: number | null
+): boolean {
+  const transactionTime = Date.parse(timestamp);
+
+  if (Number.isNaN(transactionTime)) {
+    return false;
+  }
+  if (from !== null && transactionTime < from) {
+    return false;
+  }
+  if (to !== null && transactionTime > to) {
+    return false;
+  }
+
+  return true;
+}
+
+function filterTransactionsForExport(
+  query: WalletStateQuery & { startDate?: string; endDate?: string; walletAddress?: string }
+): Transaction[] {
+  const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy;
+  const sortOrder = query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc';
+  const from = query.startDate ?? query.from;
+  const to = query.endDate ?? query.to;
+
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
+    type: query.type,
+    status: query.status,
+    from,
+    to,
+    walletAddress: query.walletAddress,
+  });
+
+  if (sortBy) {
+    filtered = sortItems(filtered, sortBy, sortOrder);
+  }
+
+  return filtered;
+}
+
+function escapeCsv(value: unknown): string {
+  const serialized = String(value ?? '');
+  const escaped = serialized.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
+function buildCsvRow(row: Transaction): string {
+  return [
+    row.id,
+    row.type,
+    row.status,
+    row.amount,
+    row.asset,
+    row.timestamp,
+    row.transactionHash,
+    row.walletAddress,
+  ]
+    .map(escapeCsv)
+    .join(',');
+}
+
+function resolveExportFormat(raw: unknown): ExportFormat | null {
+  if (raw === 'csv' || raw === 'json') {
+    return raw;
+  }
+  return null;
+}
+
+function authenticateTransactionExport(req: ExportRequest, res: Response, next: () => void): void {
+  const authHeader = req.get('Authorization') || '';
+  if (authHeader.startsWith('ApiKey ')) {
+    validateApiKey(req, res, () => {
+      if (!hasRequiredApiKeyRole(req, 'admin')) {
+        res.status(403).json({
+          error: 'Forbidden',
+          status: 403,
+          message: 'Admin API key is required for this export',
+        });
+        return;
+      }
+      req.exportAsAdmin = true;
+      next();
+    });
+    return;
+  }
+
+  requireAuth(req, res, () => {
+    req.exportAsAdmin = false;
+    next();
+  });
+}
+
+function streamTransactionsAsJson(res: Response, rows: Transaction[]): void {
+  async function* generate(): AsyncGenerator<string> {
+    yield '{"data":[';
+    for (let i = 0; i < rows.length; i++) {
+      if (i > 0) {
+        yield ',';
+      }
+      yield JSON.stringify(rows[i]);
+    }
+    yield ']}';
+  }
+
+  Readable.from(generate()).pipe(res);
+}
+
+function streamTransactionsAsCsv(res: Response, rows: Transaction[]): void {
+  async function* generate(): AsyncGenerator<string> {
+    yield 'id,type,status,amount,asset,timestamp,transactionHash,walletAddress\r\n';
+    for (const row of rows) {
+      yield `${buildCsvRow(row)}\r\n`;
+    }
+  }
+
+  Readable.from(generate()).pipe(res);
+}
 /**
  * Filter portfolio holdings by status and wallet address.
  */
@@ -423,6 +568,67 @@ router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reques
       message: 'Failed to fetch transactions',
     });
   }
+});
+
+router.get('/vault/transactions/export', authenticateTransactionExport, (req: Request, res: Response) => {
+  const exportReq = req as ExportRequest;
+  const format = resolveExportFormat(req.query.format);
+  if (!format) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'format query parameter must be either csv or json',
+    });
+    return;
+  }
+
+  const requestedWallet = typeof req.query.walletAddress === 'string' ? req.query.walletAddress : undefined;
+  const walletAddress = exportReq.exportAsAdmin
+    ? requestedWallet
+    : exportReq.jwtPayload?.sub;
+
+  if (!exportReq.exportAsAdmin && requestedWallet && requestedWallet !== exportReq.jwtPayload?.sub) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Users can only export their own transaction history',
+    });
+    return;
+  }
+
+  if (!walletAddress) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'walletAddress is required for admin exports',
+    });
+    return;
+  }
+
+  const rows = filterTransactionsForExport({
+    type: typeof req.query.type === 'string' ? req.query.type : undefined,
+    status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
+    sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+    startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+    endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+    walletAddress,
+  });
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const fileBase = `transactions-${walletAddress.slice(0, 8)}-${stamp}`;
+  const extension = format === 'csv' ? 'csv' : 'json';
+  const contentType = format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8';
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.${extension}"`);
+
+  if (format === 'csv') {
+    streamTransactionsAsCsv(res, rows);
+    return;
+  }
+
+  streamTransactionsAsJson(res, rows);
 });
 
 /**
