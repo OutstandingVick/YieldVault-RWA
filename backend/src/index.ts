@@ -42,6 +42,7 @@ import {
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
+import transactionRouter from './transactionEndpoints';
 import {
   buildPortfolioHoldingsResponse,
   buildTransactionsResponse,
@@ -490,6 +491,7 @@ app.use('/api', listRouter);
 apiV1.use('/vault', vaultRouter);
 apiV1.use('/', listRouter);
 apiV1.use('/referrals', referralRouter);
+apiV1.use('/transactions', transactionRouter);
 
 /**
  * GET /api/v1/vault/summary – read-only summary; relaxed rate limit.
