@@ -250,4 +250,74 @@ describe('WalletConnect', () => {
         
         vi.useRealTimers();
     });
+
+    it('shows reconnect prompt when a provider is persisted and no manual disconnect', () => {
+        localStorage.setItem('yieldvault_last_wallet_provider', 'freighter');
+        sessionStorage.removeItem('yieldvault_wallet_manual_disconnect');
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByText(/Welcome back/i)).toBeInTheDocument();
+
+        localStorage.clear();
+    });
+
+    it('does not show reconnect prompt when manual disconnect is set', () => {
+        localStorage.setItem('yieldvault_last_wallet_provider', 'freighter');
+        sessionStorage.setItem('yieldvault_wallet_manual_disconnect', '1');
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+        localStorage.clear();
+        sessionStorage.clear();
+    });
+
+    it('does not show reconnect prompt when no provider is persisted', () => {
+        localStorage.removeItem('yieldvault_last_wallet_provider');
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('dismissing reconnect prompt clears the persisted provider', () => {
+        localStorage.setItem('yieldvault_last_wallet_provider', 'freighter');
+        sessionStorage.removeItem('yieldvault_wallet_manual_disconnect');
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /use a different wallet/i }));
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(localStorage.getItem('yieldvault_last_wallet_provider')).toBeNull();
+
+        localStorage.clear();
+    });
 });
