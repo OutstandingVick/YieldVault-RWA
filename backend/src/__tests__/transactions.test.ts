@@ -1,6 +1,14 @@
 import request from 'supertest';
 import app from '../index';
 
+const DEFAULT_WALLET = 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567';
+
+async function issueAccessToken(walletAddress: string): Promise<string> {
+  const response = await request(app).post('/auth/login').send({ walletAddress });
+  expect(response.status).toBe(200);
+  return response.body.accessToken as string;
+}
+
 describe('GET /api/v1/transactions', () => {
   it('returns total count with cursor-based pagination and no duplicate results across pages', async () => {
     const firstPage = await request(app).get('/api/v1/transactions?limit=10');
@@ -74,5 +82,67 @@ describe('GET /api/v1/transactions', () => {
       .sort();
 
     expect(actualIds).toEqual(expectedIds);
+  });
+
+  it('exports transactions as JSON with authenticated user scope', async () => {
+    const token = await issueAccessToken(DEFAULT_WALLET);
+    const response = await request(app)
+      .get('/api/v1/vault/transactions/export?format=json')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['content-disposition']).toContain('attachment; filename=');
+    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(response.body.data.length).toBeGreaterThan(0);
+    response.body.data.forEach((transaction: { walletAddress: string }) => {
+      expect(transaction.walletAddress).toBe(DEFAULT_WALLET);
+    });
+  });
+
+  it('exports transactions as RFC4180 CSV with header row', async () => {
+    const token = await issueAccessToken(DEFAULT_WALLET);
+    const response = await request(app)
+      .get('/api/v1/vault/transactions/export?format=csv')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/csv');
+
+    const lines = response.text.trim().split('\r\n');
+    expect(lines[0]).toBe('id,type,status,amount,asset,timestamp,transactionHash,walletAddress');
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[1]).toContain('"tx-');
+  });
+
+  it('rejects export when authenticated user tries to export another wallet', async () => {
+    const token = await issueAccessToken('GUSERWALLET123');
+    const response = await request(app)
+      .get(`/api/v1/vault/transactions/export?format=json&walletAddress=${encodeURIComponent(DEFAULT_WALLET)}`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(403);
+  });
+
+  it('supports startDate and endDate filtering on exports', async () => {
+    const token = await issueAccessToken(DEFAULT_WALLET);
+    const full = await request(app)
+      .get('/api/v1/transactions?limit=100&sortBy=timestamp&sortOrder=desc');
+    expect(full.status).toBe(200);
+
+    const startDate = full.body.data[20].timestamp;
+    const endDate = full.body.data[10].timestamp;
+
+    const response = await request(app)
+      .get(
+        `/api/v1/vault/transactions/export?format=json&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
+      )
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    response.body.data.forEach((transaction: { timestamp: string }) => {
+      expect(transaction.timestamp >= startDate).toBe(true);
+      expect(transaction.timestamp <= endDate).toBe(true);
+    });
   });
 });
