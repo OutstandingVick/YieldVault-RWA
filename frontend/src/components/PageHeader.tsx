@@ -1,9 +1,9 @@
-import type { FC, ReactNode } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "./icons";
-import { usePageHeadingFocus } from "../hooks/usePageHeadingFocus";
 import Badge from "./Badge";
 import type { BadgeColor } from "./Badge";
+import { usePageHeadingFocus } from "../hooks/usePageHeadingFocus";
 
 export interface Breadcrumb {
   label: string;
@@ -20,7 +20,7 @@ export interface PageHeaderAction {
   onClick?: () => void;
   variant?: "primary" | "outline";
   disabled?: boolean;
-  icon?: ReactNode;
+  icon?: React.ReactNode;
 }
 
 export interface PageHeaderProps {
@@ -41,7 +41,7 @@ const variantToColor: Record<string, BadgeColor> = {
   error: "error",
 };
 
-const PageHeader: FC<PageHeaderProps> = ({
+const PageHeader: React.FC<PageHeaderProps> = ({
   title,
   description,
   breadcrumbs,

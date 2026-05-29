@@ -5,6 +5,18 @@ import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
 
+// Hoisted so it can be referenced inside vi.mock factories
+const mockNetworkConfig = vi.hoisted(() => ({
+  isTestnet: true,
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  contractId: "",
+}));
+
+vi.mock("../config/network", () => ({
+  networkConfig: mockNetworkConfig,
+}));
+
 // Mock the transactionApi module
 vi.mock("../lib/transactionApi", async (importOriginal) => {
   const actual = await importOriginal<typeof transactionApi>();
@@ -17,11 +29,13 @@ vi.mock("../lib/transactionApi", async (importOriginal) => {
 const mockGetTransactions = vi.mocked(transactionApi.getTransactions);
 
 const WALLET = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const SECOND_WALLET = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
 function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
   return {
     id: "1",
     type: "deposit",
+    status: "completed",
     amount: "100.00",
     asset: "USDC",
     timestamp: "2025-01-15T10:30:00Z",
@@ -53,9 +67,12 @@ describe("TransactionHistory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -114,6 +131,47 @@ describe("TransactionHistory", () => {
     renderPage(WALLET);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+  });
+
+  it("renders an Export CSV button and downloads current transactions", async () => {
+    const appendSpy = vi.spyOn(document.body, "appendChild");
+    const removeSpy = vi.spyOn(document.body, "removeChild");
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click");
+
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", amount: "123.45", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        amount: "67.89",
+        asset: "XLM",
+        type: "withdrawal",
+      }),
+    ]);
+
+    renderPage(WALLET);
+
+    const exportButton = await screen.findByRole("button", {
+      name: /Export CSV/i,
+    });
+
+    fireEvent.click(exportButton);
+
+    expect(clickSpy).toHaveBeenCalled();
+    expect(appendSpy).toHaveBeenCalled();
+    expect(removeSpy).toHaveBeenCalled();
+
+    const appendedCall = appendSpy.mock.calls.find(
+      (call) => call[0] instanceof HTMLAnchorElement,
+    );
+    expect(appendedCall).toBeDefined();
+
+    const appendedLink = appendedCall?.[0] as HTMLAnchorElement;
+    expect(appendedLink.getAttribute("download")).toMatch(
+      /^transactions_\d{4}-\d{2}-\d{2}\.csv$/,
+    );
+    expect(appendedLink.getAttribute("href")).toMatch(
+      /^(blob:|data:text\/csv;charset=utf-8,)/,
+    );
   });
 
   // Req 2.4 — shows ApiStatusBanner on fetch failure
@@ -190,6 +248,39 @@ describe("TransactionHistory", () => {
     expect(rowsSelect).toHaveValue("10");
   });
 
+  it("restores stored page size preference for the current wallet", async () => {
+    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "25");
+    mockGetTransactions.mockResolvedValue([]);
+
+    renderPage(WALLET);
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    const rowsSelect = screen.getByRole("combobox", { name: /Rows per page/i });
+    expect(rowsSelect).toHaveValue("25");
+  });
+
+  it("stores page size preference per wallet without cross-wallet leakage", async () => {
+    mockGetTransactions.mockResolvedValue([]);
+    const { unmount } = renderPage(WALLET);
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Rows per page/i }), {
+      target: { value: "50" },
+    });
+    expect(localStorage.getItem(`yieldvault:transactions:page-size:${WALLET}`)).toBe("50");
+
+    unmount();
+    renderPage(SECOND_WALLET);
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    expect(screen.getByRole("combobox", { name: /Rows per page/i })).toHaveValue("10");
+    expect(
+      localStorage.getItem(`yieldvault:transactions:page-size:${SECOND_WALLET}`),
+    ).toBeNull();
+  });
+
   // Req 5.1 — filter control renders All / Deposit / Withdrawal options
   it("renders filter control with All, Deposit, and Withdrawal options", async () => {
     mockGetTransactions.mockResolvedValue([]);
@@ -208,6 +299,45 @@ describe("TransactionHistory", () => {
     expect(options).toContain("All");
     expect(options).toContain("Deposit");
     expect(options).toContain("Withdrawal");
+  });
+
+  it("filters transactions with a debounced client-side search input", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", asset: "USDC", type: "deposit" }),
+      makeTransaction({
+        id: "2",
+        asset: "EURC",
+        type: "withdrawal",
+        transactionHash: "eurcdef1234567890abcdef1234567890abcdef12",
+      }),
+    ]);
+
+    renderPage(WALLET);
+
+    await waitFor(() => expect(screen.getByText("USDC")).toBeInTheDocument());
+
+    const searchInput = screen.getByRole("searchbox", {
+      name: /Search transactions/i,
+    });
+    expect(searchInput).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: "EURC" } });
+
+    expect(mockGetTransactions).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("USDC")).toBeInTheDocument();
+
+    await waitFor(
+      () => expect(screen.queryByText("USDC")).not.toBeInTheDocument(),
+      { timeout: 2000 },
+    );
+    expect(screen.getByText("EURC")).toBeInTheDocument();
+    expect(mockGetTransactions).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(searchInput, { target: { value: "" } });
+
+    await waitFor(() => expect(screen.getByText("USDC")).toBeInTheDocument());
+    expect(screen.getByText("EURC")).toBeInTheDocument();
+    expect(mockGetTransactions).toHaveBeenCalledTimes(1);
   });
 
   // Req 5.3 — applying filter resets page to 1
@@ -270,7 +400,7 @@ describe("TransactionHistory", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("No transactions found for this wallet."),
+        screen.getByText("No transactions yet"),
       ).toBeInTheDocument(),
     );
   });
@@ -278,9 +408,10 @@ describe("TransactionHistory", () => {
   // Req 7.2 — filtered empty state message
   it("shows filtered empty state message when filter yields no results", async () => {
     // Only deposits — filtering by withdrawal should show filtered empty message
-    mockGetTransactions.mockImplementation(async (params: Parameters<typeof transactionApi.getTransactions>[0]) => {
-      if (params.type === "withdrawal") return [];
-      return [makeTransaction({ id: "1", type: "deposit" })];
+    mockGetTransactions.mockImplementation(async (params: unknown) => {
+      const p = params as { type?: string };
+      if (p.type === "withdrawal") return [];
+      return [makeTransaction({ id: "1", type: "deposit", status: "completed" })];
     });
 
     renderPage(WALLET);
@@ -294,8 +425,304 @@ describe("TransactionHistory", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("No transactions matched the current filter."),
+        screen.getByText("No matches found"),
       ).toBeInTheDocument(),
     );
+  });
+
+  // New: clear filters hides the clear button
+  it("Clear Filters button hides itself after clearing active filters", async () => {
+    mockGetTransactions.mockResolvedValue([makeTransaction()]);
+
+    render(
+      <MemoryRouter initialEntries={["/?search=USDC"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // "Clear all filters" is the aria-label on the clear button in TransactionFilterPanel
+    const clearBtn = await screen.findByRole("button", {
+      name: /Clear all filters/i,
+    });
+    expect(clearBtn).toBeInTheDocument();
+
+    fireEvent.click(clearBtn);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /Clear all filters/i }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  // New: empty state with active filters shows Reset filters action
+  it("shows 'Reset filters' action button in empty state when filters are active", async () => {
+    // All completed; filtering to 'failed' yields no results
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", status: "completed" }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?statuses=failed"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("No transactions found")).toBeInTheDocument(),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Reset filters/i }),
+    ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stellar Explorer link — network-aware URL (issue #294)
+// ---------------------------------------------------------------------------
+
+const VALID_HASH = "a".repeat(64);
+
+describe("TransactionHistory — Stellar Explorer link network", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("generates a testnet explorer URL when networkConfig.isTestnet is true", async () => {
+    mockNetworkConfig.isTestnet = true;
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ transactionHash: VALID_HASH, status: "completed" }),
+    ]);
+
+    renderPage(WALLET);
+
+    const link = await screen.findByTitle(VALID_HASH);
+    expect(link).toHaveAttribute(
+      "href",
+      `https://stellar.expert/explorer/testnet/tx/${VALID_HASH}`,
+    );
+  });
+
+  it("generates a mainnet explorer URL when networkConfig.isTestnet is false", async () => {
+    mockNetworkConfig.isTestnet = false;
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ transactionHash: VALID_HASH }),
+    ]);
+
+    renderPage(WALLET);
+
+    const link = await screen.findByTitle(VALID_HASH);
+    expect(link).toHaveAttribute(
+      "href",
+      `https://stellar.expert/explorer/public/tx/${VALID_HASH}`,
+    );
+  });
+
+  it("renders the explorer link with correct security attributes", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ transactionHash: VALID_HASH }),
+    ]);
+
+    renderPage(WALLET);
+
+    const link = await screen.findByTitle(VALID_HASH);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Amount range filtering
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — amount range filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("hides rows below amountMin when amountMin param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", amount: "50.00", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        amount: "200.00",
+        asset: "USDC",
+        transactionHash: "hash200000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        amount: "500.00",
+        asset: "USDC",
+        transactionHash: "hash500000000000000000000000000000000000000",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?amountMin=100"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // 50 should be hidden; 200 and 500 should be visible
+    await waitFor(() =>
+      expect(screen.queryAllByText(/50\.00 USDC/).length).toBe(0),
+    );
+    expect(screen.getByText("200.00 USDC")).toBeInTheDocument();
+    expect(screen.getByText("500.00 USDC")).toBeInTheDocument();
+  });
+
+  it("hides rows above amountMax when amountMax param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", amount: "50.00", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        amount: "200.00",
+        asset: "USDC",
+        transactionHash: "hash200000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        amount: "500.00",
+        asset: "USDC",
+        transactionHash: "hash500000000000000000000000000000000000000",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?amountMax=150"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // Only 50 should be visible
+    await waitFor(() =>
+      expect(screen.queryAllByText(/500\.00 USDC/).length).toBe(0),
+    );
+    expect(screen.getByText("50.00 USDC")).toBeInTheDocument();
+    expect(screen.queryAllByText(/200\.00 USDC/).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Status filtering
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — status filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows only matching status rows when statuses param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", status: "completed", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        status: "pending",
+        asset: "EURC",
+        transactionHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+      makeTransaction({
+        id: "3",
+        status: "failed",
+        asset: "XLM",
+        transactionHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?statuses=pending"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // Only EURC (pending) should survive the filter
+    await waitFor(() =>
+      expect(screen.queryAllByText("USDC").length).toBe(0),
+    );
+    expect(screen.getByText("EURC")).toBeInTheDocument();
+    expect(screen.queryAllByText("XLM").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// URL shareability
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — URL shareability", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("restores date range inputs from URL on mount", async () => {
+    mockGetTransactions.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/?dateFrom=2026-01-01&dateTo=2026-06-30"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    const dateFromInput = screen.getByLabelText(/Filter from date/i);
+    const dateToInput = screen.getByLabelText(/Filter to date/i);
+
+    expect(dateFromInput).toHaveValue("2026-01-01");
+    expect(dateToInput).toHaveValue("2026-06-30");
+  });
+
+  it("restores amount range inputs from URL on mount", async () => {
+    mockGetTransactions.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/?amountMin=10&amountMax=500"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    const amountMinInput = screen.getByLabelText(/Minimum transaction amount/i);
+    const amountMaxInput = screen.getByLabelText(/Maximum transaction amount/i);
+
+    expect(amountMinInput).toHaveValue(10);
+    expect(amountMaxInput).toHaveValue(500);
   });
 });

@@ -1,9 +1,15 @@
 import { validate, TransactionQuerySchema } from "./api";
-import type { TransactionQuery } from "./api";
+import { formatNumber } from "./formatters";
+import type { TransactionQueryInput } from "./api/schemas";
+
+export type TxType = "deposit" | "withdrawal" | "transfer" | "trade";
+export type TxStatus = "pending" | "completed" | "failed";
 
 export interface Transaction {
   id: string;
-  type: "deposit" | "withdrawal";
+  type: TxType;
+  /** Transaction settlement status */
+  status: TxStatus;
   amount: string | null;
   asset: string | null;
   timestamp: string; // ISO 8601
@@ -37,6 +43,9 @@ export function normalizeOperation(
   return {
     id: op.id,
     type: isDeposit ? "deposit" : "withdrawal",
+    // Horizon operations are always settled on-chain; default to "completed".
+    // Future API versions may expose a real status field.
+    status: "completed",
     amount: op.amount ?? null,
     asset: op.asset_type === "native" ? "XLM" : (op.asset_code ?? null),
     timestamp: op.created_at,
@@ -47,7 +56,7 @@ export function normalizeOperation(
 const HORIZON_BASE_URL = "https://horizon-testnet.stellar.org";
 
 export async function getTransactions(
-  params: TransactionQuery,
+  params: TransactionQueryInput,
 ): Promise<Transaction[]> {
   const query = validate(TransactionQuerySchema, params, "TransactionQuery");
   const url = `${HORIZON_BASE_URL}/accounts/${query.walletAddress}/operations?limit=${query.limit}&order=${query.order}`;
@@ -81,10 +90,7 @@ export function formatAmount(
   if (isNaN(num)) {
     return "—";
   }
-  const formatted = new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
+  const formatted = formatNumber(num, 2);
   return `${formatted} ${asset}`;
 }
 

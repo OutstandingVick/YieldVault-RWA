@@ -44,13 +44,15 @@ export const AmountSchema = z
 
 /** Positive integer share count. */
 export const ShareCountSchema = z
-  .number()
+  .number({ error: "Share count is required" })
   .int("Share count must be a whole number")
   .positive("Share count must be greater than zero")
   .max(1_000_000_000, "Share count exceeds maximum allowed value");
 
 /** Supported asset codes. Extend as new assets are on-boarded. */
-export const AssetCodeSchema = z.enum(["XLM", "USDC", "yUSDC", "RWA"]);
+export const AssetCodeSchema = z.enum(["XLM", "USDC", "yUSDC", "RWA"] as const, {
+  error: "Asset must be one of: XLM, USDC, yUSDC, RWA",
+});
 
 /** ISO 8601 date string (YYYY-MM-DD). */
 export const IsoDatestamp = z
@@ -77,6 +79,8 @@ export const DepositRequestSchema = z.object({
     .min(0, "Slippage cannot be negative")
     .max(500, "Slippage tolerance may not exceed 500 bps (5%)")
     .optional(),
+  /** Optional referral code for tracking referrals. */
+  referralCode: z.string().optional(),
 });
 
 export type DepositRequest = z.infer<typeof DepositRequestSchema>;
@@ -182,3 +186,4 @@ export const TransactionQuerySchema = z.object({
 });
 
 export type TransactionQuery = z.infer<typeof TransactionQuerySchema>;
+export type TransactionQueryInput = z.input<typeof TransactionQuerySchema>;

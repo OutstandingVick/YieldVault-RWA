@@ -34,34 +34,30 @@ export async function discoverConnectedAddress(): Promise<string | null> {
   }
 }
 
+export async function discoverConnectedAddressWithRetry(
+  retries = 5,
+  delayMs = 250,
+): Promise<string | null> {
+  for (let index = 0; index < retries; index += 1) {
+    const address = await discoverConnectedAddress();
+    if (address) {
+      return address;
+    }
+
+    if (index < retries - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    }
+  }
+
+  return null;
+}
+
 export async function fetchUsdcBalance(
   walletAddress: string,
   rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || `https://${TESTNET_SOROBAN_RPC}`,
 ): Promise<number> {
   const horizonUrl = toHorizonUrl(rpcUrl);
-  const ServerFactory = Horizon.Server as unknown as {
-    new (url: string): {
-      accounts: () => {
-        accountId: (id: string) => {
-          call: () => Promise<{ balances: Horizon.HorizonApi.BalanceLine[] }>;
-        };
-      };
-    };
-    (url: string): {
-      accounts: () => {
-        accountId: (id: string) => {
-          call: () => Promise<{ balances: Horizon.HorizonApi.BalanceLine[] }>;
-        };
-      };
-    };
-  };
-  const server = (() => {
-    try {
-      return new ServerFactory(horizonUrl);
-    } catch {
-      return ServerFactory(horizonUrl);
-    }
-  })();
+  const server = new Horizon.Server(horizonUrl);
   const account = await server.accounts().accountId(walletAddress).call();
 
   const usdc = account.balances.find((balance) => {
@@ -73,3 +69,16 @@ export async function fetchUsdcBalance(
 
   return usdc ? Number(usdc.balance) : 0;
 }
+
+export async function fetchXlmBalance(
+  walletAddress: string,
+  rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || `https://${TESTNET_SOROBAN_RPC}`,
+): Promise<number> {
+  const horizonUrl = toHorizonUrl(rpcUrl);
+  const server = new Horizon.Server(horizonUrl);
+  const account = await server.accounts().accountId(walletAddress).call();
+
+  const native = account.balances.find((balance) => balance.asset_type === "native");
+  return native ? Number(native.balance) : 0;
+}
+

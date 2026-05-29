@@ -7,8 +7,24 @@ YieldVault is a decentralized vault platform built specifically for the **Stella
 This project is structured as a monorepo containing both the Stellar Soroban smart contracts and the frontend web application.
 
 - `/contracts/vault/`: Contains the Rust Soroban smart contract for handling the vault logic, fractional share minting (`yvUSDC`), scaling withdrawals, and simulated yield accrual.
+- `/contracts/mock-strategy/`: Contains test mock contracts for the Korean sovereign debt strategy and price oracle.
 - `/frontend/`: Contains the React + Vite frontend application, integrating `@stellar/freighter-api` for seamless user wallet connections and a premium UI to interact with the protocol.
-- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, and tracked GitHub issues.
+- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, [Domain Glossary](./docs/GLOSSARY.md), and tracked GitHub issues.
+
+## Architecture
+
+For a comprehensive overview of the smart contract architecture, module responsibilities, and interaction boundaries, see **[Contracts Architecture](./docs/CONTRACTS_ARCHITECTURE.md)**.
+
+### Contract Modules
+
+| Module | Purpose |
+|--------|---------|
+| **YieldVault** | Main vault contract: deposit/withdraw, yield accrual, strategy management, DAO governance, RWA shipment tracking |
+| **StrategyTrait** | Interface for pluggable strategy connectors |
+| **BenjiStrategy** | Test connector for BENJI fund token strategy |
+| **MockKoreanSovereignStrategy** | Test mock for Korean debt strategy with stepped yield curve |
+| **OracleValidator** | Standalone oracle price validation library (heartbeat, deviation, decimals) |
+| **MockPriceOracle** | Test mock oracle with configurable failure modes |
 
 ## Technology Stack
 - **Network**: Stellar (Testnet/Mainnet)
@@ -64,10 +80,67 @@ npm install
 npm run docs:api
 ```
 
-See `docs/api/README.md` for output locations.
+See `docs/api/README.md` for output locations. Integrators should also read
+[`docs/api/ERROR_CODE_CATALOG.md`](docs/api/ERROR_CODE_CATALOG.md) for error codes
+and remediation guidance.
+
+## Webhook Integration
+
+YieldVault emits cryptographically-signed events for all critical vault operations. Off-chain services can consume these events to track deposits, withdrawals, fee changes, and other protocol activity.
+
+For a complete guide on consuming YieldVault events, see **[Webhook Integration Guide](./docs/WEBHOOK_INTEGRATION.md)**.
+
+### Quick Start
+
+**Listen for vault events (TypeScript):**
+
+```typescript
+import { Server } from "@stellar/stellar-sdk";
+
+const server = new Server("https://soroban-testnet.stellar.org");
+const contractId = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+
+const response = await server.getEvents({
+  filters: [{ type: "contract", contractIds: [contractId] }],
+  startLedger: 0,
+  limit: 100,
+});
+
+for (const event of response.events) {
+  console.log(`Event: ${event.topic[1]}`, event.value);
+}
+```
+
+**Events emitted:**
+- `deposit` — User deposits USDC and receives shares
+- `pndwdraw` — Large withdrawal initiated (24-hour timelock)
+- `withdraw` — Withdrawal completes
+- `feechg` — Protocol fee updated
+- `mindepchg` — Minimum deposit threshold updated
+
+**Complete examples:**
+- [TypeScript Consumer](./docs/examples/webhook_consumer.ts)
+- [Python Consumer](./docs/examples/webhook_consumer.py)
+
+## Disaster Recovery
+
+YieldVault has comprehensive disaster recovery procedures to ensure system resilience:
+
+- **RTO (Recovery Time Objective):** 1 hour for critical systems
+- **RPO (Recovery Point Objective):** 15 minutes maximum data loss
+- **Runbooks:** Step-by-step recovery procedures for all failure scenarios
+
+See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedures.
 
 ## Roadmap (Phases)
 - **Phase 1**: Planning, Documentation, and Frontend UI Baseline (Completed)
 - **Phase 2**: Soroban Smart Contract Implementation in Rust (Completed)
 - **Phase 3**: Stellar Testnet Deployment and Frontend Integration (Up next)
 - **Phase 4**: Security Audit and Mainnet Launch
+
+## 🤝 Contributing
+Fork the repository and clone it to your local machine
+Create a new branch for your changes
+Make and test your updates following the project guidelines
+Commit and push your changes to your fork
+Open a Pull Request with a clear description

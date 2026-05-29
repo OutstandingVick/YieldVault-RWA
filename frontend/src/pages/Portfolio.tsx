@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import { Activity, TrendingUp, DollarSign, Percent, Briefcase, Share2 } from "../components/icons";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import {
   DataTable,
   type DataTableColumn,
 } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
-import { 
-  normalizeApiError, 
-  isValidationError, 
-  type ApiError, 
-  type ValidationError 
+import {
+  normalizeApiError,
+  isValidationError,
+  type ApiError,
+  type ValidationError
 } from "../lib/api";
 import CopyButton from "../components/CopyButton";
 import {
@@ -17,111 +18,83 @@ import {
   type PortfolioHolding,
 } from "../lib/portfolioApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
+import HelpIcon from "../components/ui/HelpIcon";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
 import { useToast } from "../context/ToastContext";
+import { usePreferencesContext } from "../context/PreferencesContext";
+import YieldBreakdownChart from "../components/YieldBreakdownChart";
+import { useReferralStats, useReferralLink } from "../hooks/useReferral";
+import ShareModal from "../components/ShareModal";
+import EmptyState from "../components/ui/EmptyState";
+import { useNavigate } from "react-router-dom";
+import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 
 interface PortfolioProps {
   walletAddress: string | null;
 }
 
-const currencyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-});
-
-const numberFormatter = new Intl.NumberFormat("en-US", {
-  maximumFractionDigits: 2,
-});
-
-const columns: DataTableColumn<PortfolioHolding>[] = [
-  {
-    id: "asset",
-    header: "Asset",
-    sortable: true,
-    width: "28%",
-    cell: (row) => (
-      <div>
-        <div style={{ fontWeight: 600 }}>{row.asset}</div>
-        <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-          {row.vaultName}
-        </div>
-        <div
-          className="copy-field"
-          style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
-        >
-          <span>Position ID:</span>
-          <span className="copy-field-value copy-field-value-mono">{row.id}</span>
-          <CopyButton
-            value={row.id}
-            label="position ID"
-            successDescription={`Position ID ${row.id} has been copied to your clipboard.`}
-          />
-        </div>
+const PortfolioSummaryCard: React.FC<{
+  label: React.ReactNode;
+  value: string;
+  icon: React.ReactNode;
+  trend?: string;
+  trendPositive?: boolean;
+  onClick?: () => void;
+  clickable?: boolean;
+}> = ({ label, value, icon, trend, trendPositive, onClick, clickable }) => (
+  <div
+    className="glass-panel"
+    style={{
+      padding: "24px",
+      background: "var(--bg-muted)",
+      position: "relative",
+      overflow: "hidden",
+      border: "1px solid var(--border-glass)",
+      transition: "transform 0.2s ease",
+      cursor: clickable ? "pointer" : "default",
+    }}
+    onMouseEnter={(e) => e.currentTarget.style.transform = clickable ? "translateY(-4px)" : "translateY(-2px)"}
+    onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+    onClick={onClick}
+  >
+    <div style={{ position: "absolute", top: "-10px", right: "-10px", opacity: 0.05 }}>
+      {React.cloneElement(icon as React.ReactElement<Record<string, unknown>>, { size: 80 })}
+    </div>
+    <div className="flex items-center gap-sm" style={{ color: "var(--text-secondary)", marginBottom: "12px" }}>
+      {icon}
+      <span className="text-body-sm" style={{ fontWeight: 500, letterSpacing: "0.02em" }}>{label}</span>
+    </div>
+    <div style={{ fontSize: "2rem", fontWeight: 700, fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
+      {value}
+    </div>
+    {trend && (
+      <div style={{ 
+        marginTop: "8px", 
+        fontSize: "0.85rem", 
+        color: trendPositive ? "var(--accent-cyan)" : "var(--text-error)",
+        fontWeight: 600,
+        display: "flex",
+        alignItems: "center",
+        gap: "4px"
+      }}>
+        {trendPositive ? <TrendingUp size={14} /> : <Activity size={14} />}
+        {trend}
       </div>
-    ),
-  },
-  {
-    id: "shares",
-    header: "Shares",
-    sortable: true,
-    align: "right",
-    cell: (row) => (
-      <div>
-        <div style={{ fontWeight: 600 }}>
-          {numberFormatter.format(row.shares)} {row.symbol}
-        </div>
-        <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-          Issuer: {row.issuer}
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: "apy",
-    header: "APY",
-    sortable: true,
-    align: "right",
-    cell: (row) => (
-      <span style={{ color: "var(--accent-cyan)", fontWeight: 600 }}>
-        {row.apy.toFixed(2)}%
-      </span>
-    ),
-  },
-  {
-    id: "valueUsd",
-    header: "Value",
-    sortable: true,
-    align: "right",
-    cell: (row) => <span>{currencyFormatter.format(row.valueUsd)}</span>,
-  },
-  {
-    id: "unrealizedGainUsd",
-    header: "Unrealized Gain",
-    sortable: true,
-    align: "right",
-    cell: (row) => (
-      <span
-        style={{
-          color:
-            row.unrealizedGainUsd >= 0
-              ? "var(--accent-cyan)"
-              : "var(--text-error)",
-          fontWeight: 600,
-        }}
-      >
-        {row.unrealizedGainUsd >= 0 ? "+" : ""}
-        {currencyFormatter.format(row.unrealizedGainUsd)}
-      </span>
-    ),
-  },
-];
+    )}
+  </div>
+);
 
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const toast = useToast();
+  const navigate = useNavigate();
+  const { preferences } = usePreferencesContext();
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [error, setError] = useState<ApiError | ValidationError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const locale = preferences.locale;
+  const currency = preferences.currency;
 
   const { state: urlState, setSearch, setSort, setPage, setPageSize, setFilters, reset } = useUrlState<{ status: string, search: string }>({
     defaultSortBy: "valueUsd",
@@ -219,14 +192,134 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
     },
   });
 
+  const { data: referralStats } = useReferralStats(walletAddress);
+  const { referralLink, referralCode } = useReferralLink(walletAddress);
+
   const totalValue = holdings.reduce((sum, holding) => sum + holding.valueUsd, 0);
   const totalGain = holdings.reduce(
     (sum, holding) => sum + holding.unrealizedGainUsd,
     0,
   );
 
+  const weightedApy = useMemo(() => {
+    if (totalValue === 0) return 0;
+    return holdings.reduce((sum, h) => sum + (h.apy * h.valueUsd), 0) / totalValue;
+  }, [holdings, totalValue]);
+
+  const columns = useMemo<DataTableColumn<PortfolioHolding>[]>(() => [
+    {
+      id: "asset",
+      header: "Asset",
+      sortable: true,
+      width: "28%",
+      cell: (row) => (
+        <div>
+          <div style={{ fontWeight: 600 }}>{row.asset}</div>
+          <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+            {row.vaultName}
+          </div>
+          <div
+            className="copy-field"
+            style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
+          >
+            <span>Position ID:</span>
+            <span className="copy-field-value copy-field-value-mono">{row.id}</span>
+            <CopyButton
+              value={row.id}
+              label="position ID"
+              successDescription={`Position ID ${row.id} has been copied to your clipboard.`}
+            />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "shares",
+      header: "Shares",
+      sortable: true,
+      align: "right",
+      cell: (row) => (
+        <div>
+          <div style={{ fontWeight: 600 }}>
+            {formatNumber(row.shares, { locale, maximumFractionDigits: 2 })} {row.symbol}
+          </div>
+          <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+            Issuer: {row.issuer}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "apy",
+      header: "APY",
+      sortable: true,
+      align: "right",
+      cell: (row) => (
+        <span style={{ color: "var(--accent-cyan)", fontWeight: 600 }}>
+          {formatPercent(row.apy, {
+            locale,
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      ),
+    },
+    {
+      id: "valueUsd",
+      header: "Value",
+      sortable: true,
+      align: "right",
+      cell: (row) => <span>{formatCurrency(row.valueUsd, currency, 2, locale)}</span>,
+    },
+    {
+      id: "unrealizedGainUsd",
+      header: "Unrealized Gain",
+      sortable: true,
+      align: "right",
+      cell: (row) => (
+        <span
+          style={{
+            color:
+              row.unrealizedGainUsd >= 0
+                ? "var(--accent-cyan)"
+                : "var(--text-error)",
+            fontWeight: 600,
+          }}
+        >
+          {row.unrealizedGainUsd >= 0 ? "+" : ""}
+          {formatCurrency(row.unrealizedGainUsd, currency, 2, locale)}
+        </span>
+      ),
+    },
+  ], [currency, locale]);
+
+  // Compute trend values
+  const totalNetValueTrend = useMemo(() => {
+    if (totalValue === 0) return "N/A";
+    // Calculate 7-day trend (simplified: using current value as proxy)
+    // In a real app, this would compare with historical data
+    const trendPercent = (totalGain / (totalValue - totalGain)) * 100;
+    return Number.isFinite(trendPercent)
+      ? `${formatPercent(trendPercent, {
+          locale,
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        })} gain`
+      : "N/A";
+  }, [locale, totalValue, totalGain]);
+
+  const cumulativeYieldTrend = useMemo(() => {
+    if (totalGain === 0) return "--";
+    return `${formatCurrency(totalGain, currency, 2, locale)} realized`;
+  }, [currency, locale, totalGain]);
+
+  const weightedApyTrend = useMemo(() => {
+    if (holdings.length === 0) return "N/A";
+    return `${holdings.length} position${holdings.length !== 1 ? 's' : ''}`;
+  }, [holdings.length]);
+
   return (
-    <div className="glass-panel" style={{ padding: "32px" }}>
+    <div className="glass-panel portfolio-page-panel">
       <PageHeader
         title={
           <>
@@ -242,8 +335,8 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           walletAddress
             ? [
                 {
-                  label: `${holdings.length} Holdings`,
-                  variant: "cyan",
+                  label: `${holdings.length} Positions`,
+                  variant: "cyan" as const,
                 },
                 {
                   label: isLoading ? "Syncing..." : "Live",
@@ -266,38 +359,82 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
           <div
             className="portfolio-summary-grid"
-            style={{ display: "grid", gap: "24px", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}
+            style={{ marginBottom: "8px" }}
           >
-            <div
-              className="glass-panel"
-              style={{ padding: "24px", background: "var(--bg-muted)" }}
-            >
-              <div className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
-                Total Assets
-              </div>
-              <div style={{ fontSize: "var(--text-4xl)", fontWeight: "var(--font-semibold)" }}>
-                {currencyFormatter.format(totalValue)}
-              </div>
-            </div>
-            <div
-              className="glass-panel"
-              style={{ padding: "24px", background: "var(--bg-muted)" }}
-            >
-              <div className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
-                Unrealized Gain
-              </div>
-              <div
-                style={{
-                  fontSize: "var(--text-2xl)",
-                  color: "var(--accent-cyan)",
-                  fontWeight: "var(--font-semibold)",
-                }}
-              >
-                +{currencyFormatter.format(totalGain)}
-              </div>
-            </div>
+            <PortfolioSummaryCard
+              label="Total Net Value"
+              value={formatCurrency(totalValue, currency, 2, locale)}
+              icon={<DollarSign size={20} color="var(--accent-cyan)" />}
+              trend={totalNetValueTrend}
+              trendPositive={totalGain >= 0}
+            />
+            <PortfolioSummaryCard
+              label="Cumulative Yield"
+              value={`${totalGain >= 0 ? '+' : ''}${formatCurrency(totalGain, currency, 2, locale)}`}
+              icon={<TrendingUp size={20} color="var(--accent-purple)" />}
+              trend={cumulativeYieldTrend}
+              trendPositive={totalGain >= 0}
+            />
+            <PortfolioSummaryCard
+              label={
+                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  Weighted Avg APY
+                  <HelpIcon
+                    variant="tooltip"
+                    content="The portfolio-value-weighted average of all active position APYs."
+                  />
+                </span>
+              }
+              value={formatPercent(weightedApy, {
+                locale,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+              icon={<Percent size={20} color="var(--accent-cyan)" />}
+              trend={weightedApyTrend}
+              trendPositive={true}
+            />
+            <PortfolioSummaryCard
+              label="Active Positions"
+              value={holdings.filter(h => h.status === 'active').length.toString()}
+              icon={<Briefcase size={20} color="var(--text-secondary)" />}
+            />
+            <PortfolioSummaryCard
+              label={
+                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  Referral Earnings
+                  <HelpIcon
+                    variant="tooltip"
+                    content="Total rewards earned from successful referrals."
+                  />
+                </span>
+              }
+              value={referralStats ? `$${referralStats.total_reward_earned}` : "$0.00"}
+              icon={<TrendingUp size={20} color="var(--accent-green)" />}
+              trend={referralStats ? `${referralStats.referral_count} referral${referralStats.referral_count !== 1 ? 's' : ''}` : "0 referrals"}
+              trendPositive={true}
+            />
+            <PortfolioSummaryCard
+              label="Share Referral Link"
+              value=""
+              icon={<Share2 size={20} color="var(--accent-cyan)" />}
+              onClick={() => setShowShareModal(true)}
+              clickable={true}
+            />
           </div>
 
+          <YieldBreakdownChart totalGain={totalGain} />
+
+          {/* Empty state: wallet connected, loading done, no portfolio value */}
+          {!isLoading && totalValue === 0 ? (
+            <EmptyState
+              title="Your portfolio is empty."
+              description="Once you deposit, you'll be able to track your assets and growth here."
+              icon={<Briefcase />}
+              actionLabel="Deposit Now"
+              onAction={() => navigate("/")}
+            />
+          ) : (
           <section
             className="glass-panel"
             style={{ padding: "24px", background: "var(--bg-muted)" }}
@@ -305,7 +442,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           >
             <div className="portfolio-toolbar">
               <div>
-                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Holdings</h2>
+                <h2 id="holdings-heading" style={{ marginBottom: "6px" }}>Position Details</h2>
                 <p className="text-body-sm" style={{ color: "var(--text-secondary)" }}>
                   Sort, search, and page through all current vault positions.
                 </p>
@@ -323,13 +460,13 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                     >
                       <option value="all">All Statuses</option>
                       <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
+                      <option value="pending">Pending</option>
                     </select>
                   </div>
                 </label>
 
                 <label className="input-group" style={{ minWidth: "220px" }}>
-                  <span className="text-body-sm">Search holdings</span>
+                  <span className="text-body-sm">Search positions</span>
                   <div className="input-wrapper">
                     <input
                       className="input-field"
@@ -356,7 +493,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             </div>
 
             <div className="text-body-sm" style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
-              {isLoading ? "Loading holdings..." : `${totalItems} holdings found`}
+              {isLoading ? "Loading positions..." : `${totalItems} positions found`}
             </div>
 
             <DataTable
@@ -366,9 +503,11 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               rowKey={(row) => row.id}
               emptyMessage={
                 isLoading
-                  ? "Loading holdings..."
-                  : "No holdings matched the current filters."
+                  ? "Loading positions..."
+                  : "No positions matched the current filters."
               }
+              isLoading={isLoading}
+              skeletonRows={state.pageSize}
               sortBy={state.sortBy}
               sortDirection={state.sortDirection}
               onSortChange={setSort}
@@ -390,7 +529,17 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               )}
             />
           </section>
+          )}
         </div>
+      )}
+
+      {referralLink && referralCode && (
+        <ShareModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          referralLink={referralLink}
+          referralCode={referralCode}
+        />
       )}
     </div>
   );
