@@ -27,6 +27,7 @@ import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/stru
 import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
+import { validate, LoginSchema, RefreshSchema } from './middleware/validate';
 import {
   validateApiKey,
   authenticateApiKeyValue,
@@ -478,13 +479,13 @@ apiV1.use('/', listRouter);
  * POST /api/v1/auth/login
  * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
  */
-apiV1.post('/auth/login', depositsLimiter, loginHandler);
+apiV1.post('/auth/login', depositsLimiter, validate({ body: LoginSchema }), loginHandler);
 
 /**
  * POST /api/v1/auth/refresh
  * Rotate the refresh token and issue a new access JWT.
  */
-apiV1.post('/auth/refresh', depositsLimiter, refreshHandler);
+apiV1.post('/auth/refresh', depositsLimiter, validate({ body: RefreshSchema }), refreshHandler);
 
 /**
  * POST /api/v1/auth/logout
