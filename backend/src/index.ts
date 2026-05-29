@@ -12,14 +12,15 @@ import express, { Express, Request, Response, NextFunction, ErrorRequestHandler 
 import NodeCache from 'node-cache';
 import { loginHandler, refreshHandler, requireAuth, verifyJwt } from './auth';
 import {
-  depositsLimiter,
-  summaryLimiter,
-  defaultLimiter,
-  apiLimiter,
+  authLimiter,
+  writesLimiter,
+  readsLimiter,
+  adminLimiter,
 } from './rateLimiter';
 import { idempotencyStore } from './idempotency';
 import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
 import { recordAdminAuditLog } from './adminAudit';
+import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
 import { sorobanCircuitBreaker } from './circuitBreaker';
 import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
@@ -80,6 +81,8 @@ import { prisma, getPrismaRuntimeConfig } from './prisma';
 import {
   registerWebhookEndpoint,
   updateWebhookEndpoint,
+  deleteWebhookEndpoint,
+  restoreWebhookEndpoint,
   listWebhookEndpoints,
   listWebhookDeliveryPage,
   getWebhookDeliveryMetrics,
@@ -102,6 +105,7 @@ import {
 import { parseUtcDateRange, DateRangeParseError } from './dateRange';
 import { backfillApySnapshots } from './apySnapshot';
 import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
+import { normalizeWalletAddress } from './walletUtils';
 
 declare global {
   namespace Express {
@@ -138,16 +142,17 @@ function buildVaultSummaryResponse() {
 }
 
 function resolveActingAdminAddress(req: Request): string {
-  return (
+  const address =
     req.get('x-admin-address') ||
     req.get('x-admin-id') ||
     req.get('x-wallet-address') ||
-    'unknown'
-  );
+    'unknown';
+  return address === 'unknown' ? address : normalizeWalletAddress(address);
 }
 
 async function buildReferralStatsSnapshot(wallet: string) {
-  const stats = await referralService.getReferralStats(wallet);
+  const normalizedWallet = normalizeWalletAddress(wallet);
+  const stats = await referralService.getReferralStats(normalizedWallet);
   if (!stats) {
     return {
       statusCode: 404,
@@ -166,16 +171,17 @@ async function buildReferralStatsSnapshot(wallet: string) {
 }
 
 async function buildImpersonatedVaultState(wallet: string) {
+  const normalizedWallet = normalizeWalletAddress(wallet);
   return {
-    walletAddress: wallet,
+    walletAddress: normalizedWallet,
     summary: buildVaultSummaryResponse(),
-    transactions: buildTransactionsResponse({ walletAddress: wallet }),
-    portfolioHoldings: buildPortfolioHoldingsResponse({ walletAddress: wallet }),
+    transactions: buildTransactionsResponse({ walletAddress: normalizedWallet }),
+    portfolioHoldings: buildPortfolioHoldingsResponse({ walletAddress: normalizedWallet }),
     vaultHistory: buildVaultHistoryResponse({}),
-    referralStats: await buildReferralStatsSnapshot(wallet),
+    referralStats: await buildReferralStatsSnapshot(normalizedWallet),
     referralCode: {
       statusCode: 200,
-      body: { code: await referralService.getOrCreateReferralCode(wallet) },
+      body: { code: await referralService.getOrCreateReferralCode(normalizedWallet) },
     },
   };
 }
@@ -186,7 +192,7 @@ function resolveTransactionExportAccess(req: Request):
   | null {
   const authHeader = req.get('authorization') || '';
   const walletAddress =
-    typeof req.query.walletAddress === 'string' ? req.query.walletAddress.trim() : undefined;
+    typeof req.query.walletAddress === 'string' ? normalizeWalletAddress(req.query.walletAddress) : undefined;
 
   const apiKeyMatch = authHeader.match(/^ApiKey\s+(.+)$/i);
   if (apiKeyMatch) {
@@ -208,13 +214,14 @@ function resolveTransactionExportAccess(req: Request):
   }
 
   const payload = verifyJwt(bearerMatch[1]);
-  if (walletAddress && walletAddress !== payload.sub) {
+  const userWallet = normalizeWalletAddress(payload.sub);
+  if (walletAddress && walletAddress !== userWallet) {
     throw new Error('FORBIDDEN_WALLET_EXPORT');
   }
 
   return {
     kind: 'user',
-    walletAddress: payload.sub,
+    walletAddress: userWallet,
   };
 }
 
@@ -379,14 +386,15 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Apply the Redis-backed default limiter globally (skip health/ready probes).
+// Apply the Redis-backed default limiter (reads tier) globally (skip health/ready probes).
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === '/health' || req.path === '/ready') return next();
-  return defaultLimiter(req, res, next);
+  return readsLimiter(req, res, next);
 });
 
 // Capture immutable admin audit records for every /admin request.
-app.use('/admin', createAdminAuditMiddleware());
+// Apply admin-tier rate limiting to all /admin endpoints.
+app.use('/admin', adminLimiter, createAdminAuditMiddleware());
 // ─── Geofencing (Issue #379) ─────────────────────────────────────────────────
 // Applied after rate-limiting so bots from blocked countries are still rate-limited.
 app.use(geofencingMiddleware);
@@ -511,19 +519,19 @@ apiV1.use('/', listRouter);
  * POST /api/v1/auth/login
  * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
  */
-apiV1.post('/auth/login', depositsLimiter, validate({ body: LoginSchema }), loginHandler);
+apiV1.post('/auth/login', authLimiter, validate({ body: LoginSchema }), loginHandler);
 
 /**
  * POST /api/v1/auth/refresh
  * Rotate the refresh token and issue a new access JWT.
  */
-apiV1.post('/auth/refresh', depositsLimiter, validate({ body: RefreshSchema }), refreshHandler);
+apiV1.post('/auth/refresh', authLimiter, validate({ body: RefreshSchema }), refreshHandler);
 
 /**
  * POST /api/v1/auth/logout
  * Revokes the current session. Requires Bearer token.
  */
-apiV1.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
+apiV1.post('/auth/logout', readsLimiter, requireAuth, (req: Request, res: Response) => {
   try {
     const authReq = req as import('./auth').AuthenticatedRequest;
     const walletAddress = authReq.jwtPayload?.sub;
@@ -546,7 +554,7 @@ apiV1.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response
  * POST /api/v1/auth/logout-all
  * Revokes all active sessions for the authenticated wallet.
  */
-apiV1.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
+apiV1.post('/auth/logout-all', readsLimiter, requireAuth, (req: Request, res: Response) => {
   try {
     const authReq = req as import('./auth').AuthenticatedRequest;
     const walletAddress = authReq.jwtPayload?.sub;
@@ -632,7 +640,7 @@ app.get('/api/v1/vault/transactions/export', handleTransactionExport);
  */
 app.get(
   '/api/v1/vault/summary',
-  summaryLimiter,
+  readsLimiter,
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
     res.json(buildVaultSummaryResponse());
@@ -711,6 +719,17 @@ app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Respon
     const result = await backfillApySnapshots(start, end);
     const durationMs = Date.now() - jobStart;
 
+    const receipt = await generateAdminReceipt({
+      action: 'apy.backfill',
+      actor,
+      input: { start, end },
+      resultingState: {
+        created: result.created,
+        skipped: result.skipped,
+        durationMs,
+      },
+    });
+
     void recordAdminAuditLog(req, 'apy.backfill', 200, {
       start,
       end,
@@ -718,6 +737,7 @@ app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Respon
       skipped: result.skipped,
       durationMs,
       actor,
+      receiptId: receipt.id,
     });
 
     res.status(200).json({
@@ -729,6 +749,7 @@ app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Respon
       dates: result.dates,
       durationMs,
       timestamp: new Date().toISOString(),
+      receipt,
     });
   } catch (err) {
     res.status(500).json({
@@ -770,6 +791,18 @@ app.post('/admin/maintenance', validateApiKey, (req: Request, res: Response) => 
   const previous = getMaintenanceModeState();
   const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
 
+  const receipt = await generateAdminReceipt({
+    action: 'maintenance.toggle',
+    actor,
+    input: { enabled, reason, retryAfterSeconds },
+    resultingState: {
+      enabled: next.enabled,
+      reason: next.reason,
+      retryAfterSeconds: next.retryAfterSeconds,
+      previousEnabled: previous.enabled,
+    },
+  });
+
   logMaintenanceTransition({
     enabled: next.enabled,
     actor,
@@ -783,12 +816,14 @@ app.post('/admin/maintenance', validateApiKey, (req: Request, res: Response) => 
     previousEnabled: previous.enabled,
     reason: next.reason,
     actor,
+    receiptId: receipt.id,
   });
 
   res.status(200).json({
     message: `Maintenance mode ${next.enabled ? 'enabled' : 'disabled'}`,
     maintenance: next,
     timestamp: new Date().toISOString(),
+    receipt,
   });
 });
 
@@ -870,6 +905,18 @@ app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Respo
     const startTime = Date.now();
     const result = await replayEventsForRange(fromLedger, toLedger);
     const duration = Date.now() - startTime;
+    const actor = resolveActingAdminAddress(req);
+
+    const receipt = await generateAdminReceipt({
+      action: 'events.replay.manual',
+      actor,
+      input: { fromLedger, toLedger },
+      resultingState: {
+        processedCount: result.processedCount,
+        duplicateCount: result.duplicateCount,
+        durationMs: duration,
+      },
+    });
     
     // Record replay job metadata
     void recordAdminAuditLog(req, 'events.replay.manual', 200, {
@@ -879,6 +926,7 @@ app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Respo
       duplicateCount: result.duplicateCount,
       durationMs: duration,
       timestamp: new Date().toISOString(),
+      receiptId: receipt.id,
     });
     
     res.status(200).json({
@@ -889,6 +937,7 @@ app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Respo
       duplicateCount: result.duplicateCount,
       durationMs: duration,
       timestamp: new Date().toISOString(),
+      receipt,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -922,10 +971,30 @@ app.post('/admin/allowlist/add', validateApiKey, (req: Request, res: Response) =
     return;
   }
   const added = addAddress(walletAddress);
+  const actor = resolveActingAdminAddress(req);
+
+  const receipt = await generateAdminReceipt({
+    action: 'allowlist.add',
+    actor,
+    input: { walletAddress },
+    resultingState: {
+      added,
+      totalCount: allowlistSize(),
+    },
+  });
+
+  void recordAdminAuditLog(req, 'allowlist.add', added ? 201 : 200, {
+    walletAddress,
+    added,
+    actor,
+    receiptId: receipt.id,
+  });
+
   res.status(added ? 201 : 200).json({
     message: added ? 'Wallet added to allowlist' : 'Wallet already in allowlist',
     walletAddress: walletAddress.trim().toUpperCase(),
     count: allowlistSize(),
+    receipt,
   });
 });
 
@@ -935,7 +1004,7 @@ app.post('/admin/allowlist/add', validateApiKey, (req: Request, res: Response) =
  * Requires API key authentication.
  * Body: { "walletAddress": "G..." }
  */
-app.delete('/admin/allowlist/remove', validateApiKey, (req: Request, res: Response) => {
+app.delete('/admin/allowlist/remove', validateApiKey, async (req: Request, res: Response) => {
   const { walletAddress } = req.body;
   if (!walletAddress || typeof walletAddress !== 'string') {
     res.status(400).json({ error: 'Missing or invalid walletAddress in request body' });
@@ -946,10 +1015,29 @@ app.delete('/admin/allowlist/remove', validateApiKey, (req: Request, res: Respon
     res.status(404).json({ error: 'Wallet address not found in allowlist' });
     return;
   }
+
+  const actor = resolveActingAdminAddress(req);
+  const receipt = await generateAdminReceipt({
+    action: 'allowlist.remove',
+    actor,
+    input: { walletAddress },
+    resultingState: {
+      removed: true,
+      totalCount: allowlistSize(),
+    },
+  });
+
+  void recordAdminAuditLog(req, 'allowlist.remove', 200, {
+    walletAddress,
+    actor,
+    receiptId: receipt.id,
+  });
+
   res.json({
     message: 'Wallet removed from allowlist',
     walletAddress: walletAddress.trim().toUpperCase(),
     count: allowlistSize(),
+    receipt,
   });
 });
 
@@ -1017,6 +1105,84 @@ app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: 
       error: 'Internal Server Error',
       status: 500,
       message: 'Failed to build impersonated vault state',
+    });
+  }
+});
+
+// ─── Admin Action Receipt Endpoints ─────────────────────────────────────────
+
+/**
+ * GET /admin/receipts
+ * Lists signed admin action receipts.
+ * Requires API key authentication.
+ */
+app.get('/admin/receipts', validateApiKey, async (req: Request, res: Response) => {
+  const action = typeof req.query.action === 'string' ? req.query.action : undefined;
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 50;
+
+  try {
+    const receipts = await listAdminReceipts({ action, actor, limit });
+    res.json({
+      receipts,
+      count: receipts.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/receipts/:id
+ * Retrieves a specific admin action receipt.
+ * Requires API key authentication.
+ */
+app.get('/admin/receipts/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const receipt = await getAdminReceipt(req.params.id);
+    if (!receipt) {
+      res.status(404).json({ error: 'Receipt not found' });
+      return;
+    }
+    res.json(receipt);
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/receipts/:id/verify
+ * Verifies the integrity of an admin action receipt.
+ * Requires API key authentication.
+ */
+app.get('/admin/receipts/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const receipt = await getAdminReceipt(req.params.id);
+    if (!receipt) {
+      res.status(404).json({ error: 'Receipt not found' });
+      return;
+    }
+
+    const isValid = verifyReceiptSignature(receipt);
+    res.json({
+      id: receipt.id,
+      isValid,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
     });
   }
 });
@@ -1327,11 +1493,68 @@ app.patch('/admin/webhooks/:id', validateApiKey, (req: Request, res: Response) =
 /**
  * GET /admin/webhooks - list webhook endpoints
  */
-app.get('/admin/webhooks', validateApiKey, (_req: Request, res: Response) => {
+app.get('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
+  const includeDeleted = req.query.includeDeleted === 'true';
   res.status(200).json({
-    endpoints: listWebhookEndpoints(),
+    endpoints: listWebhookEndpoints(includeDeleted),
     metrics: getWebhookDeliveryMetrics(),
     timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/:id - soft delete webhook endpoint
+ */
+app.delete('/admin/webhooks/:id', validateApiKey, async (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+  const endpoint = deleteWebhookEndpoint(req.params.id, actor);
+
+  if (!endpoint) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Webhook endpoint not found or already deleted',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'webhook.delete', 200, {
+    endpointId: endpoint.id,
+    url: endpoint.url,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Webhook endpoint soft-deleted',
+    endpoint,
+  });
+});
+
+/**
+ * POST /admin/webhooks/:id/restore - restore soft-deleted webhook endpoint
+ */
+app.post('/admin/webhooks/:id/restore', validateApiKey, async (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+  const endpoint = restoreWebhookEndpoint(req.params.id, actor);
+
+  if (!endpoint) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Webhook endpoint not found or not deleted',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'webhook.restore', 200, {
+    endpointId: endpoint.id,
+    url: endpoint.url,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Webhook endpoint restored',
+    endpoint,
   });
 });
 

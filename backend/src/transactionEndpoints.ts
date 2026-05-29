@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from './middleware/structuredLogging';
 import { withSpan, getCurrentTraceId } from './tracing';
 import { getPrismaClient } from './prismaClient';
+import { normalizeWalletAddress } from './walletUtils';
 import {
   parsePaginationQuery,
   sendPaginatedResponse,
@@ -34,7 +35,7 @@ router.get('/', async (req: Request, res: Response) => {
 
   return await withSpan('transactions.list', async (span) => {
     try {
-      const { type, status } = req.query;
+      const { type, status, walletAddress } = req.query;
       const from = req.query.from as string | undefined;
       const to = req.query.to as string | undefined;
 
@@ -83,6 +84,7 @@ router.get('/', async (req: Request, res: Response) => {
       span.setAttributes({
         'transaction.typeFilter': typeFilter.length > 0 ? typeFilter.join(',') : 'all',
         'transaction.statusFilter': status ? String(status) : 'all',
+        'transaction.walletFilter': walletAddress ? normalizeWalletAddress(String(walletAddress)) : 'all',
         'transaction.hasDateRange': !!(dateRange.start || dateRange.end),
         'pagination.limit': paginationQuery.limit,
         'pagination.hasCursor': !!paginationQuery.cursor,
@@ -99,6 +101,10 @@ router.get('/', async (req: Request, res: Response) => {
 
       if (status) {
         whereClause.status = String(status);
+      }
+
+      if (walletAddress) {
+        whereClause.user = normalizeWalletAddress(String(walletAddress));
       }
 
       if (dateRange.start || dateRange.end) {
