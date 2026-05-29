@@ -12,8 +12,8 @@ describe('Admin backend features', () => {
     registerApiKey(adminKey);
   });
 
-  beforeEach(() => {
-    resetWebhookState();
+  beforeEach(async () => {
+    await resetWebhookState();
     resetAuditLogs();
   });
 
@@ -25,6 +25,7 @@ describe('Admin backend features', () => {
         status: 200,
         text: async () => 'ok',
       } as Response);
+    const secret = 'super-secret-webhook-key';
 
     const webhookResponse = await request(app)
       .post('/admin/webhooks')
@@ -32,9 +33,15 @@ describe('Admin backend features', () => {
       .send({
         url: 'https://example.com/webhook',
         eventTypes: ['transaction.deposit.created'],
+        secret,
       });
 
     expect(webhookResponse.status).toBe(201);
+    expect(webhookResponse.body.endpoint.secret).toBeUndefined();
+    expect(webhookResponse.body.endpoint.hasSecret).toBe(true);
+
+    const previousAllowlistEnabled = process.env.ALLOWLIST_ENABLED;
+    process.env.ALLOWLIST_ENABLED = 'false';
 
     const depositResponse = await request(app)
       .post('/api/v1/vault/deposits')
@@ -43,6 +50,12 @@ describe('Admin backend features', () => {
         asset: 'USDC',
         walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
       });
+
+    if (typeof previousAllowlistEnabled === 'string') {
+      process.env.ALLOWLIST_ENABLED = previousAllowlistEnabled;
+    } else {
+      delete process.env.ALLOWLIST_ENABLED;
+    }
 
     expect(depositResponse.status).toBe(201);
 
@@ -55,8 +68,56 @@ describe('Admin backend features', () => {
     expect(deliveriesResponse.status).toBe(200);
     expect(deliveriesResponse.body.deliveries.length).toBeGreaterThan(0);
     expect(deliveriesResponse.body.deliveries[0].eventType).toBe('transaction.deposit.created');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.com/webhook',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-YieldVault-Signature': expect.any(String),
+        }),
+      }),
+    );
+
+    const listResponse = await request(app)
+      .get('/admin/webhooks')
+      .set(authHeader);
+
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.body.endpoints[0].secret).toBeUndefined();
+    expect(listResponse.body.endpoints[0].hasSecret).toBe(true);
 
     fetchMock.mockRestore();
+  });
+
+  it('verifies webhook signatures without exposing secrets', async () => {
+    const payload = {
+      eventType: 'transaction.deposit.created',
+      payload: {
+        transactionId: 'tx-verify-1',
+      },
+    };
+
+    const signatureResponse = await request(app)
+      .post('/webhooks/verify')
+      .send({
+        secret: 'verify-secret',
+        payload,
+      });
+
+    expect(signatureResponse.status).toBe(200);
+    expect(signatureResponse.body.algorithm).toBe('HMAC-SHA256');
+    expect(signatureResponse.body.signature).toHaveLength(64);
+    expect(signatureResponse.body.verified).toBeNull();
+
+    const verificationResponse = await request(app)
+      .post('/webhooks/verify')
+      .send({
+        secret: 'verify-secret',
+        payload,
+        signature: signatureResponse.body.signature,
+      });
+
+    expect(verificationResponse.status).toBe(200);
+    expect(verificationResponse.body.verified).toBe(true);
   });
 
   it('returns audit logs for admin actions', async () => {

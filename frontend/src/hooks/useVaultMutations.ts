@@ -25,10 +25,11 @@ function buildPendingTransaction(
   return {
     id: `optimistic-${action}-${Date.now()}`,
     type: action,
+    status: "pending",
     amount: amount.toFixed(2),
     asset: "USDC",
     timestamp: new Date().toISOString(),
-    transactionHash: "pending-confirmation",
+    transactionHash: "pending-" + Date.now(),
   };
 }
 

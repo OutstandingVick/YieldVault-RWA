@@ -7,6 +7,7 @@ import SessionExpiryWarning from "./components/SessionExpiryWarning";
 import type { DisconnectReason } from "./components/WalletConnect";
 import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
 import ShortcutHelpModal from "./components/ShortcutHelpModal";
+import CommandPalette from "./components/CommandPalette";
 import OnboardingWalkthrough from "./components/OnboardingWalkthrough";
 import { FeatureGate } from "./components/FeatureGate";
 import { FeatureFlagProvider } from "./context/FeatureFlagContext";
@@ -83,7 +84,7 @@ function AppContent() {
 
   return (
     <PreferencesProvider walletAddress={walletAddress}>
-      <KeyboardShortcutProvider>
+      <KeyboardShortcutProvider walletAddress={walletAddress}>
         <a className="skip-link" href="#main-content">
           Skip to main content
         </a>
@@ -135,6 +136,7 @@ function AppContent() {
           </main>
           <OnboardingWalkthrough />
           <ShortcutHelpModal />
+          <CommandPalette />
           {sessionState === "warning" && walletAddress && (
             <SessionExpiryWarning
               onReconnect={handleReconnect}

@@ -88,6 +88,12 @@ export const en = {
     close: "Close",
     hint: "Press Esc to close this dialog",
   },
+  palette: {
+    placeholder: "Search actions…",
+    noResults: "No matching actions",
+    hint: "↑↓ navigate · Enter run · Esc close",
+    open: "Open command palette",
+  },
   refresh: {
     live: "Live",
     stopped: "Stopped",
@@ -115,7 +121,31 @@ export const en = {
       reconnect: "Reconnect",
     },
   },
+  reconnect: {
+    title: "Welcome back",
+    description: "Reconnect with {{provider}} to continue.",
+    confirm: "Reconnect",
+    dismiss: "Use a different wallet",
+  },
   common: {
     dismiss: "Dismiss",
+  },
+  commands: {
+    goToVaults: "Go to Vaults",
+    goToPortfolio: "Go to Portfolio",
+    goToAnalytics: "Go to Analytics",
+    goToHistory: "Go to History",
+    deposit: "Deposit USDC",
+    withdraw: "Withdraw USDC",
+    connectWallet: "Connect Wallet",
+    settings: "Open Settings",
+    showShortcuts: "Show keyboard shortcuts",
+    openPalette: "Open command palette",
+    closeModal: "Close modal",
+    scopes: {
+      navigation: "Navigation",
+      actions: "Actions",
+      general: "General"
+    }
   },
 } as const;

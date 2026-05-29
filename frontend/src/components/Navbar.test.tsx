@@ -7,7 +7,6 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { ToastProvider } from '../context/ToastContext';
 import { MemoryRouter } from 'react-router-dom';
 
-
 describe('Navbar', () => {
     const mockOnConnect = vi.fn();
     const mockOnDisconnect = vi.fn();

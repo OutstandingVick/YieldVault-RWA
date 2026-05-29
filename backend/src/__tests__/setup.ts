@@ -16,6 +16,10 @@ process.env.OTEL_ENABLED = 'false';
 // Suppress OpenTelemetry spam in test output
 process.env.OTEL_LOG_LEVEL = 'error';
 
+// Provide healthy defaults expected by API/integration tests.
+process.env.STELLAR_RPC_URL = process.env.STELLAR_RPC_URL || 'https://test-rpc.stellar.local';
+process.env.ALLOWLIST_ENABLED = process.env.ALLOWLIST_ENABLED || 'false';
+
 // CRITICAL: Patch PrismaClient constructor BEFORE any code tries to instantiate it
 // This intercepts the instrumentation hooks and prevents the panic
 const PrismaClientModule = require('@prisma/client');

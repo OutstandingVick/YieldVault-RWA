@@ -32,7 +32,7 @@ describe('Property 5: Requests beyond the limit receive 429 with required header
     await fc.assert(
       fc.asyncProperty(
         fc.integer({ min: 1, max: 20 }),
-        async (limit) => {
+        async (limit: number) => {
           const app = buildApp(limit);
           const key = `wallet-p5-${limit}-${Math.random()}`;
 
@@ -75,7 +75,7 @@ describe('Property 6: Requests within the limit include rate-limit headers', () 
     await fc.assert(
       fc.asyncProperty(
         fc.integer({ min: 1, max: 10 }),
-        async (count) => {
+        async (count: number) => {
           const limit = count + 5; // ensure we stay within limit
           const app = buildApp(limit);
           const key = `wallet-p6-${count}-${Math.random()}`;
@@ -104,7 +104,7 @@ describe('Property 7: Counter initialises to 1 on first request in a window', ()
       fc.asyncProperty(
         fc.integer({ min: 2, max: 30 }),
         fc.string({ minLength: 5, maxLength: 20 }),
-        async (limit, walletSuffix) => {
+        async (limit: number, walletSuffix: string) => {
           const app = buildApp(limit);
           const key = `wallet-p7-${walletSuffix}-${Math.random()}`;
 
@@ -135,7 +135,7 @@ describe('Property 8: Rate-limit log entries contain required fields without exp
     await fc.assert(
       fc.asyncProperty(
         fc.string({ minLength: 10, maxLength: 40 }),
-        async (walletAddress) => {
+        async (walletAddress: string) => {
           process.env = { ...originalEnv, NODE_ENV: 'production' };
           jest.resetModules();
           // eslint-disable-next-line @typescript-eslint/no-require-imports

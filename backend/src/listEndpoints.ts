@@ -8,7 +8,9 @@
  * - Vault history
  */
 
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
+import { Readable } from 'stream';
 import {
   parsePaginationQuery,
   paginateWithCursor,
@@ -20,8 +22,17 @@ import {
   createPaginatedResponse,
   PaginatedResponse,
 } from './pagination';
+import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
 import { getApyHistory } from './apySnapshot';
 import { cacheMiddleware } from './middleware/cache';
+import { requireAuth, AuthenticatedRequest } from './auth';
+import { normalizeWalletAddress } from './walletUtils';
+import { validateApiKey, hasRequiredApiKeyRole } from './middleware/apiKeyAuth';
+import {
+  buildExportMetadataHeaderValue,
+  recordExportJob,
+  resolveExportGeneratedBy,
+} from './exportJobs';
 
 const router = Router();
 const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
@@ -43,7 +54,7 @@ const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000'
  *         transactionHash: { type: string }
  *         walletAddress: { type: string }
  */
-interface Transaction {
+export interface Transaction {
   id: string;
   type: 'deposit' | 'withdrawal';
   status: 'pending' | 'completed' | 'failed';
@@ -53,6 +64,12 @@ interface Transaction {
   transactionHash: string;
   walletAddress: string;
   [key: string]: unknown;
+}
+
+export type ExportFormat = 'csv' | 'json';
+
+interface ExportRequest extends AuthenticatedRequest {
+  exportAsAdmin?: boolean;
 }
 
 /**
@@ -116,6 +133,20 @@ export interface WalletStateQuery {
   from?: string;
   to?: string;
   walletAddress?: string;
+}
+
+export interface TransactionExportQuery extends Omit<WalletStateQuery, 'limit' | 'cursor' | 'page'> {
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface TransactionExportArtifact {
+  body: string;
+  checksum: string;
+  checksumAlgorithm: 'sha256';
+  rowCount: number;
+  contentType: string;
+  extension: ExportFormat;
 }
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────
@@ -182,8 +213,9 @@ function filterTransactions(
   transactions: Transaction[],
   filters: { type?: string; status?: string; walletAddress?: string; from?: string; to?: string }
 ): Transaction[] {
-  const from = parseDateFilter(filters.from, 'start');
-  const to = parseDateFilter(filters.to, 'end');
+  const from = filters.from ? Date.parse(filters.from) : null;
+  const to = filters.to ? Date.parse(filters.to) : null;
+  const normalizedWallet = filters.walletAddress ? normalizeWalletAddress(filters.walletAddress) : null;
 
   return transactions.filter((tx) => {
     if (filters.type && filters.type !== 'all' && tx.type !== filters.type) {
@@ -192,10 +224,17 @@ function filterTransactions(
     if (filters.status && filters.status !== 'all' && tx.status !== filters.status) {
       return false;
     }
-    if (filters.walletAddress && tx.walletAddress !== filters.walletAddress) {
+    if (normalizedWallet && normalizeWalletAddress(tx.walletAddress) !== normalizedWallet) {
       return false;
     }
-    if (!isTransactionInDateRange(tx.timestamp, from, to)) {
+    const transactionTime = Date.parse(tx.timestamp);
+    if (Number.isNaN(transactionTime)) {
+      return false;
+    }
+    if (from !== null && transactionTime < from) {
+      return false;
+    }
+    if (to !== null && transactionTime > to) {
       return false;
     }
     return true;
@@ -238,6 +277,106 @@ function isTransactionInDateRange(
   return true;
 }
 
+function filterTransactionsForExport(
+  query: WalletStateQuery & { startDate?: string; endDate?: string; walletAddress?: string }
+): Transaction[] {
+  const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy;
+  const sortOrder = query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc';
+  const from = query.startDate ?? query.from;
+  const to = query.endDate ?? query.to;
+
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
+    type: query.type,
+    status: query.status,
+    from,
+    to,
+    walletAddress: query.walletAddress,
+  });
+
+  if (sortBy) {
+    filtered = sortItems(filtered, sortBy, sortOrder);
+  }
+
+  return filtered;
+}
+
+function escapeCsv(value: unknown): string {
+  const serialized = String(value ?? '');
+  const escaped = serialized.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
+function buildCsvRow(row: Transaction): string {
+  return [
+    row.id,
+    row.type,
+    row.status,
+    row.amount,
+    row.asset,
+    row.timestamp,
+    row.transactionHash,
+    row.walletAddress,
+  ]
+    .map(escapeCsv)
+    .join(',');
+}
+
+function resolveExportFormat(raw: unknown): ExportFormat | null {
+  if (raw === 'csv' || raw === 'json') {
+    return raw;
+  }
+  return null;
+}
+
+function authenticateTransactionExport(req: ExportRequest, res: Response, next: () => void): void {
+  const authHeader = req.get('Authorization') || '';
+  if (authHeader.startsWith('ApiKey ')) {
+    validateApiKey(req, res, () => {
+      if (!hasRequiredApiKeyRole(req, 'admin')) {
+        res.status(403).json({
+          error: 'Forbidden',
+          status: 403,
+          message: 'Admin API key is required for this export',
+        });
+        return;
+      }
+      req.exportAsAdmin = true;
+      next();
+    });
+    return;
+  }
+
+  requireAuth(req, res, () => {
+    req.exportAsAdmin = false;
+    next();
+  });
+}
+
+function streamTransactionsAsJson(res: Response, rows: Transaction[]): void {
+  async function* generate(): AsyncGenerator<string> {
+    yield '{"data":[';
+    for (let i = 0; i < rows.length; i++) {
+      if (i > 0) {
+        yield ',';
+      }
+      yield JSON.stringify(rows[i]);
+    }
+    yield ']}';
+  }
+
+  Readable.from(generate()).pipe(res);
+}
+
+function streamTransactionsAsCsv(res: Response, rows: Transaction[]): void {
+  async function* generate(): AsyncGenerator<string> {
+    yield 'id,type,status,amount,asset,timestamp,transactionHash,walletAddress\r\n';
+    for (const row of rows) {
+      yield `${buildCsvRow(row)}\r\n`;
+    }
+  }
+
+  Readable.from(generate()).pipe(res);
+}
 /**
  * Filter portfolio holdings by status and wallet address.
  */
@@ -274,6 +413,10 @@ function filterVaultHistory(
   });
 }
 
+function parseDateRangeOrThrow(filters: { from?: string; to?: string }): ParsedUtcDateRange {
+  return parseUtcDateRange(filters);
+}
+
 export function buildTransactionsResponse(
   query: WalletStateQuery
 ): PaginatedResponse<Transaction> {
@@ -291,8 +434,13 @@ export function buildTransactionsResponse(
     to: query.to,
     walletAddress: query.walletAddress,
   };
+  const normalizedDateRange = parseDateRangeOrThrow({ from: query.from, to: query.to });
 
-  let filtered = filterTransactions(MOCK_TRANSACTIONS, filters);
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
+    ...filters,
+    from: normalizedDateRange.normalizedStart ?? undefined,
+    to: normalizedDateRange.normalizedEnd ?? undefined,
+  });
   if (pagination.sortBy) {
     filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
   }
@@ -301,7 +449,123 @@ export function buildTransactionsResponse(
     ? paginateWithOffset(filtered, pagination)
     : paginateWithCursor(filtered, pagination, (tx) => encodeCursor(tx.id));
 
-  return createPaginatedResponse(paginated.data, paginated.pagination);
+  return createPaginatedResponse(paginated.data, paginated.pagination, {
+    normalizedDateRange: normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
+  });
+}
+
+export function getTransactionsForExport(query: TransactionExportQuery): Transaction[] {
+  const filters = {
+    type: query.type,
+    status: query.status,
+    from: query.startDate ?? query.from,
+    to: query.endDate ?? query.to,
+    walletAddress: query.walletAddress,
+  };
+  const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy;
+  const sortOrder = query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc';
+
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, filters);
+  if (sortBy) {
+    filtered = sortItems(filtered, sortBy, sortOrder);
+  }
+
+  return filtered;
+}
+
+export function buildTransactionExportArtifact(
+  format: ExportFormat,
+  query: TransactionExportQuery,
+): TransactionExportArtifact {
+  const transactions = getTransactionsForExport(query);
+  const body =
+    format === 'csv'
+      ? buildTransactionsCsvExportBody(transactions)
+      : buildTransactionsJsonExportBody(transactions);
+
+  return {
+    body,
+    checksum: crypto.createHash('sha256').update(body, 'utf8').digest('hex'),
+    checksumAlgorithm: 'sha256',
+    rowCount: transactions.length,
+    contentType: format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+    extension: format,
+  };
+}
+
+export function createTransactionsJsonExportStream(query: TransactionExportQuery): Readable {
+  const transactions = getTransactionsForExport(query);
+
+  async function* generate(): AsyncGenerator<string> {
+    yield '{"data":[';
+    for (let index = 0; index < transactions.length; index += 1) {
+      if (index > 0) {
+        yield ',';
+      }
+      yield JSON.stringify(transactions[index]);
+    }
+    yield ']}';
+  }
+
+  return Readable.from(generate());
+}
+
+export function createTransactionsCsvExportStream(query: TransactionExportQuery): Readable {
+  const transactions = getTransactionsForExport(query);
+  const columns: Array<keyof Transaction> = [
+    'id',
+    'type',
+    'status',
+    'amount',
+    'asset',
+    'timestamp',
+    'transactionHash',
+    'walletAddress',
+  ];
+
+  async function* generate(): AsyncGenerator<string> {
+    yield `${columns.join(',')}\r\n`;
+    for (const transaction of transactions) {
+      const row = columns
+        .map((column) => escapeCsvValue(transaction[column]))
+        .join(',');
+      yield `${row}\r\n`;
+    }
+  }
+
+  return Readable.from(generate());
+}
+
+function buildTransactionsJsonExportBody(transactions: Transaction[]): string {
+  return JSON.stringify({ data: transactions });
+}
+
+function buildTransactionsCsvExportBody(transactions: Transaction[]): string {
+  const columns: Array<keyof Transaction> = [
+    'id',
+    'type',
+    'status',
+    'amount',
+    'asset',
+    'timestamp',
+    'transactionHash',
+    'walletAddress',
+  ];
+
+  const rows = transactions.map((transaction) =>
+    columns.map((column) => escapeCsvValue(transaction[column])).join(','),
+  );
+
+  return `${columns.join(',')}\r\n${rows.map((row) => `${row}\r\n`).join('')}`;
+}
+
+function escapeCsvValue(value: unknown): string {
+  const serialized = value == null ? '' : String(value);
+  const escaped = serialized.replace(/"/g, '""');
+  if (/[",\r\n]/.test(escaped)) {
+    return `"${escaped}"`;
+  }
+  return escaped;
 }
 
 export function buildPortfolioHoldingsResponse(
@@ -343,8 +607,12 @@ export function buildVaultHistoryResponse(
     from: query.from,
     to: query.to,
   };
+  const normalizedDateRange = parseDateRangeOrThrow(filters);
 
-  let filtered = filterVaultHistory(MOCK_VAULT_HISTORY, filters);
+  let filtered = filterVaultHistory(MOCK_VAULT_HISTORY, {
+    from: normalizedDateRange.normalizedStart?.slice(0, 10),
+    to: normalizedDateRange.normalizedEnd?.slice(0, 10),
+  });
   if (pagination.sortBy) {
     filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
   }
@@ -353,7 +621,9 @@ export function buildVaultHistoryResponse(
     encodeCursor(point.date)
   );
 
-  return createPaginatedResponse(paginated.data, paginated.pagination);
+  return createPaginatedResponse(paginated.data, paginated.pagination, {
+    normalizedDateRange: normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
+  });
 }
 
 // ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -417,13 +687,107 @@ router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reques
       walletAddress: req.query.walletAddress as string | undefined,
     });
 
-    sendPaginatedResponse(res, response.data, response.pagination);
+    res.status(200).json(response);
   } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: error.message,
+      });
+      return;
+    }
     console.error('Error fetching transactions:', error);
     res.status(500).json({
       error: 'Internal Server Error',
       status: 500,
       message: 'Failed to fetch transactions',
+    });
+  }
+});
+
+router.get('/vault/transactions/export', authenticateTransactionExport, async (req: Request, res: Response) => {
+  const exportReq = req as ExportRequest;
+  const format = resolveExportFormat(req.query.format);
+  if (!format) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'format query parameter must be either csv or json',
+    });
+    return;
+  }
+
+  const requestedWallet = typeof req.query.walletAddress === 'string' ? req.query.walletAddress : undefined;
+  const walletAddress = exportReq.exportAsAdmin
+    ? requestedWallet
+    : exportReq.jwtPayload?.sub;
+
+  if (!exportReq.exportAsAdmin && requestedWallet && requestedWallet !== exportReq.jwtPayload?.sub) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Users can only export their own transaction history',
+    });
+    return;
+  }
+
+  if (!walletAddress) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'walletAddress is required for admin exports',
+    });
+    return;
+  }
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const fileBase = `transactions-${walletAddress.slice(0, 8)}-${stamp}`;
+  const fileName = `${fileBase}.${format}`;
+
+  try {
+    const artifact = buildTransactionExportArtifact(format, {
+      type: typeof req.query.type === 'string' ? req.query.type : undefined,
+      status: typeof req.query.status === 'string' ? req.query.status : undefined,
+      sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
+      sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+      startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+      endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+      walletAddress,
+    });
+
+    const job = await recordExportJob({
+      format,
+      fileName,
+      contentType: artifact.contentType,
+      checksum: artifact.checksum,
+      checksumAlgorithm: artifact.checksumAlgorithm,
+      generatedBy: resolveExportGeneratedBy(req),
+      walletAddress,
+      rowCount: artifact.rowCount,
+      filters: {
+        type: typeof req.query.type === 'string' ? req.query.type : null,
+        status: typeof req.query.status === 'string' ? req.query.status : null,
+        sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : null,
+        sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+        startDate: typeof req.query.startDate === 'string' ? req.query.startDate : null,
+        endDate: typeof req.query.endDate === 'string' ? req.query.endDate : null,
+        walletAddress,
+      },
+    });
+
+    res.setHeader('Content-Type', artifact.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('X-Export-Job-Id', job.id);
+    res.setHeader('X-Export-Checksum', artifact.checksum);
+    res.setHeader('X-Export-Checksum-Algorithm', artifact.checksumAlgorithm);
+    res.setHeader('X-Export-Metadata', buildExportMetadataHeaderValue(job));
+    res.status(200).send(artifact.body);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to generate transaction export',
     });
   }
 });
@@ -499,8 +863,16 @@ router.get('/vault/history', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reque
       to: req.query.to as string | undefined,
     });
 
-    sendPaginatedResponse(res, response.data, response.pagination);
+    res.status(200).json(response);
   } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: error.message,
+      });
+      return;
+    }
     console.error('Error fetching vault history:', error);
     res.status(500).json({
       error: 'Internal Server Error',

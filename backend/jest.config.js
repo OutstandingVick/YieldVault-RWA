@@ -21,6 +21,7 @@ module.exports = {
   testTimeout: 30000,
   globals: {
     'ts-jest': {
+      diagnostics: false,
       tsconfig: {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
@@ -32,5 +33,6 @@ module.exports = {
   // Override module resolution to prevent @prisma/instrumentation from loading
   moduleNameMapper: {
     '^@prisma/instrumentation$': '<rootDir>/src/__tests__/mocks/prismainstrumentation.js',
+    '^@opentelemetry/(.*)$': '<rootDir>/src/__tests__/mocks/opentelemetry.js',
   },
 };

@@ -1,0 +1,9 @@
+{
+  "network": "mainnet",
+  "deployed_at": "",
+  "identity": "production",
+  "contracts": {
+    "vault": "",
+    "mock_korean_strategy": ""
+  }
+}

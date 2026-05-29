@@ -2,9 +2,14 @@ import { validate, TransactionQuerySchema } from "./api";
 import { formatNumber } from "./formatters";
 import type { TransactionQueryInput } from "./api/schemas";
 
+export type TxType = "deposit" | "withdrawal" | "transfer" | "trade";
+export type TxStatus = "pending" | "completed" | "failed";
+
 export interface Transaction {
   id: string;
-  type: "deposit" | "withdrawal";
+  type: TxType;
+  /** Transaction settlement status */
+  status: TxStatus;
   amount: string | null;
   asset: string | null;
   timestamp: string; // ISO 8601
@@ -38,6 +43,9 @@ export function normalizeOperation(
   return {
     id: op.id,
     type: isDeposit ? "deposit" : "withdrawal",
+    // Horizon operations are always settled on-chain; default to "completed".
+    // Future API versions may expose a real status field.
+    status: "completed",
     amount: op.amount ?? null,
     asset: op.asset_type === "native" ? "XLM" : (op.asset_code ?? null),
     timestamp: op.created_at,

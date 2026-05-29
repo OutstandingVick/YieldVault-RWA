@@ -107,6 +107,10 @@ Please use the following template for your PR description:
 - [Include steps for reviewers to verify the fix/feature locally]
 ```
 
+## Documentation
+
+- **[Domain Glossary](./docs/GLOSSARY.md)** — Shared definitions for vault shares, APY, strategies, and other project terminology. Please use these terms consistently in code, comments, and documentation.
+
 ## Local Development Setup
 
 YieldVault-RWA is composed of three main packages: Frontend, Backend, and Contracts. Follow the steps below to set up your local development environment end-to-end.
@@ -156,3 +160,7 @@ npm run dev
 ```
 
 Thank you for your contributions!
+
+## Issue Triage and PR Review Process
+
+For details on how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged, see [TRIAGE_AND_REVIEW.md](./TRIAGE_AND_REVIEW.md).

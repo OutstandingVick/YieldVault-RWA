@@ -35,6 +35,7 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
   return {
     id: "1",
     type: "deposit",
+    status: "completed",
     amount: "100.00",
     asset: "USDC",
     timestamp: "2025-01-15T10:30:00Z",
@@ -410,7 +411,7 @@ describe("TransactionHistory", () => {
     mockGetTransactions.mockImplementation(async (params: unknown) => {
       const p = params as { type?: string };
       if (p.type === "withdrawal") return [];
-      return [makeTransaction({ id: "1", type: "deposit" })];
+      return [makeTransaction({ id: "1", type: "deposit", status: "completed" })];
     });
 
     renderPage(WALLET);
@@ -427,6 +428,55 @@ describe("TransactionHistory", () => {
         screen.getByText("No matches found"),
       ).toBeInTheDocument(),
     );
+  });
+
+  // New: clear filters hides the clear button
+  it("Clear Filters button hides itself after clearing active filters", async () => {
+    mockGetTransactions.mockResolvedValue([makeTransaction()]);
+
+    render(
+      <MemoryRouter initialEntries={["/?search=USDC"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // "Clear all filters" is the aria-label on the clear button in TransactionFilterPanel
+    const clearBtn = await screen.findByRole("button", {
+      name: /Clear all filters/i,
+    });
+    expect(clearBtn).toBeInTheDocument();
+
+    fireEvent.click(clearBtn);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /Clear all filters/i }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  // New: empty state with active filters shows Reset filters action
+  it("shows 'Reset filters' action button in empty state when filters are active", async () => {
+    // All completed; filtering to 'failed' yields no results
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", status: "completed" }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?statuses=failed"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("No transactions found")).toBeInTheDocument(),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Reset filters/i }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -450,7 +500,7 @@ describe("TransactionHistory — Stellar Explorer link network", () => {
   it("generates a testnet explorer URL when networkConfig.isTestnet is true", async () => {
     mockNetworkConfig.isTestnet = true;
     mockGetTransactions.mockResolvedValue([
-      makeTransaction({ transactionHash: VALID_HASH }),
+      makeTransaction({ transactionHash: VALID_HASH, status: "completed" }),
     ]);
 
     renderPage(WALLET);
@@ -487,5 +537,192 @@ describe("TransactionHistory — Stellar Explorer link network", () => {
     const link = await screen.findByTitle(VALID_HASH);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Amount range filtering
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — amount range filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("hides rows below amountMin when amountMin param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", amount: "50.00", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        amount: "200.00",
+        asset: "USDC",
+        transactionHash: "hash200000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        amount: "500.00",
+        asset: "USDC",
+        transactionHash: "hash500000000000000000000000000000000000000",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?amountMin=100"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // 50 should be hidden; 200 and 500 should be visible
+    await waitFor(() =>
+      expect(screen.queryAllByText(/50\.00 USDC/).length).toBe(0),
+    );
+    expect(screen.getByText("200.00 USDC")).toBeInTheDocument();
+    expect(screen.getByText("500.00 USDC")).toBeInTheDocument();
+  });
+
+  it("hides rows above amountMax when amountMax param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", amount: "50.00", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        amount: "200.00",
+        asset: "USDC",
+        transactionHash: "hash200000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        amount: "500.00",
+        asset: "USDC",
+        transactionHash: "hash500000000000000000000000000000000000000",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?amountMax=150"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // Only 50 should be visible
+    await waitFor(() =>
+      expect(screen.queryAllByText(/500\.00 USDC/).length).toBe(0),
+    );
+    expect(screen.getByText("50.00 USDC")).toBeInTheDocument();
+    expect(screen.queryAllByText(/200\.00 USDC/).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Status filtering
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — status filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows only matching status rows when statuses param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", status: "completed", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        status: "pending",
+        asset: "EURC",
+        transactionHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+      makeTransaction({
+        id: "3",
+        status: "failed",
+        asset: "XLM",
+        transactionHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?statuses=pending"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    // Only EURC (pending) should survive the filter
+    await waitFor(() =>
+      expect(screen.queryAllByText("USDC").length).toBe(0),
+    );
+    expect(screen.getByText("EURC")).toBeInTheDocument();
+    expect(screen.queryAllByText("XLM").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// URL shareability
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — URL shareability", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("restores date range inputs from URL on mount", async () => {
+    mockGetTransactions.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/?dateFrom=2026-01-01&dateTo=2026-06-30"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    const dateFromInput = screen.getByLabelText(/Filter from date/i);
+    const dateToInput = screen.getByLabelText(/Filter to date/i);
+
+    expect(dateFromInput).toHaveValue("2026-01-01");
+    expect(dateToInput).toHaveValue("2026-06-30");
+  });
+
+  it("restores amount range inputs from URL on mount", async () => {
+    mockGetTransactions.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/?amountMin=10&amountMax=500"]}>
+        <TransactionHistory walletAddress={WALLET} />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    const amountMinInput = screen.getByLabelText(/Minimum transaction amount/i);
+    const amountMaxInput = screen.getByLabelText(/Maximum transaction amount/i);
+
+    expect(amountMinInput).toHaveValue(10);
+    expect(amountMaxInput).toHaveValue(500);
   });
 });

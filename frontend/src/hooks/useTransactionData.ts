@@ -15,7 +15,7 @@ export function useTransactionHistory(walletAddress: string | null) {
       if (!walletAddress) {
         throw new Error("Wallet address required");
       }
-      const query: TransactionQueryInput = { walletAddress };
+      const query: TransactionQueryInput = { walletAddress, limit: 200 };
       return getTransactions(query);
     },
     staleTime: 15000, // 15 seconds
