@@ -1022,7 +1022,7 @@ app.post('/admin/api-keys/register', validateApiKey, (req: Request, res: Respons
 /**
  * POST /admin/webhooks - register webhook endpoint for transaction events
  */
-app.post('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
+app.post('/admin/webhooks', validateApiKey, async (req: Request, res: Response) => {
   try {
     const { url, eventTypes, enabled, secret } = req.body;
     if (!url || typeof url !== 'string') {
@@ -1034,7 +1034,7 @@ app.post('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
       return;
     }
 
-    const endpoint = registerWebhookEndpoint({
+    const endpoint = await registerWebhookEndpoint({
       url,
       eventTypes,
       enabled,
@@ -1057,9 +1057,9 @@ app.post('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
 /**
  * PATCH /admin/webhooks/:id - update webhook endpoint
  */
-app.patch('/admin/webhooks/:id', validateApiKey, (req: Request, res: Response) => {
+app.patch('/admin/webhooks/:id', validateApiKey, async (req: Request, res: Response) => {
   try {
-    const endpoint = updateWebhookEndpoint(req.params.id, req.body || {});
+    const endpoint = await updateWebhookEndpoint(req.params.id, req.body || {});
     if (!endpoint) {
       res.status(404).json({
         error: 'Not Found',
@@ -1085,10 +1085,15 @@ app.patch('/admin/webhooks/:id', validateApiKey, (req: Request, res: Response) =
 /**
  * GET /admin/webhooks - list webhook endpoints
  */
-app.get('/admin/webhooks', validateApiKey, (_req: Request, res: Response) => {
+app.get('/admin/webhooks', validateApiKey, async (_req: Request, res: Response) => {
+  const [endpoints, metrics] = await Promise.all([
+    listWebhookEndpoints(),
+    getWebhookDeliveryMetrics(),
+  ]);
+
   res.status(200).json({
-    endpoints: listWebhookEndpoints(),
-    metrics: getWebhookDeliveryMetrics(),
+    endpoints,
+    metrics,
     timestamp: new Date().toISOString(),
   });
 });
@@ -1097,17 +1102,20 @@ app.get('/admin/webhooks', validateApiKey, (_req: Request, res: Response) => {
  * GET /admin/webhooks/deliveries - list recent webhook delivery attempts
  * Supports cursor-based pagination: ?limit=N&cursor=<opaque>
  */
-app.get('/admin/webhooks/deliveries', validateApiKey, (req: Request, res: Response) => {
+app.get('/admin/webhooks/deliveries', validateApiKey, async (req: Request, res: Response) => {
   const limit = parseInt(String(req.query.limit || '100'), 10);
   const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
 
   try {
-    const page = listWebhookDeliveryPage({ limit, cursor });
+    const [page, metrics] = await Promise.all([
+      listWebhookDeliveryPage({ limit, cursor }),
+      getWebhookDeliveryMetrics(),
+    ]);
     res.status(200).json({
       deliveries: page.deliveries,
       nextCursor: page.nextCursor,
       hasNextPage: page.hasNextPage,
-      metrics: getWebhookDeliveryMetrics(),
+      metrics,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
@@ -1230,11 +1238,13 @@ app.get('/admin/prisma/config', validateApiKey, (_req: Request, res: Response) =
 /**
  * GET /admin/jobs/monitor - structured JSON for background jobs/webhook workers
  */
-app.get('/admin/jobs/monitor', validateApiKey, (_req: Request, res: Response) => {
+app.get('/admin/jobs/monitor', validateApiKey, async (_req: Request, res: Response) => {
+  const webhooks = await getWebhookDeliveryMetrics();
+
   res.status(200).json({
     jobHealth: getJobHealthStatus(),
     jobs: getJobMetrics(),
-    webhooks: getWebhookDeliveryMetrics(),
+    webhooks,
     timestamp: new Date().toISOString(),
   });
 });
@@ -1264,9 +1274,9 @@ app.get('/admin/jobs/metrics', validateApiKey, (req: Request, res: Response) => 
 /**
  * GET /admin/jobs/dashboard - lightweight HTML dashboard for operators
  */
-app.get('/admin/jobs/dashboard', validateApiKey, (_req: Request, res: Response) => {
+app.get('/admin/jobs/dashboard', validateApiKey, async (_req: Request, res: Response) => {
   const jobMetrics = getJobMetrics();
-  const webhookMetrics = getWebhookDeliveryMetrics();
+  const webhookMetrics = await getWebhookDeliveryMetrics();
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.status(200).send(`

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { WebhookDelivery as PrismaWebhookDelivery, WebhookEndpoint as PrismaWebhookEndpoint } from '@prisma/client';
 import { prisma } from './prisma';
 
 export type TransactionEventType =
@@ -70,39 +71,39 @@ interface UpdateWebhookInput {
   secret?: string;
 }
 
-const endpoints = new Map<string, InternalWebhookEndpoint>();
-const deliveries: WebhookDeliveryRecord[] = [];
-let persistenceInitialized = false;
+const defaultEventTypes: TransactionEventType[] = [
+  'transaction.deposit.created',
+  'transaction.withdrawal.created',
+];
 
 const maxAttempts = parseInt(process.env.WEBHOOK_MAX_ATTEMPTS || '3', 10);
 const deliveryTimeoutMs = parseInt(process.env.WEBHOOK_DELIVERY_TIMEOUT_MS || '5000', 10);
 const retryBaseDelayMs = parseInt(process.env.WEBHOOK_RETRY_BASE_DELAY_MS || '500', 10);
 const deliveryRetention = parseInt(process.env.WEBHOOK_DELIVERY_RETENTION || '200', 10);
 
-export function registerWebhookEndpoint(input: RegisterWebhookInput): WebhookEndpoint {
+export async function registerWebhookEndpoint(input: RegisterWebhookInput): Promise<WebhookEndpoint> {
   assertValidWebhookUrl(input.url);
 
-  const now = new Date().toISOString();
-  const endpoint: InternalWebhookEndpoint = {
-    id: `wh_${crypto.randomBytes(6).toString('hex')}`,
-    url: input.url,
-    eventTypes: input.eventTypes && input.eventTypes.length > 0
-      ? input.eventTypes
-      : ['transaction.deposit.created', 'transaction.withdrawal.created'],
-    enabled: input.enabled ?? true,
-    secret: input.secret,
-    secretHash: input.secret ? hashWebhookSecret(input.secret) : undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const eventTypes = resolveEventTypes(input.eventTypes);
+  const created = await prisma.webhookEndpoint.create({
+    data: {
+      id: `wh_${crypto.randomBytes(6).toString('hex')}`,
+      url: input.url,
+      eventTypes: serializeEventTypes(eventTypes),
+      enabled: input.enabled ?? true,
+      secret: input.secret ?? null,
+      secretHash: input.secret ? hashWebhookSecret(input.secret) : null,
+    },
+  });
 
-  endpoints.set(endpoint.id, endpoint);
-  void persistWebhookEndpoint(endpoint);
-  return sanitizeWebhookEndpoint(endpoint);
+  return sanitizeWebhookEndpoint(mapInternalEndpoint(created));
 }
 
-export function updateWebhookEndpoint(id: string, input: UpdateWebhookInput): WebhookEndpoint | null {
-  const existing = endpoints.get(id);
+export async function updateWebhookEndpoint(
+  id: string,
+  input: UpdateWebhookInput,
+): Promise<WebhookEndpoint | null> {
+  const existing = await prisma.webhookEndpoint.findUnique({ where: { id } });
   if (!existing) {
     return null;
   }
@@ -111,88 +112,90 @@ export function updateWebhookEndpoint(id: string, input: UpdateWebhookInput): We
     throw new Error('eventTypes cannot be empty');
   }
 
-  const updated: InternalWebhookEndpoint = {
-    ...existing,
-    enabled: input.enabled ?? existing.enabled,
-    eventTypes: input.eventTypes ?? existing.eventTypes,
-    secret: input.secret ?? existing.secret,
-    secretHash:
-      typeof input.secret === 'string'
-        ? hashWebhookSecret(input.secret)
-        : existing.secretHash,
-    updatedAt: new Date().toISOString(),
-  };
-
-  endpoints.set(id, updated);
-  void persistWebhookEndpoint(updated);
-  return sanitizeWebhookEndpoint(updated);
-}
-
-export function listWebhookEndpoints(): WebhookEndpoint[] {
-  return Array.from(endpoints.values())
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((endpoint) => sanitizeWebhookEndpoint(endpoint));
-}
-
-export function listWebhookDeliveries(limit = 100): WebhookDeliveryRecord[] {
-  return listWebhookDeliveryPage({ limit }).deliveries;
-}
-
-export function listWebhookDeliveryPage(input: { limit?: number; cursor?: string } = {}): WebhookDeliveryPage {
-  const normalizedLimit = Math.max(1, Math.min(input.limit ?? 100, 500));
-  const sorted = [...deliveries].sort((a, b) => {
-    const createdComparison = b.createdAt.localeCompare(a.createdAt);
-    if (createdComparison !== 0) {
-      return createdComparison;
-    }
-
-    return b.id.localeCompare(a.id);
+  const updated = await prisma.webhookEndpoint.update({
+    where: { id },
+    data: {
+      enabled: typeof input.enabled === 'boolean' ? input.enabled : undefined,
+      eventTypes: input.eventTypes ? serializeEventTypes(input.eventTypes) : undefined,
+      secret: typeof input.secret === 'string' ? input.secret : undefined,
+      secretHash: typeof input.secret === 'string' ? hashWebhookSecret(input.secret) : undefined,
+      updatedAt: new Date(),
+    },
   });
 
-  let startIndex = 0;
-  if (input.cursor) {
-    const cursor = decodeDeliveryCursor(input.cursor);
-    const cursorIndex = sorted.findIndex(
-      (delivery) => delivery.createdAt === cursor.createdAt && delivery.id === cursor.id,
-    );
+  return sanitizeWebhookEndpoint(mapInternalEndpoint(updated));
+}
 
-    if (cursorIndex === -1) {
+export async function listWebhookEndpoints(): Promise<WebhookEndpoint[]> {
+  const endpoints = await prisma.webhookEndpoint.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return endpoints.map((endpoint) => sanitizeWebhookEndpoint(mapInternalEndpoint(endpoint)));
+}
+
+export async function listWebhookDeliveries(limit = 100): Promise<WebhookDeliveryRecord[]> {
+  const page = await listWebhookDeliveryPage({ limit });
+  return page.deliveries;
+}
+
+export async function listWebhookDeliveryPage(
+  input: { limit?: number; cursor?: string } = {},
+): Promise<WebhookDeliveryPage> {
+  const normalizedLimit = Math.max(1, Math.min(input.limit ?? 100, 500));
+  let cursorId: string | undefined;
+
+  if (input.cursor) {
+    const decoded = decodeDeliveryCursor(input.cursor);
+    const cursorRecord = await prisma.webhookDelivery.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (!cursorRecord || cursorRecord.createdAt.toISOString() !== decoded.createdAt) {
       throw new Error('Invalid or expired cursor');
     }
 
-    startIndex = cursorIndex + 1;
+    cursorId = cursorRecord.id;
   }
 
-  const pageItems = sorted.slice(startIndex, startIndex + normalizedLimit + 1);
+  const pageItems = await prisma.webhookDelivery.findMany({
+    take: normalizedLimit + 1,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+  });
+
   const hasNextPage = pageItems.length > normalizedLimit;
   const deliveriesPage = hasNextPage ? pageItems.slice(0, normalizedLimit) : pageItems;
+  const mapped = deliveriesPage.map((delivery) => mapWebhookDelivery(delivery));
 
   return {
-    deliveries: deliveriesPage,
+    deliveries: mapped,
     hasNextPage,
-    nextCursor: hasNextPage && deliveriesPage.length > 0 ? encodeDeliveryCursor(deliveriesPage[deliveriesPage.length - 1]) : undefined,
+    nextCursor: hasNextPage && mapped.length > 0 ? encodeDeliveryCursor(mapped[mapped.length - 1]) : undefined,
   };
 }
 
-export function getWebhookDeliveryMetrics() {
-  let delivered = 0;
-  let failed = 0;
-  let pending = 0;
-
-  for (const delivery of deliveries) {
-    if (delivery.status === 'delivered') {
-      delivered += 1;
-    } else if (delivery.status === 'failed') {
-      failed += 1;
-    } else {
-      pending += 1;
-    }
-  }
+export async function getWebhookDeliveryMetrics() {
+  const [
+    totalEndpoints,
+    enabledEndpoints,
+    totalDeliveries,
+    delivered,
+    failed,
+    pending,
+  ] = await Promise.all([
+    prisma.webhookEndpoint.count(),
+    prisma.webhookEndpoint.count({ where: { enabled: true } }),
+    prisma.webhookDelivery.count(),
+    prisma.webhookDelivery.count({ where: { status: 'delivered' } }),
+    prisma.webhookDelivery.count({ where: { status: 'failed' } }),
+    prisma.webhookDelivery.count({ where: { status: 'pending' } }),
+  ]);
 
   return {
-    totalEndpoints: endpoints.size,
-    enabledEndpoints: Array.from(endpoints.values()).filter((endpoint) => endpoint.enabled).length,
-    totalDeliveries: deliveries.length,
+    totalEndpoints,
+    enabledEndpoints,
+    totalDeliveries,
     delivered,
     failed,
     pending,
@@ -201,11 +204,9 @@ export function getWebhookDeliveryMetrics() {
   };
 }
 
-export function resetWebhookState(): void {
-  endpoints.clear();
-  deliveries.length = 0;
-  persistenceInitialized = false;
-  void clearPersistedWebhookEndpoints();
+export async function resetWebhookState(): Promise<void> {
+  await prisma.webhookDelivery.deleteMany();
+  await prisma.webhookEndpoint.deleteMany();
 }
 
 export function createWebhookSignature(secret: string, payload: unknown): string {
@@ -252,29 +253,30 @@ export async function emitTransactionEvent(
   eventType: TransactionEventType,
   payload: TransactionEventPayload,
 ): Promise<number> {
-  const activeEndpoints = Array.from(endpoints.values()).filter(
-    (endpoint) => endpoint.enabled && endpoint.eventTypes.includes(eventType),
-  );
+  const enabledEndpoints = await prisma.webhookEndpoint.findMany({
+    where: { enabled: true },
+  });
+  const activeEndpoints = enabledEndpoints
+    .map((endpoint) => mapInternalEndpoint(endpoint))
+    .filter((endpoint) => endpoint.eventTypes.includes(eventType));
 
   for (const endpoint of activeEndpoints) {
-    const now = new Date().toISOString();
-    const delivery: WebhookDeliveryRecord = {
-      id: `whd_${crypto.randomBytes(8).toString('hex')}`,
-      endpointId: endpoint.id,
-      endpointUrl: endpoint.url,
-      eventType,
-      status: 'pending',
-      attempts: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const delivery = await prisma.webhookDelivery.create({
+      data: {
+        id: `whd_${crypto.randomBytes(8).toString('hex')}`,
+        endpointId: endpoint.id,
+        endpointUrl: endpoint.url,
+        eventType,
+        status: 'pending',
+        attempts: 0,
+      },
+    });
 
-    deliveries.unshift(delivery);
-    if (deliveries.length > deliveryRetention) {
-      deliveries.length = deliveryRetention;
-    }
+    void deliverWithRetry(endpoint, { id: delivery.id, eventType }, payload, 1);
+  }
 
-    void deliverWithRetry(endpoint, delivery, payload, 1);
+  if (activeEndpoints.length > 0) {
+    await trimDeliveryRetention();
   }
 
   return activeEndpoints.length;
@@ -295,12 +297,18 @@ function assertValidWebhookUrl(url: string): void {
 
 async function deliverWithRetry(
   endpoint: InternalWebhookEndpoint,
-  delivery: WebhookDeliveryRecord,
+  delivery: { id: string; eventType: TransactionEventType },
   payload: TransactionEventPayload,
   attempt: number,
 ): Promise<void> {
-  delivery.attempts = attempt;
-  delivery.updatedAt = new Date().toISOString();
+  try {
+    await prisma.webhookDelivery.update({
+      where: { id: delivery.id },
+      data: { attempts: attempt },
+    });
+  } catch {
+    // Ignore persistence failures to avoid breaking delivery retries.
+  }
 
   const envelope = {
     eventType: delivery.eventType,
@@ -337,15 +345,31 @@ async function deliverWithRetry(
       throw new Error(`Webhook returned HTTP ${response.status}`);
     }
 
-    delivery.status = 'delivered';
-    delivery.deliveredAt = new Date().toISOString();
-    delivery.updatedAt = delivery.deliveredAt;
-    delivery.lastError = undefined;
+    try {
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'delivered',
+          deliveredAt: new Date(),
+          lastError: null,
+        },
+      });
+    } catch {
+      // Ignore persistence failures to avoid breaking delivery retries.
+    }
   } catch (error) {
     const normalized = error instanceof Error ? error.message : String(error);
-    delivery.lastError = normalized;
 
     if (attempt < maxAttempts) {
+      try {
+        await prisma.webhookDelivery.update({
+          where: { id: delivery.id },
+          data: { lastError: normalized },
+        });
+      } catch {
+        // Ignore persistence failures to avoid breaking delivery retries.
+      }
+
       const delayMs = calculateBackoffDelay(attempt);
       setTimeout(() => {
         void deliverWithRetry(endpoint, delivery, payload, attempt + 1);
@@ -353,8 +377,17 @@ async function deliverWithRetry(
       return;
     }
 
-    delivery.status = 'failed';
-    delivery.updatedAt = new Date().toISOString();
+    try {
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'failed',
+          lastError: normalized,
+        },
+      });
+    } catch {
+      // Ignore persistence failures to avoid breaking delivery retries.
+    }
   } finally {
     clearTimeout(timeout);
   }
@@ -370,7 +403,7 @@ function sanitizeWebhookEndpoint(endpoint: InternalWebhookEndpoint): WebhookEndp
     url: endpoint.url,
     eventTypes: [...endpoint.eventTypes],
     enabled: endpoint.enabled,
-    hasSecret: Boolean(endpoint.secretHash),
+    hasSecret: Boolean(endpoint.secretHash || endpoint.secret),
     createdAt: endpoint.createdAt,
     updatedAt: endpoint.updatedAt,
   };
@@ -380,63 +413,76 @@ function hashWebhookSecret(secret: string): string {
   return crypto.createHash('sha256').update(secret).digest('hex');
 }
 
-async function persistWebhookEndpoint(endpoint: InternalWebhookEndpoint): Promise<void> {
-  try {
-    await ensureWebhookPersistenceTable();
-    await prisma.$executeRaw`
-      INSERT INTO WebhookEndpoint (
-        id,
-        url,
-        eventTypes,
-        enabled,
-        secretHash,
-        createdAt,
-        updatedAt
-      ) VALUES (
-        ${endpoint.id},
-        ${endpoint.url},
-        ${JSON.stringify(endpoint.eventTypes)},
-        ${endpoint.enabled ? 1 : 0},
-        ${endpoint.secretHash ?? null},
-        ${endpoint.createdAt},
-        ${endpoint.updatedAt}
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        url = excluded.url,
-        eventTypes = excluded.eventTypes,
-        enabled = excluded.enabled,
-        secretHash = excluded.secretHash,
-        updatedAt = excluded.updatedAt
-    `;
-  } catch {
-    // Runtime persistence is best-effort so local development and tests still work without migrations.
+function resolveEventTypes(eventTypes?: TransactionEventType[]): TransactionEventType[] {
+  if (eventTypes && eventTypes.length > 0) {
+    return eventTypes;
   }
+
+  return [...defaultEventTypes];
 }
 
-async function clearPersistedWebhookEndpoints(): Promise<void> {
+function parseEventTypes(raw: string): TransactionEventType[] {
   try {
-    await ensureWebhookPersistenceTable();
-    await prisma.$executeRawUnsafe('DELETE FROM WebhookEndpoint');
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'string')) {
+      return parsed as TransactionEventType[];
+    }
   } catch {
-    // Ignore cleanup failures in test and local environments.
+    // Fall back to default event types when parsing fails.
   }
+
+  return [...defaultEventTypes];
 }
 
-async function ensureWebhookPersistenceTable(): Promise<void> {
-  if (persistenceInitialized) {
+function serializeEventTypes(eventTypes: TransactionEventType[]): string {
+  return JSON.stringify(eventTypes);
+}
+
+function mapInternalEndpoint(endpoint: PrismaWebhookEndpoint): InternalWebhookEndpoint {
+  return {
+    id: endpoint.id,
+    url: endpoint.url,
+    eventTypes: parseEventTypes(endpoint.eventTypes),
+    enabled: endpoint.enabled,
+    secret: endpoint.secret ?? undefined,
+    secretHash: endpoint.secretHash ?? undefined,
+    createdAt: endpoint.createdAt.toISOString(),
+    updatedAt: endpoint.updatedAt.toISOString(),
+  };
+}
+
+function mapWebhookDelivery(delivery: PrismaWebhookDelivery): WebhookDeliveryRecord {
+  return {
+    id: delivery.id,
+    endpointId: delivery.endpointId,
+    endpointUrl: delivery.endpointUrl,
+    eventType: delivery.eventType as TransactionEventType,
+    status: delivery.status as WebhookDeliveryStatus,
+    attempts: delivery.attempts,
+    createdAt: delivery.createdAt.toISOString(),
+    updatedAt: delivery.updatedAt.toISOString(),
+    deliveredAt: delivery.deliveredAt ? delivery.deliveredAt.toISOString() : undefined,
+    lastError: delivery.lastError ?? undefined,
+  };
+}
+
+async function trimDeliveryRetention(): Promise<void> {
+  if (deliveryRetention <= 0) {
+    await prisma.webhookDelivery.deleteMany();
     return;
   }
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS WebhookEndpoint (
-      id TEXT PRIMARY KEY,
-      url TEXT NOT NULL,
-      eventTypes TEXT NOT NULL,
-      enabled INTEGER NOT NULL,
-      secretHash TEXT,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
-    )
-  `);
-  persistenceInitialized = true;
+  const overflow = await prisma.webhookDelivery.findMany({
+    select: { id: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    skip: deliveryRetention,
+  });
+
+  if (overflow.length === 0) {
+    return;
+  }
+
+  await prisma.webhookDelivery.deleteMany({
+    where: { id: { in: overflow.map((delivery) => delivery.id) } },
+  });
 }

@@ -12,8 +12,8 @@ describe('Admin backend features', () => {
     registerApiKey(adminKey);
   });
 
-  beforeEach(() => {
-    resetWebhookState();
+  beforeEach(async () => {
+    await resetWebhookState();
     resetAuditLogs();
   });
 

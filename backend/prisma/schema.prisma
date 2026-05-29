@@ -86,3 +86,34 @@ model ProcessedEvent {
   @@index([ledgerSeq])
   @@index([txHash])
 }
+
+model WebhookEndpoint {
+  id         String   @id
+  url        String
+  eventTypes String
+  enabled    Boolean  @default(true)
+  secret     String?
+  secretHash String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id          String   @id
+  endpointId  String
+  endpointUrl String
+  eventType   String
+  status      String
+  attempts    Int
+  deliveredAt DateTime?
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([endpointId])
+}
