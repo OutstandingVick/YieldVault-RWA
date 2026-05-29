@@ -156,3 +156,7 @@ npm run dev
 ```
 
 Thank you for your contributions!
+
+## Issue Triage and PR Review Process
+
+For details on how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged, see [TRIAGE_AND_REVIEW.md](./TRIAGE_AND_REVIEW.md).
