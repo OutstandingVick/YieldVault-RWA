@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect } from 'react';
 export type Theme = 'light' | 'dark' | 'system';
 export type Locale = 'en-US' | 'en-GB' | 'de-DE' | 'fr-FR' | 'ja-JP' | 'zh-CN';
 export type Currency = 'USD' | 'XLM';
+export type Precision = number; // number of decimal places for display
 
 export interface NotificationPreferences {
   depositAlerts: boolean;
@@ -20,6 +21,7 @@ export interface UserPreferences {
   notifications: NotificationPreferences;
   compactMode: boolean;
   showBalances: boolean;
+  precision: Precision; // decimal places for number/currency formatting
 }
 
 const STORAGE_KEY_PREFIX = "yieldvault-preferences";
@@ -38,6 +40,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   },
   compactMode: false,
   showBalances: true,
+  precision: 2, // default to 2 decimal places
 };
 
 function getStorageKey(walletAddress?: string | null): string {
@@ -118,6 +121,10 @@ export function usePreferences(walletAddress?: string | null) {
     setPreferences(prev => ({ ...prev, showBalances: !prev.showBalances }));
   }, [setPreferences]);
 
+  const setPrecision = useCallback((precision: Precision) => {
+    setPreferences({ precision });
+  }, [setPreferences]);
+
   const resetToDefaults = useCallback(() => {
     savePreferences(DEFAULT_PREFERENCES, walletAddress);
     setPreferencesState(DEFAULT_PREFERENCES);
@@ -131,6 +138,7 @@ export function usePreferences(walletAddress?: string | null) {
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    setPrecision,
     resetToDefaults,
   };
 }
