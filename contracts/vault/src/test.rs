@@ -123,6 +123,57 @@ fn test_vault_with_benji_strategy() {
 }
 
 #[test]
+fn test_invest_respects_min_liquidity_buffer() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &100);
+
+    let benji_token = create_token(&env, &token_admin);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+
+    assert_eq!(vault.min_liquidity_buffer(), 0);
+    vault.set_min_liquidity_buffer(&40);
+    assert_eq!(vault.min_liquidity_buffer(), 40);
+    vault.deposit(&user, &100);
+
+    let blocked = vault.try_invest(&70);
+    assert!(matches!(
+        blocked,
+        Err(Ok(VaultError::LiquidityBufferNotMet))
+    ));
+    assert_eq!(usdc.balance(&vault_id), 100);
+    assert_eq!(usdc.balance(&strategy_id), 0);
+
+    vault.invest(&60);
+    assert_eq!(usdc.balance(&vault_id), 40);
+    assert_eq!(usdc.balance(&strategy_id), 60);
+}
+
+#[test]
+#[should_panic(expected = "min_liquidity_buffer must be >= 0")]
+fn test_set_min_liquidity_buffer_negative_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+    vault.set_min_liquidity_buffer(&-1);
+}
+
+#[test]
 fn test_vault_flow_legacy() {
     let env = Env::default();
     env.mock_all_auths();
