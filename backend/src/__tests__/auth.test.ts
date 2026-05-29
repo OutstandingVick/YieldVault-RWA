@@ -118,10 +118,10 @@ describe('rotateRefreshToken()', () => {
 
 // ─── HTTP endpoint tests ─────────────────────────────────────────────────────
 
-describe('POST /auth/login', () => {
+describe('POST /api/v1/auth/login', () => {
   it('returns 200 with access and refresh tokens', async () => {
     const res = await request(app)
-      .post('/auth/login')
+      .post('/api/v1/auth/login')
       .send({ walletAddress: TEST_WALLET });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('accessToken');
@@ -133,26 +133,32 @@ describe('POST /auth/login', () => {
 
   it('access token expires in ~15 minutes (900 seconds)', async () => {
     const res = await request(app)
-      .post('/auth/login')
+      .post('/api/v1/auth/login')
       .send({ walletAddress: TEST_WALLET });
     expect(res.body.expiresIn).toBe(900);
   });
 
   it('returns 400 when walletAddress is missing', async () => {
-    const res = await request(app).post('/auth/login').send({});
+    const res = await request(app).post('/api/v1/auth/login').send({});
     expect(res.status).toBe(400);
+  });
+
+  it('redirects from legacy /auth/login with 301', async () => {
+    const res = await request(app).post('/auth/login').send({ walletAddress: TEST_WALLET });
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/api/v1/auth/login');
   });
 });
 
-describe('POST /auth/refresh', () => {
+describe('POST /api/v1/auth/refresh', () => {
   it('returns a new token pair with a fresh refreshToken', async () => {
     const loginRes = await request(app)
-      .post('/auth/login')
+      .post('/api/v1/auth/login')
       .send({ walletAddress: TEST_WALLET });
     const { refreshToken } = loginRes.body;
 
     const refreshRes = await request(app)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .send({ refreshToken });
     expect(refreshRes.status).toBe(200);
     expect(refreshRes.body).toHaveProperty('accessToken');
@@ -162,32 +168,32 @@ describe('POST /auth/refresh', () => {
 
   it('returns 401 for an unknown refresh token', async () => {
     const res = await request(app)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .send({ refreshToken: 'not-a-real-token' });
     expect(res.status).toBe(401);
   });
 
   it('returns 401 when replaying a rotated (revoked) refresh token', async () => {
     const loginRes = await request(app)
-      .post('/auth/login')
+      .post('/api/v1/auth/login')
       .send({ walletAddress: TEST_WALLET });
     const originalToken = loginRes.body.refreshToken;
 
     // First rotation – valid
     await request(app)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .send({ refreshToken: originalToken });
 
     // Replay the original (now revoked) token
     const replayRes = await request(app)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .send({ refreshToken: originalToken });
     expect(replayRes.status).toBe(401);
     expect(replayRes.body.sessionRevoked).toBe(true);
   });
 
   it('returns 400 when refreshToken is missing', async () => {
-    const res = await request(app).post('/auth/refresh').send({});
+    const res = await request(app).post('/api/v1/auth/refresh').send({});
     expect(res.status).toBe(400);
   });
 });

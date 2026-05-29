@@ -5,7 +5,7 @@ import { registerApiKey } from '../middleware/apiKeyAuth';
 const DEFAULT_WALLET = 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567';
 
 async function issueAccessToken(walletAddress: string): Promise<string> {
-  const response = await request(app).post('/auth/login').send({ walletAddress });
+  const response = await request(app).post('/api/v1/auth/login').send({ walletAddress });
   expect(response.status).toBe(200);
   return response.body.accessToken as string;
 }
@@ -150,7 +150,7 @@ describe('GET /api/v1/transactions', () => {
 
 describe('GET /api/v1/vault/transactions/export', () => {
   it('exports the authenticated user transaction history as JSON', async () => {
-    const login = await request(app).post('/auth/login').send({
+    const login = await request(app).post('/api/v1/auth/login').send({
       walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
     });
 
@@ -169,7 +169,7 @@ describe('GET /api/v1/vault/transactions/export', () => {
   });
 
   it('rejects exporting a different wallet for a bearer-authenticated user', async () => {
-    const login = await request(app).post('/auth/login').send({
+    const login = await request(app).post('/api/v1/auth/login').send({
       walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
     });
 

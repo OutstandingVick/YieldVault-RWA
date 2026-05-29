@@ -10,9 +10,7 @@ initTracing();
 
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import NodeCache from 'node-cache';
-import { loginHandler, refreshHandler } from './auth';
-import { verifyJwt } from './auth';
-import { loginHandler, refreshHandler, requireAuth } from './auth';
+import { loginHandler, refreshHandler, requireAuth, verifyJwt } from './auth';
 import {
   depositsLimiter,
   summaryLimiter,
@@ -463,49 +461,40 @@ app.get('/ready', async (_req: Request, res: Response) => {
   res.status(isReady ? 200 : 503).json(readiness);
 });
 
-// ─── API Routes (with strict rate limiting) ────────────────────────────────
+// ─── Versioned API v1 Router ──────────────────────────────────────────────
+const apiV1 = express.Router();
+app.use('/api/v1', apiV1);
 
-/**
- * Version redirect for unversioned API routes (Issue #150)
- */
-app.get('/api/vault/summary', (req: Request, res: Response) => {
-  res.setHeader('deprecation', 'true');
-  res.redirect(308, '/api/v1/vault/summary');
-});
-
-app.get('/api/v1/vault/transactions/export', handleTransactionExport);
-app.get('/api/vault/transactions/export', handleTransactionExport);
+// Mount routers under /api/v1
+apiV1.use('/vault', vaultRouter);
+apiV1.use('/referrals', referralRouter);
+apiV1.use('/transactions', transactionRouter);
+apiV1.use('/', listRouter);
 
 // ─── Auth Routes (Issue #377) ────────────────────────────────────────────────
+// Canonical versioned auth endpoints
 
 /**
- * POST /auth/login
+ * POST /api/v1/auth/login
  * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
- * Uses depositsLimiter (stricter) as auth is a write-heavy, security-sensitive operation.
  */
-app.post('/auth/login', depositsLimiter, loginHandler);
+apiV1.post('/auth/login', depositsLimiter, loginHandler);
 
 /**
- * POST /auth/refresh
+ * POST /api/v1/auth/refresh
  * Rotate the refresh token and issue a new access JWT.
- * Reuse of a revoked refresh token invalidates the entire session (401).
- * Uses depositsLimiter (stricter) as token refresh is write-heavy.
  */
-app.post('/auth/refresh', depositsLimiter, refreshHandler);
+apiV1.post('/auth/refresh', depositsLimiter, refreshHandler);
 
 /**
- * POST /auth/logout
- * Revokes the current session (all tokens in the same family).
- * Requires authentication via Bearer token.
+ * POST /api/v1/auth/logout
+ * Revokes the current session. Requires Bearer token.
  */
-app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
+apiV1.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
   try {
     const authReq = req as import('./auth').AuthenticatedRequest;
     const walletAddress = authReq.jwtPayload?.sub;
-    if (!walletAddress) {
-      throw new Error('Unable to determine authenticated wallet');
-    }
-
+    if (!walletAddress) throw new Error('Unable to determine authenticated wallet');
     res.status(200).json({
       message: 'Session revoked successfully',
       walletAddress: walletAddress.slice(0, 8) + '…',
@@ -521,18 +510,14 @@ app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) 
 });
 
 /**
- * POST /auth/logout-all
+ * POST /api/v1/auth/logout-all
  * Revokes all active sessions for the authenticated wallet.
- * Requires authentication via Bearer token.
  */
-app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
+apiV1.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
   try {
     const authReq = req as import('./auth').AuthenticatedRequest;
     const walletAddress = authReq.jwtPayload?.sub;
-    if (!walletAddress) {
-      throw new Error('Unable to determine authenticated wallet');
-    }
-
+    if (!walletAddress) throw new Error('Unable to determine authenticated wallet');
     res.status(200).json({
       message: 'All sessions revoked successfully',
       walletAddress: walletAddress.slice(0, 8) + '…',
@@ -548,87 +533,66 @@ app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Respon
   }
 });
 
-/**
- * POST /auth/logout
- * Revokes the current session (all tokens in the same family).
- * Requires authentication via Bearer token.
- */
-app.post('/auth/logout', apiLimiter, requireAuth, (req: Request, res: Response) => {
-  try {
-    const walletAddress = getAuthenticatedWallet(req);
-    if (!walletAddress) {
-      throw new Error('Unable to determine authenticated wallet');
-    }
+// ─── Backward-compatibility redirects (301) ───────────────────────────────
+// Old unversioned paths redirect to /api/v1 equivalents during transition window.
 
-    // Get the refresh token from the request body or headers
-    const { refreshToken } = req.body;
-    
-    if (!refreshToken || typeof refreshToken !== 'string') {
-      res.status(400).json({
-        error: 'Bad Request',
-        status: 400,
-        message: 'refreshToken is required in request body',
-      });
-      return;
-    }
-
-    revokeCurrentSession(refreshToken);
-
-    res.status(200).json({
-      message: 'Session revoked successfully',
-      walletAddress: walletAddress.slice(0, 8) + '…',
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: 'Internal Server Error',
-      status: 500,
-      message: err instanceof Error ? err.message : 'Failed to revoke session',
-    });
-  }
+app.post('/auth/login', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/login');
+});
+app.post('/auth/refresh', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/refresh');
+});
+app.post('/auth/logout', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/logout');
+});
+app.post('/auth/logout-all', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/logout-all');
 });
 
-/**
- * POST /auth/logout-all
- * Revokes all active sessions for the authenticated wallet.
- * Requires authentication via Bearer token.
- */
-app.post('/auth/logout-all', apiLimiter, requireAuth, (req: Request, res: Response) => {
-  try {
-    const walletAddress = getAuthenticatedWallet(req);
-    if (!walletAddress) {
-      throw new Error('Unable to determine authenticated wallet');
-    }
-
-    const revokedCount = revokeAllSessions(walletAddress);
-
-    res.status(200).json({
-      message: 'All sessions revoked successfully',
-      walletAddress: walletAddress.slice(0, 8) + '…',
-      revokedCount,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: 'Internal Server Error',
-      status: 500,
-      message: err instanceof Error ? err.message : 'Failed to revoke all sessions',
-    });
-  }
+// /api/vault/* → /api/v1/vault/*
+app.get('/api/vault/summary', (_req: Request, res: Response) => {
+  res.setHeader('deprecation', 'true');
+  res.redirect(301, '/api/v1/vault/summary');
+});
+app.get('/api/vault/transactions/export', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/vault/transactions/export');
+});
+app.get('/api/vault/metrics', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/vault/metrics');
+});
+app.get('/api/vault/apy', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/vault/apy');
 });
 
-// Versioned API v1
-const apiV1 = express.Router();
-app.use('/api/v1', apiV1);
+// /webhooks/verify → /api/v1/webhooks/verify
+app.post('/webhooks/verify', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/webhooks/verify');
+});
 
-// Backward-compatible list endpoints used by existing clients/tests.
-app.use('/api', listRouter);
+// ─── Backward-compatibility redirects for list/router-mounted paths ──────────
+// Generic catch-all redirects for unversioned /vault/*, /referrals/*,
+// /transactions/*, /portfolio/* paths → /api/v1 equivalents.
+app.use('/vault', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/vault${req.path}${qs}`);
+});
+app.use('/referrals', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/referrals${req.path}${qs}`);
+});
+app.use('/transactions', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/transactions${req.path}${qs}`);
+});
+app.use('/portfolio', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/portfolio${req.path}${qs}`);
+});
 
-// Mount routers to v1
-apiV1.use('/vault', vaultRouter);
-apiV1.use('/', listRouter);
-apiV1.use('/referrals', referralRouter);
-apiV1.use('/transactions', transactionRouter);
+// ─── Versioned export & summary endpoints ────────────────────────────────
+app.get('/api/v1/vault/transactions/export', handleTransactionExport);
+
+// ─── Versioned vault summary/metrics/apy endpoints ───────────────────────
 
 /**
  * GET /api/v1/vault/summary – read-only summary; relaxed rate limit.
@@ -643,23 +607,10 @@ app.get(
 );
 
 /**
- * GET /api/vault/summary – deprecated unversioned alias; relaxed rate limit.
+ * GET /api/v1/vault/metrics - Cache with configurable TTL
  */
 app.get(
-  '/api/vault/summary',
-  summaryLimiter,
-  cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
-  (_req: Request, res: Response) => {
-    res.setHeader('deprecation', 'true');
-    res.json(buildVaultSummaryResponse());
-  },
-);
-
-/**
- * GET /api/vault/metrics - Cache with configurable TTL
- */
-app.get(
-  '/api/vault/metrics',
+  '/api/v1/vault/metrics',
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
     res.json({
@@ -670,10 +621,10 @@ app.get(
 );
 
 /**
- * GET /api/vault/apy - Cache with configurable TTL
+ * GET /api/v1/vault/apy - Cache with configurable TTL
  */
 app.get(
-  '/api/vault/apy',
+  '/api/v1/vault/apy',
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
     res.json({
@@ -1173,9 +1124,9 @@ app.get('/admin/webhooks/deliveries', validateApiKey, (req: Request, res: Respon
 });
 
 /**
- * POST /webhooks/verify - verify webhook secret/signature pairing before go-live
+ * POST /api/v1/webhooks/verify - verify webhook secret/signature pairing before go-live
  */
-app.post('/webhooks/verify', (req: Request, res: Response) => {
+app.post('/api/v1/webhooks/verify', (req: Request, res: Response) => {
   const { secret, payload, signature } = req.body || {};
   if (typeof secret !== 'string' || !secret.trim()) {
     res.status(400).json({
