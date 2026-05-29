@@ -86,3 +86,21 @@ model ProcessedEvent {
   @@index([ledgerSeq])
   @@index([txHash])
 }
+
+model EmailQueue {
+  id          String   @id @default(uuid())
+  to          String
+  subject     String
+  text        String
+  html        String
+  status      String   @default("pending") // pending, processing, completed, failed, dead-letter
+  retryCount  Int      @default(0)
+  maxRetries  Int      @default(5)
+  lastError   String?
+  nextRetryAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([nextRetryAt])
+}

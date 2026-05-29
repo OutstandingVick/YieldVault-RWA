@@ -84,6 +84,7 @@ import {
 import { parseUtcDateRange, DateRangeParseError } from './dateRange';
 import { backfillApySnapshots } from './apySnapshot';
 import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
+import { emailQueueService } from './emailQueue';
 
 declare global {
   namespace Express {
@@ -1427,6 +1428,58 @@ app.get('/admin/idempotency/metrics', validateApiKey, (_req: Request, res: Respo
   });
 });
 
+// ─── Email Queue Admin Endpoints ─────────────────────────────────────────────
+
+/**
+ * GET /admin/emails/queue
+ * List emails in queue with optional status filter
+ * Requires API key authentication
+ * Query params: status (pending|processing|completed|failed|dead-letter)
+ */
+app.get('/admin/emails/queue', validateApiKey, async (req: Request, res: Response) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  try {
+    const emails = await emailQueueService.getEmailQueue(status);
+    res.status(200).json({
+      emails,
+      count: emails.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * POST /admin/emails/replay/:id
+ * Replay a dead-letter or failed email
+ * Requires API key authentication
+ */
+app.post('/admin/emails/replay/:id', validateApiKey, async (req: Request, res: Response) => {
+  const emailId = req.params.id;
+  try {
+    const email = await emailQueueService.replayEmail(emailId);
+    void recordAdminAuditLog(req, 'email.replay', 200, { emailId });
+    res.status(200).json({
+      message: 'Email requeued successfully',
+      email,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    void recordAdminAuditLog(req, 'email.replay.failed', 500, { error: message });
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: `Email with id '${emailId}' not found`,
+    });
+  }
+});
+
 // ─── Vault Metrics Poll Cycle ────────────────────────────────────────────────
 
 /**
@@ -1459,6 +1512,11 @@ if (process.env.NODE_ENV !== 'test') {
 
 // Start latency monitoring
 latencyMonitoringService.startMonitoring();
+
+// Start email queue worker
+if (process.env.NODE_ENV !== 'test') {
+  emailQueueService.startWorker();
+}
 
 // ─── Event Polling Service (Issue: Event Replay) ────────────────────────────
 if (process.env.NODE_ENV !== 'test' && process.env.VAULT_CONTRACT_ID) {
@@ -1611,6 +1669,11 @@ shutdownHandler.onShutdown(async () => {
 // Register event polling service shutdown
 shutdownHandler.onShutdown(async () => {
   stopEventPollingService();
+});
+
+// Register email queue worker shutdown
+shutdownHandler.onShutdown(async () => {
+  emailQueueService.stopWorker();
 });
 
 // Register database shutdown task

@@ -1,4 +1,5 @@
 import { logger } from './middleware/structuredLogging';
+import { emailQueueService } from './emailQueue';
 
 export interface EmailOptions {
   to: string;
@@ -35,10 +36,28 @@ export class EmailService {
   }
 
   /**
-   * Send a generic email.
-   * Implementation is a mock that logs in non-production environments.
+   * Enqueue email for async processing instead of sending directly.
    */
   async sendEmail(options: EmailOptions): Promise<boolean> {
+    try {
+      await emailQueueService.enqueueEmail(options);
+      logger.log('info', `Email enqueued for ${options.to}`, {
+        subject: options.subject,
+      });
+      return true;
+    } catch (error) {
+      logger.log('error', 'Failed to enqueue email', {
+        error: error instanceof Error ? error.message : String(error),
+        to: options.to,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Actually send email (used by the queue worker).
+   */
+  async sendEmailDirectly(options: EmailOptions): Promise<boolean> {
     try {
       if (process.env.NODE_ENV !== 'production' && !this.apiKey) {
         logger.log('info', `[MOCK EMAIL] Sending ${this.provider} email to ${options.to}`, {
@@ -52,9 +71,6 @@ export class EmailService {
         throw new Error('Email API key not configured');
       }
 
-      // In a real implementation, we would use the provider's SDK or HTTP API here.
-      // For this task, we'll simulate the call and log failures.
-      
       const success = await this.simulateProviderCall(options);
       
       if (success) {
@@ -70,7 +86,6 @@ export class EmailService {
         to: options.to,
         provider: this.provider,
       });
-      // Return false but don't throw to avoid affecting the API response as per requirements
       return false;
     }
   }
