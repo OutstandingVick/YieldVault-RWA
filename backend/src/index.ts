@@ -105,6 +105,14 @@ import {
 import { parseUtcDateRange, DateRangeParseError } from './dateRange';
 import { backfillApySnapshots } from './apySnapshot';
 import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
+import {
+  createBulkExportJob,
+  getBulkExportJob,
+  listBulkExportJobs,
+  cancelBulkExportJob,
+  processBulkExportJob,
+  getBulkExportArtifact,
+} from './bulkExportJobs';
 import { normalizeWalletAddress } from './walletUtils';
 
 declare global {
@@ -1803,6 +1811,126 @@ app.post('/admin/exports/jobs/:id/verify', validateApiKey, async (req: Request, 
       message: error instanceof Error ? error.message : 'Failed to verify export checksum',
     });
   }
+});
+
+/**
+ * POST /admin/exports/bulk - create a new bulk export job
+ * Body: { format: "csv"|"json", filters: { ... } }
+ */
+app.post('/admin/exports/bulk', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { format, filters } = req.body;
+    if (format !== 'csv' && format !== 'json') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'format must be either csv or json',
+      });
+      return;
+    }
+
+    const generatedBy = resolveExportGeneratedBy(req);
+    const job = await createBulkExportJob({
+      format,
+      generatedBy,
+      filters: filters || {},
+    });
+
+    void processBulkExportJob(job.id).catch(() => {});
+
+    res.status(201).json({
+      message: 'Bulk export job created',
+      job,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to create bulk export job',
+    });
+  }
+});
+
+/**
+ * GET /admin/exports/bulk/jobs - list bulk export jobs
+ */
+app.get('/admin/exports/bulk/jobs', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '50'), 10);
+  const jobs = await listBulkExportJobs(Math.min(Math.max(limit, 1), 200));
+  res.status(200).json({
+    jobs,
+    meta: {
+      count: jobs.length,
+      limit,
+      timestamp: new Date().toISOString(),
+    },
+  });
+});
+
+/**
+ * GET /admin/exports/bulk/jobs/:id - get bulk export job status
+ */
+app.get('/admin/exports/bulk/jobs/:id', validateApiKey, async (req: Request, res: Response) => {
+  const job = await getBulkExportJob(String(req.params.id));
+  if (!job) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Bulk export job not found',
+    });
+    return;
+  }
+  res.status(200).json({ job });
+});
+
+/**
+ * POST /admin/exports/bulk/jobs/:id/cancel - cancel a pending/processing bulk export job
+ */
+app.post('/admin/exports/bulk/jobs/:id/cancel', validateApiKey, async (req: Request, res: Response) => {
+  const cancelled = await cancelBulkExportJob(String(req.params.id));
+  if (!cancelled) {
+    const job = await getBulkExportJob(String(req.params.id));
+    if (!job) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Bulk export job not found',
+      });
+      return;
+    }
+    res.status(409).json({
+      error: 'Conflict',
+      status: 409,
+      message: `Bulk export job is already ${job.status} and cannot be cancelled`,
+    });
+    return;
+  }
+  res.status(200).json({
+    message: 'Bulk export job cancelled',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/exports/bulk/artifacts/:artifactId - download a completed bulk export artifact
+ */
+app.get('/admin/exports/bulk/artifacts/:artifactId', validateApiKey, (req: Request, res: Response) => {
+  const artifact = getBulkExportArtifact(String(req.params.artifactId));
+  if (!artifact) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Bulk export artifact not found or expired',
+    });
+    return;
+  }
+  res.setHeader('Content-Type', artifact.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="bulk-export-${artifact.id}.${artifact.contentType === 'text/csv' ? 'csv' : 'json'}"`);
+  res.setHeader('X-Artifact-Checksum', artifact.checksum);
+  res.setHeader('X-Artifact-Checksum-Algorithm', artifact.checksumAlgorithm);
+  res.setHeader('X-Artifact-Row-Count', String(artifact.rowCount));
+  res.status(200).send(artifact.body);
 });
 
 /**
