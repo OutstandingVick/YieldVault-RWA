@@ -18,6 +18,7 @@ interface PreferencesContextType {
   setNotification: (key: keyof NotificationPreferences, value: boolean) => void;
   toggleCompactMode: () => void;
   toggleShowBalances: () => void;
+  setPrecision: (precision: number) => void;
   resetToDefaults: () => void;
 }
 
@@ -40,6 +41,7 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    setPrecision,
     resetToDefaults,
   } = usePreferences(walletAddress);
 
@@ -76,6 +78,7 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    setPrecision,
     resetToDefaults,
   };
 
