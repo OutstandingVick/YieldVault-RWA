@@ -122,11 +122,11 @@ describe('#481 Maintenance Mode', () => {
 // ─── #480: Cursor-Based Webhook Pagination ────────────────────────────────────
 
 describe('#480 Webhook Cursor Pagination', () => {
-  beforeEach(() => resetWebhookState());
-  afterEach(() => resetWebhookState());
+  beforeEach(async () => resetWebhookState());
+  afterEach(async () => resetWebhookState());
 
   async function seedDeliveries(count: number) {
-    registerWebhookEndpoint({ url: 'https://example.com/hook' });
+    await registerWebhookEndpoint({ url: 'https://example.com/hook' });
     for (let i = 0; i < count; i++) {
       await emitTransactionEvent('transaction.deposit.created', {
         transactionId: `tx-${i}`,

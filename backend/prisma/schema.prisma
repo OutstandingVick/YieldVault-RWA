@@ -69,6 +69,38 @@ model AdminAuditLog {
   @@index([actor])
 }
 
+model ApiKeyAuditEvent {
+  id             String   @id @default(uuid())
+  actor          String
+  action         String
+  keyFingerprint String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([keyFingerprint])
+}
+
+model ExportJob {
+  id                String   @id
+  format            String
+  fileName          String
+  contentType       String
+  checksum          String
+  checksumAlgorithm String
+  generatedBy       String
+  walletAddress     String?
+  rowCount          Int
+  filters           String
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([checksum])
+  @@index([generatedBy])
+  @@index([walletAddress])
+  @@index([format])
+}
+
 model EventCursor {
   id                Int      @id @default(1)
   lastLedgerSeq     Int
@@ -87,20 +119,32 @@ model ProcessedEvent {
   @@index([txHash])
 }
 
-model EmailQueue {
-  id          String   @id @default(uuid())
-  to          String
-  subject     String
-  text        String
-  html        String
-  status      String   @default("pending") // pending, processing, completed, failed, dead-letter
-  retryCount  Int      @default(0)
-  maxRetries  Int      @default(5)
-  lastError   String?
-  nextRetryAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model WebhookEndpoint {
+  id         String    @id
+  url        String
+  eventTypes String    // JSON array
+  enabled    Boolean
+  secretHash String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+  deletedBy  String?
 
-  @@index([status])
-  @@index([nextRetryAt])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model AdminActionReceipt {
+  id             String   @id @default(uuid())
+  action         String
+  actor          String
+  timestamp      DateTime @default(now())
+  inputHash      String
+  resultingState String   // JSON string
+  signature      String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([actor])
+  @@index([timestamp])
 }

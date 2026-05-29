@@ -8,6 +8,7 @@
  * - Vault history
  */
 
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { Readable } from 'stream';
 import {
@@ -25,7 +26,13 @@ import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from 
 import { getApyHistory } from './apySnapshot';
 import { cacheMiddleware } from './middleware/cache';
 import { requireAuth, AuthenticatedRequest } from './auth';
+import { normalizeWalletAddress } from './walletUtils';
 import { validateApiKey, hasRequiredApiKeyRole } from './middleware/apiKeyAuth';
+import {
+  buildExportMetadataHeaderValue,
+  recordExportJob,
+  resolveExportGeneratedBy,
+} from './exportJobs';
 
 const router = Router();
 const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
@@ -59,7 +66,7 @@ export interface Transaction {
   [key: string]: unknown;
 }
 
-type ExportFormat = 'csv' | 'json';
+export type ExportFormat = 'csv' | 'json';
 
 interface ExportRequest extends AuthenticatedRequest {
   exportAsAdmin?: boolean;
@@ -133,6 +140,15 @@ export interface TransactionExportQuery extends Omit<WalletStateQuery, 'limit' |
   endDate?: string;
 }
 
+export interface TransactionExportArtifact {
+  body: string;
+  checksum: string;
+  checksumAlgorithm: 'sha256';
+  rowCount: number;
+  contentType: string;
+  extension: ExportFormat;
+}
+
 // ─── Mock Data ──────────────────────────────────────────────────────────────
 
 const MOCK_TRANSACTIONS: Transaction[] = Array.from({ length: 100 }, (_, i) => ({
@@ -199,6 +215,7 @@ function filterTransactions(
 ): Transaction[] {
   const from = filters.from ? Date.parse(filters.from) : null;
   const to = filters.to ? Date.parse(filters.to) : null;
+  const normalizedWallet = filters.walletAddress ? normalizeWalletAddress(filters.walletAddress) : null;
 
   return transactions.filter((tx) => {
     if (filters.type && filters.type !== 'all' && tx.type !== filters.type) {
@@ -207,7 +224,7 @@ function filterTransactions(
     if (filters.status && filters.status !== 'all' && tx.status !== filters.status) {
       return false;
     }
-    if (filters.walletAddress && tx.walletAddress !== filters.walletAddress) {
+    if (normalizedWallet && normalizeWalletAddress(tx.walletAddress) !== normalizedWallet) {
       return false;
     }
     const transactionTime = Date.parse(tx.timestamp);
@@ -456,6 +473,26 @@ export function getTransactionsForExport(query: TransactionExportQuery): Transac
   return filtered;
 }
 
+export function buildTransactionExportArtifact(
+  format: ExportFormat,
+  query: TransactionExportQuery,
+): TransactionExportArtifact {
+  const transactions = getTransactionsForExport(query);
+  const body =
+    format === 'csv'
+      ? buildTransactionsCsvExportBody(transactions)
+      : buildTransactionsJsonExportBody(transactions);
+
+  return {
+    body,
+    checksum: crypto.createHash('sha256').update(body, 'utf8').digest('hex'),
+    checksumAlgorithm: 'sha256',
+    rowCount: transactions.length,
+    contentType: format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+    extension: format,
+  };
+}
+
 export function createTransactionsJsonExportStream(query: TransactionExportQuery): Readable {
   const transactions = getTransactionsForExport(query);
 
@@ -497,6 +534,29 @@ export function createTransactionsCsvExportStream(query: TransactionExportQuery)
   }
 
   return Readable.from(generate());
+}
+
+function buildTransactionsJsonExportBody(transactions: Transaction[]): string {
+  return JSON.stringify({ data: transactions });
+}
+
+function buildTransactionsCsvExportBody(transactions: Transaction[]): string {
+  const columns: Array<keyof Transaction> = [
+    'id',
+    'type',
+    'status',
+    'amount',
+    'asset',
+    'timestamp',
+    'transactionHash',
+    'walletAddress',
+  ];
+
+  const rows = transactions.map((transaction) =>
+    columns.map((column) => escapeCsvValue(transaction[column])).join(','),
+  );
+
+  return `${columns.join(',')}\r\n${rows.map((row) => `${row}\r\n`).join('')}`;
 }
 
 function escapeCsvValue(value: unknown): string {
@@ -646,7 +706,7 @@ router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reques
   }
 });
 
-router.get('/vault/transactions/export', authenticateTransactionExport, (req: Request, res: Response) => {
+router.get('/vault/transactions/export', authenticateTransactionExport, async (req: Request, res: Response) => {
   const exportReq = req as ExportRequest;
   const format = resolveExportFormat(req.query.format);
   if (!format) {
@@ -681,30 +741,55 @@ router.get('/vault/transactions/export', authenticateTransactionExport, (req: Re
     return;
   }
 
-  const rows = filterTransactionsForExport({
-    type: typeof req.query.type === 'string' ? req.query.type : undefined,
-    status: typeof req.query.status === 'string' ? req.query.status : undefined,
-    sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
-    sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
-    startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
-    endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
-    walletAddress,
-  });
-
   const stamp = new Date().toISOString().slice(0, 10);
   const fileBase = `transactions-${walletAddress.slice(0, 8)}-${stamp}`;
-  const extension = format === 'csv' ? 'csv' : 'json';
-  const contentType = format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8';
+  const fileName = `${fileBase}.${format}`;
 
-  res.setHeader('Content-Type', contentType);
-  res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.${extension}"`);
+  try {
+    const artifact = buildTransactionExportArtifact(format, {
+      type: typeof req.query.type === 'string' ? req.query.type : undefined,
+      status: typeof req.query.status === 'string' ? req.query.status : undefined,
+      sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
+      sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+      startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+      endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+      walletAddress,
+    });
 
-  if (format === 'csv') {
-    streamTransactionsAsCsv(res, rows);
-    return;
+    const job = await recordExportJob({
+      format,
+      fileName,
+      contentType: artifact.contentType,
+      checksum: artifact.checksum,
+      checksumAlgorithm: artifact.checksumAlgorithm,
+      generatedBy: resolveExportGeneratedBy(req),
+      walletAddress,
+      rowCount: artifact.rowCount,
+      filters: {
+        type: typeof req.query.type === 'string' ? req.query.type : null,
+        status: typeof req.query.status === 'string' ? req.query.status : null,
+        sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : null,
+        sortOrder: req.query.sortOrder === 'asc' ? 'asc' : 'desc',
+        startDate: typeof req.query.startDate === 'string' ? req.query.startDate : null,
+        endDate: typeof req.query.endDate === 'string' ? req.query.endDate : null,
+        walletAddress,
+      },
+    });
+
+    res.setHeader('Content-Type', artifact.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('X-Export-Job-Id', job.id);
+    res.setHeader('X-Export-Checksum', artifact.checksum);
+    res.setHeader('X-Export-Checksum-Algorithm', artifact.checksumAlgorithm);
+    res.setHeader('X-Export-Metadata', buildExportMetadataHeaderValue(job));
+    res.status(200).send(artifact.body);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to generate transaction export',
+    });
   }
-
-  streamTransactionsAsJson(res, rows);
 });
 
 /**
