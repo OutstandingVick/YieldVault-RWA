@@ -10,6 +10,7 @@ import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
+import { validate, VaultOperationSchema } from './middleware/validate';
 import crypto from 'crypto';
 
 const router = Router();
@@ -45,14 +46,6 @@ async function handleVaultOperation(
     (req.headers['x-idempotency-key'] as string | undefined);
 
   const { amount, asset, walletAddress, email, referralCode } = req.body;
-
-  if (!amount || !asset || !walletAddress) {
-    return res.status(400).json({
-      error: 'Bad Request',
-      status: 400,
-      message: 'Missing required fields: amount, asset, and walletAddress are required',
-    });
-  }
 
   const operation = async () => {
     return withSpan(`vault.${type}`, async (span) => {
@@ -218,7 +211,7 @@ async function handleVaultOperation(
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/deposits', allowlistMiddleware, (req: Request, res: Response) =>
+router.post('/deposits', allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'deposit'),
 );
 
@@ -227,7 +220,7 @@ router.post('/deposits', allowlistMiddleware, (req: Request, res: Response) =>
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/withdrawals', allowlistMiddleware, (req: Request, res: Response) =>
+router.post('/withdrawals', allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'withdrawal'),
 );
 
@@ -238,7 +231,7 @@ router.post('/withdrawals', allowlistMiddleware, (req: Request, res: Response) =
  * Gated behind the "deposit-v2" feature flag.
  * Supports per-wallet targeting via x-wallet-address header or body.walletAddress.
  */
-router.post('/deposits/v2', requireFlag('deposit-v2'), (req: Request, res: Response) =>
+router.post('/deposits/v2', requireFlag('deposit-v2'), validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'deposit'),
 );
 
