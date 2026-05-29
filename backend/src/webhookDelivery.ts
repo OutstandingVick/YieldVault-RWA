@@ -78,6 +78,8 @@ const maxAttempts = parseInt(process.env.WEBHOOK_MAX_ATTEMPTS || '3', 10);
 const deliveryTimeoutMs = parseInt(process.env.WEBHOOK_DELIVERY_TIMEOUT_MS || '5000', 10);
 const retryBaseDelayMs = parseInt(process.env.WEBHOOK_RETRY_BASE_DELAY_MS || '500', 10);
 const deliveryRetention = parseInt(process.env.WEBHOOK_DELIVERY_RETENTION || '200', 10);
+const jitterFactor = parseFloat(process.env.WEBHOOK_JITTER_FACTOR || '0.5');
+const jitterMaxMs = parseInt(process.env.WEBHOOK_JITTER_MAX_MS || '30000', 10);
 
 export function registerWebhookEndpoint(input: RegisterWebhookInput): WebhookEndpoint {
   assertValidWebhookUrl(input.url);
@@ -360,8 +362,11 @@ async function deliverWithRetry(
   }
 }
 
-function calculateBackoffDelay(attempt: number): number {
-  return Math.round(retryBaseDelayMs * Math.pow(2, attempt - 1));
+export function calculateBackoffDelay(attempt: number): number {
+  const baseDelay = retryBaseDelayMs * Math.pow(2, attempt - 1);
+  const jitterRange = Math.min(baseDelay * jitterFactor, jitterMaxMs);
+  const jitter = (Math.random() * 2 - 1) * jitterRange;
+  return Math.max(100, Math.round(baseDelay + jitter));
 }
 
 function sanitizeWebhookEndpoint(endpoint: InternalWebhookEndpoint): WebhookEndpoint {

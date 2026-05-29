@@ -98,6 +98,41 @@ export class DatabaseManager {
   }
 
   /**
+   * Forces a query to the read replica exclusively without failover to primary.
+   * Intended for heavy analytics / reporting queries where replica staleness is acceptable.
+   * Throws if the replica is unreachable.
+   */
+  async queryReplica<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
+    return await this.replicaPool.query<T>(text, params);
+  }
+
+  /**
+   * Forces a query to the primary database, bypassing any replica routing.
+   * Useful for reads that require the latest committed data (e.g. after a write).
+   */
+  async queryPrimary<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
+    return await this.primaryPool.query<T>(text, params);
+  }
+
+  /**
+   * Returns true if the replica pool is configured and healthy.
+   */
+  async isReplicaHealthy(): Promise<boolean> {
+    return await this.replicaPool.isHealthy();
+  }
+
+  /**
+   * Returns the total count estimated from the replica for large tables,
+   * which is useful for analytics dashboards where exact counts are not critical.
+   */
+  async estimatedCount(table: string): Promise<number> {
+    const result = await this.queryReplica<{ count: number }>(
+      `SELECT COUNT(*) as count FROM "${table}"`
+    );
+    return result.rows[0]?.count ?? 0;
+  }
+
+  /**
    * Simple check to see if a query is a read operation.
    */
   private isReadQuery(text: string): boolean {

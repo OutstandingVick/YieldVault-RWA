@@ -12,6 +12,7 @@
  *  - getMetrics()          – snapshot of hits / conflicts / evictions
  */
 
+import crypto from 'crypto';
 import NodeCache from 'node-cache';
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
@@ -259,8 +260,17 @@ export const idempotencyStore = new IdempotencyStore(
 
 // ─── Fingerprint helper ───────────────────────────────────────────────────────
 
+export function getIdempotencyHashThreshold(): number {
+  return parseInt(process.env.IDEMPOTENCY_HASH_THRESHOLD_BYTES || '4096', 10);
+}
+
 export function buildIdempotencyFingerprint(payload: unknown): string {
-  return stableStringify(payload);
+  const stable = stableStringify(payload);
+  const byteLength = Buffer.byteLength(stable, 'utf-8');
+  if (byteLength > getIdempotencyHashThreshold()) {
+    return `hashv1:${crypto.createHash('sha256').update(stable).digest('hex')}`;
+  }
+  return stable;
 }
 
 function stableStringify(value: unknown): string {
