@@ -79,6 +79,8 @@ use soroban_sdk::{
     Address, BytesN, Env, Vec,
 };
 
+const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 const MAX_PAGE_SIZE: u32 = 50;
 
 #[contracttype]
@@ -1280,4 +1282,26 @@ impl YieldVault {
             }
         }
     }
+    /// Read-only: returns contract metadata such as version and simple config flags.
+    pub fn metadata(env: Env) -> ContractMetadata {
+        let state = Self::get_state(&env);
+        let has_strategy = env
+            .storage()
+            .instance()
+            .get::<_, Option<Address>>(&DataKey::Strategy)
+            .is_some();
+        ContractMetadata {
+            version: CONTRACT_VERSION.into(),
+            contract_paused: state.is_paused,
+            has_strategy,
+        }
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractMetadata {
+    pub version: soroban_sdk::String,
+    pub contract_paused: bool,
+    pub has_strategy: bool,
 }
