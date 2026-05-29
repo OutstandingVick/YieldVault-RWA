@@ -39,6 +39,7 @@ import crypto from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from './middleware/structuredLogging';
 import Redis from 'ioredis';
+import { normalizeWalletAddress } from './walletUtils';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -350,13 +351,14 @@ export function verifyJwt(token: string): JwtPayload {
  * Optionally accepts an existing familyId for rotation (otherwise creates a new one).
  */
 export async function issueTokenPair(walletAddress: string, familyId?: string): Promise<TokenPair> {
+  const normalizedAddress = normalizeWalletAddress(walletAddress);
   const now = Math.floor(Date.now() / 1000);
   const accessTtl = getAccessTtl();
   const refreshTtl = getRefreshTtl();
 
   const jti = crypto.randomUUID();
   const payload: JwtPayload = {
-    sub: walletAddress,
+    sub: normalizedAddress,
     iat: now,
     exp: now + accessTtl,
     jti,
@@ -368,7 +370,7 @@ export async function issueTokenPair(walletAddress: string, familyId?: string): 
 
   await refreshTokenStore.set(
     refreshToken,
-    { walletAddress, familyId: family, expiresAt: now + refreshTtl, revoked: false },
+    { walletAddress: normalizedAddress, familyId: family, expiresAt: now + refreshTtl, revoked: false },
     refreshTtl,
   );
 
@@ -404,6 +406,7 @@ export async function revokeCurrentSession(refreshToken: string): Promise<void> 
  * This is used for /auth/logout-all.
  */
 export async function revokeAllSessions(walletAddress: string): Promise<number> {
+  const normalizedAddress = normalizeWalletAddress(walletAddress);
   // In-memory store supports iteration; Redis store relies on TTL expiry for
   // individual tokens – we can only revoke by family if we know the family IDs.
   // For the in-memory path the cast is safe; for Redis this is a best-effort
@@ -416,7 +419,7 @@ export async function revokeAllSessions(walletAddress: string): Promise<number> 
     let revokedCount = 0;
     const familiesToRevoke = new Set<string>();
     for (const [token, entry] of inMem.tokens.entries()) {
-      if (entry.walletAddress === walletAddress) {
+      if (normalizeWalletAddress(entry.walletAddress) === normalizedAddress) {
         familiesToRevoke.add(entry.familyId);
         inMem.tokens.delete(token);
         revokedCount++;
@@ -426,7 +429,7 @@ export async function revokeAllSessions(walletAddress: string): Promise<number> 
       inMem.revokedFamilies.add(familyId);
     }
     logger.log('info', 'All sessions revoked for wallet', {
-      wallet: walletAddress.slice(0, 8) + '…',
+      wallet: normalizedAddress.slice(0, 8) + '…',
       revokedCount,
     });
     return revokedCount;
@@ -435,7 +438,7 @@ export async function revokeAllSessions(walletAddress: string): Promise<number> 
   // Redis path: we cannot efficiently scan all tokens for a wallet without a
   // secondary index. Return 1 to indicate the operation was attempted.
   logger.log('info', 'logout-all requested (Redis: family-level revocation only)', {
-    wallet: walletAddress.slice(0, 8) + '…',
+    wallet: normalizedAddress.slice(0, 8) + '…',
   });
   return 1;
 }
@@ -447,15 +450,12 @@ export async function revokeAllSessions(walletAddress: string): Promise<number> 
 export function getAuthenticatedWallet(req: AuthenticatedRequest): string | null {
   // Try JWT payload first
   if (req.jwtPayload && req.jwtPayload.sub) {
-    return req.jwtPayload.sub;
+    return normalizeWalletAddress(req.jwtPayload.sub);
   }
 
   // Fall back to headers
-  return (
-    req.headers['x-wallet-address'] as string ||
-    req.headers['x-api-key'] as string ||
-    null
-  );
+  const headerAddress = req.headers['x-wallet-address'] as string || req.headers['x-api-key'] as string;
+  return headerAddress ? normalizeWalletAddress(headerAddress) : null;
 }
 
 // ─── Refresh Token Rotation ───────────────────────────────────────────────────
