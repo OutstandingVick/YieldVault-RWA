@@ -28,6 +28,7 @@ import { useTokenAllowance } from "../hooks/useTokenAllowance";
 import CopyButton from "./CopyButton";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
+import { useSlippage } from "../hooks/useSlippage";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
 import { TransactionConfirmationModal } from "./TransactionConfirmationModal";
@@ -256,6 +257,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     amount,
     activeTab
   );
+
+  const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();
+  const [customSlippage, setCustomSlippage] = useState("");
 
   const resetWizard = () => {
     setValues({ amount: "" });
@@ -874,8 +878,83 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             </div>
                           </div>
 
-                          {isHighFee && (
+                          {tab === "withdraw" && isValidAmount && (
                             <div
+                              className="glass-panel"
+                              style={{
+                                padding: "14px 16px",
+                                background: "rgba(0,0,0,0.15)",
+                                marginBottom: "16px",
+                              }}
+                            >
+                              <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "10px", fontWeight: 600 }}>
+                                Slippage Tolerance
+                              </div>
+                              <div className="flex items-center gap-sm" style={{ flexWrap: "wrap" }}>
+                                {presets.map((p) => (
+                                  <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => { setSlippage(p); setCustomSlippage(""); }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: "6px",
+                                      border: slippage === p && customSlippage === "" ? "1px solid var(--accent-cyan)" : "1px solid var(--border-glass)",
+                                      background: slippage === p && customSlippage === "" ? "rgba(0,240,255,0.1)" : "transparent",
+                                      color: slippage === p && customSlippage === "" ? "var(--accent-cyan)" : "var(--text-secondary)",
+                                      fontSize: "0.82rem",
+                                      cursor: "pointer",
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    {p}%
+                                  </button>
+                                ))}
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="50"
+                                  step="0.1"
+                                  placeholder="Custom"
+                                  value={customSlippage}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setCustomSlippage(v);
+                                    const n = parseFloat(v);
+                                    if (isFinite(n) && n >= 0) setSlippage(n);
+                                  }}
+                                  style={{
+                                    width: "80px",
+                                    padding: "5px 8px",
+                                    borderRadius: "6px",
+                                    border: customSlippage !== "" ? "1px solid var(--accent-cyan)" : "1px solid var(--border-glass)",
+                                    background: "transparent",
+                                    color: "var(--text-primary)",
+                                    fontSize: "0.82rem",
+                                    outline: "none",
+                                  }}
+                                  aria-label="Custom slippage percentage"
+                                />
+                                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>%</span>
+                              </div>
+                              {isHighSlippage && (
+                                <div className="flex items-center gap-xs" style={{ marginTop: "8px" }}>
+                                  <AlertTriangle size={13} color="var(--text-warning, #f59e0b)" />
+                                  <span style={{ fontSize: "0.78rem", color: "var(--text-warning, #f59e0b)" }}>
+                                    High slippage — you may receive significantly less than expected.
+                                  </span>
+                                </div>
+                              )}
+                              <div className="flex justify-between" style={{ marginTop: "10px" }}>
+                                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>Minimum received</span>
+                                <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                                  {minReceived(estimatedNetAmount).toFixed(4)} USDC
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {isHighFee && (                            <div
                               className="flex items-start gap-sm"
                               style={{
                                 marginBottom: "20px",
