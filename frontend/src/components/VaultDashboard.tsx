@@ -89,6 +89,7 @@ const StepIndicator: React.FC<{ currentStep: TransactionStep }> = ({ currentStep
 interface VaultDashboardProps {
   walletAddress: string | null;
   usdcBalance?: number;
+  xlmBalance?: number;
 }
 
 const MIN_DEPOSIT_AMOUNT = 1;
@@ -143,11 +144,52 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
   );
 };
 
+function getAmountValidationError(
+  actionType: TransactionTab,
+  rawAmount: string,
+  availableBalance: number,
+  isCapReached: boolean,
+  xlmBalance: number,
+  feeXlm: number,
+): string | null {
+  if (!rawAmount.trim()) {
+    return "Amount is required.";
+  }
 
+  const value = Number(rawAmount);
+  if (Number.isNaN(value) || !Number.isFinite(value)) {
+    return "Enter a valid number.";
+  }
+
+  if (value <= 0) {
+    return "Amount must be greater than 0.";
+  }
+
+  if (actionType === "deposit" && value < MIN_DEPOSIT_AMOUNT) {
+    return `Minimum deposit is ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC.`;
+  }
+
+  if (value > availableBalance) {
+    return actionType === "deposit"
+      ? "Deposit amount cannot exceed your available USDC balance."
+      : "The withdrawal amount exceeds your available USDC balance.";
+  }
+
+  if (actionType === "deposit" && isCapReached) {
+    return "Deposits are temporarily disabled because the vault is at capacity.";
+  }
+
+  if (actionType === "deposit" && xlmBalance < feeXlm) {
+    return "Insufficient XLM balance for network fees.";
+  }
+
+  return null;
+}
 
 const VaultDashboard: React.FC<VaultDashboardProps> = ({
   walletAddress,
   usdcBalance = 0,
+  xlmBalance = 0,
 }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -268,11 +310,20 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   };
 
   const goToReview = () => {
-    if (errors.amount || !amount) {
-      setFieldError("amount", errors.amount || "Amount is required.");
+    const validationError = getAmountValidationError(
+      activeTab,
+      amount,
+      availableBalance,
+      isCapReached,
+      xlmBalance,
+      feeXlm,
+    );
+
+    if (validationError) {
+      setFieldError("amount", validationError);
       toast.warning({
         title: "Enter a valid amount",
-        description: errors.amount || "Amount is required.",
+        description: validationError,
       });
       return;
     }
@@ -312,9 +363,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const strategy = summary.strategy;
   const enteredAmount = Number(amount);
+<<<<<<< HEAD
+  const activeAmountError = getAmountValidationError(
+    activeTab,
+    amount,
+    availableBalance,
+    isCapReached,
+    xlmBalance,
+    feeXlm,
+  );
+  const isValidAmount = !activeAmountError;
+  const showInlineError = touched[activeTab] && Boolean(activeAmountError);
+=======
   const activeAmountError = errors.amount;
   const isValidAmount = !activeAmountError && amount.length > 0;
   const showInlineError = touched.amount && Boolean(activeAmountError);
+>>>>>>> origin/main
   const managementFeeBps = 35;
   const estimatedFee = isValidAmount
     ? (enteredAmount * managementFeeBps) / 10_000
@@ -972,6 +1036,25 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             </div>
                           )}
 
+                          {tab === "deposit" && xlmBalance < feeXlm && (
+                            <div
+                              className="flex items-start gap-sm"
+                              style={{
+                                marginBottom: "20px",
+                                padding: "12px",
+                                borderRadius: "8px",
+                                background: "rgba(255, 69, 58, 0.1)",
+                                border: "1px solid rgba(255, 69, 58, 0.2)",
+                              }}
+                            >
+                              <AlertTriangle size={16} color="var(--text-error)" style={{ marginTop: "2px" }} />
+                              <div style={{ fontSize: "0.82rem", color: "var(--text-error)", lineHeight: "1.4" }}>
+                                <strong style={{ display: "block", marginBottom: "2px" }}>Insufficient XLM balance</strong>
+                                You do not have enough XLM to cover the estimated network fee.
+                              </div>
+                            </div>
+                          )}
+
                           {tab === "deposit" && isValidAmount && needsApproval(enteredAmount) && (
                             <div
                               className="glass-panel"
@@ -1050,7 +1133,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             onClick={() => void handleTransaction(tab)}
                             disabled={
                               isBusy || 
-                              (tab === "deposit" && needsApproval(enteredAmount) && approvalStatus !== "confirmed")
+                              (tab === "deposit" && needsApproval(enteredAmount) && approvalStatus !== "confirmed") ||
+                              (tab === "deposit" && xlmBalance < feeXlm)
                             }
                           >
                             {isBusy ? (

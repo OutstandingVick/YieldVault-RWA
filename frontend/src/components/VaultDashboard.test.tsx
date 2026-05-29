@@ -18,6 +18,7 @@ vi.mock("../lib/vaultApi", async (importOriginal) => {
   return {
     ...actual,
     submitDeposit: vi.fn(),
+    estimateNetworkFee: vi.fn().mockResolvedValue("0.05"),
   };
 });
 
@@ -66,6 +67,7 @@ function renderDashboard(
   walletAddress: string | null,
   usdcBalance = 1250.5,
   initialEntry = "/",
+  xlmBalance = 10.0,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -77,7 +79,11 @@ function renderDashboard(
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <VaultProvider>
-            <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+            <VaultDashboard
+              walletAddress={walletAddress}
+              usdcBalance={usdcBalance}
+              xlmBalance={xlmBalance}
+            />
             <LocationSearchProbe />
           </VaultProvider>
         </ToastProvider>
@@ -284,21 +290,56 @@ describe("VaultDashboard", () => {
      const input = await screen.findByPlaceholderText("0.00");
      await waitFor(() => {
        expect((input as HTMLInputElement).value).toBe("");
+       expect(screen.getByTestId("location-search")).toHaveTextContent("");
      });
-     expect(screen.getByTestId("location-search")).toHaveTextContent("");
    });
 
-   it("clears amount input when switching tabs", async () => {
-     renderDashboard("GABC123");
+    it("clears amount input when switching tabs", async () => {
+      renderDashboard("GABC123");
 
-     const input = await screen.findByPlaceholderText("0.00");
-     fireEvent.change(input, { target: { value: "100" } });
-     expect(input).toHaveValue(100);
+      const input = await screen.findByPlaceholderText("0.00");
+      fireEvent.change(input, { target: { value: "100" } });
+      expect(input).toHaveValue(100);
 
-     const withdrawTab = screen.getByText("Withdraw");
-     fireEvent.click(withdrawTab);
+      const withdrawTab = screen.getByText("Withdraw");
+      fireEvent.click(withdrawTab);
 
-     const clearedInput = screen.getByPlaceholderText("0.00");
-     expect(clearedInput).toHaveValue(null);
-   });
- });
+      const clearedInput = screen.getByPlaceholderText("0.00");
+      expect(clearedInput).toHaveValue(null);
+    });
+
+    it("shows inline error and disables submit when XLM balance is insufficient for network fees", async () => {
+      renderDashboard("GABC123", 1250.5, "/", 0.01);
+
+      expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
+
+      const input = screen.getByPlaceholderText("0.00");
+      fireEvent.change(input, { target: { value: "100" } });
+      fireEvent.blur(input);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Insufficient XLM balance for network fees./i),
+        ).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Review Transaction" })).toBeDisabled();
+      });
+    });
+
+    it("shows warning banner and disables confirm button on review step when XLM balance is insufficient", async () => {
+      renderDashboard("GABC123", 1250.5, "/", 0.01);
+
+      expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
+
+      const inputField = screen.getByPlaceholderText("0.00");
+      fireEvent.change(inputField, { target: { value: "100" } });
+
+      const reviewBtn = screen.getByRole("button", { name: "Review Transaction" });
+      fireEvent.click(reviewBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("Insufficient XLM balance")).toBeInTheDocument();
+        expect(screen.getByText("You do not have enough XLM to cover the estimated network fee.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /Confirm deposit/i })).toBeDisabled();
+      });
+    });
+  });

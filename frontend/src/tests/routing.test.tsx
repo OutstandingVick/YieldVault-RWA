@@ -38,7 +38,8 @@ vi.mock('../i18n', () => ({
 
 // Mock hooks to avoid network requests
 vi.mock('../hooks/useBalanceData', () => ({
-  useUsdcBalance: () => ({ data: 1000, isLoading: false })
+  useUsdcBalance: () => ({ data: 1000, isLoading: false }),
+  useXlmBalance: () => ({ data: 10.0, isLoading: false }),
 }));
 
 function renderWithProviders(initialEntries: string[]) {
