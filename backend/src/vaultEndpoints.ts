@@ -105,6 +105,12 @@ async function handleVaultOperation(
         transactionHash: String(body.transactionHash),
         status: String(body.status),
         timestamp: String(body.timestamp),
+      }).catch((error) => {
+        logger.log('error', 'Failed to emit webhook delivery', {
+          error: error instanceof Error ? error.message : String(error),
+          eventType,
+          transactionId: body.id,
+        });
       });
 
       span.setAttributes({ 'vault.txHash': txHash });
