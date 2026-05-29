@@ -60,7 +60,7 @@ describe("VaultDashboard Wizard", () => {
   it("navigates through the deposit wizard steps", async () => {
     render(
       <Wrapper>
-        <VaultDashboard walletAddress="GB..." usdcBalance={100} />
+        <VaultDashboard walletAddress="GB..." usdcBalance={100} xlmBalance={10} />
       </Wrapper>
     );
 

@@ -14,8 +14,8 @@ import RedisStore from 'rate-limit-redis';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface EndpointLimiterConfig {
-  /** Route prefix used as Redis key prefix, e.g. '/api/v1/vault/deposits' */
-  routePrefix: string;
+  /** Tier name used as Redis key prefix, e.g. 'auth', 'writes', 'reads', 'admin' */
+  tier: string;
   /** Maximum requests per window */
   max: number;
   /** Window duration in milliseconds */
@@ -23,9 +23,10 @@ export interface EndpointLimiterConfig {
 }
 
 interface RateLimiterConfig {
-  deposits: { max: number; windowMs: number };
-  summary: { max: number; windowMs: number };
-  default: { max: number; windowMs: number };
+  auth: { max: number; windowMs: number };
+  writes: { max: number; windowMs: number };
+  reads: { max: number; windowMs: number };
+  admin: { max: number; windowMs: number };
 }
 
 // ─── Config Loader ───────────────────────────────────────────────────────────
@@ -43,17 +44,21 @@ export function loadConfig(): RateLimiterConfig {
   };
 
   return {
-    deposits: {
-      max: parseEnv('DEPOSITS_RATE_LIMIT_MAX', 10),
-      windowMs: parseEnv('DEPOSITS_RATE_LIMIT_WINDOW_MS', 60000),
+    auth: {
+      max: parseEnv('RATE_LIMIT_AUTH_MAX', 5),
+      windowMs: parseEnv('RATE_LIMIT_AUTH_WINDOW_MS', 60000),
     },
-    summary: {
-      max: parseEnv('SUMMARY_RATE_LIMIT_MAX', 30),
-      windowMs: parseEnv('SUMMARY_RATE_LIMIT_WINDOW_MS', 60000),
+    writes: {
+      max: parseEnv('RATE_LIMIT_WRITES_MAX', 10),
+      windowMs: parseEnv('RATE_LIMIT_WRITES_WINDOW_MS', 60000),
     },
-    default: {
-      max: parseEnv('API_RATE_LIMIT_MAX_REQUESTS', 30),
-      windowMs: parseEnv('API_RATE_LIMIT_WINDOW_MS', 60000),
+    reads: {
+      max: parseEnv('RATE_LIMIT_READS_MAX', 60),
+      windowMs: parseEnv('RATE_LIMIT_READS_WINDOW_MS', 60000),
+    },
+    admin: {
+      max: parseEnv('RATE_LIMIT_ADMIN_MAX', 20),
+      windowMs: parseEnv('RATE_LIMIT_ADMIN_WINDOW_MS', 60000),
     },
   };
 }
@@ -196,7 +201,7 @@ export function createLimiter(config: EndpointLimiterConfig): RequestHandler {
     ? new RedisStore({
         sendCommand: ((command: string, ...args: string[]) =>
           client.call(command, ...args)) as any,
-        prefix: `rl:${config.routePrefix}:`,
+        prefix: `rl:${config.tier}:`,
       })
     : undefined;
 
@@ -256,23 +261,36 @@ export function createLimiter(config: EndpointLimiterConfig): RequestHandler {
 
 const config = loadConfig();
 
-export const depositsLimiter: RequestHandler = createLimiter({
-  routePrefix: '/api/v1/vault/deposits',
-  max: config.deposits.max,
-  windowMs: config.deposits.windowMs,
+/** Strictest policy: prevents brute-force on authentication endpoints. */
+export const authLimiter: RequestHandler = createLimiter({
+  tier: 'auth',
+  max: config.auth.max,
+  windowMs: config.auth.windowMs,
 });
 
-export const summaryLimiter: RequestHandler = createLimiter({
-  routePrefix: '/api/v1/vault/summary',
-  max: config.summary.max,
-  windowMs: config.summary.windowMs,
+/** Strict policy: prevents spamming mutation operations (deposits, withdrawals, admin writes). */
+export const writesLimiter: RequestHandler = createLimiter({
+  tier: 'writes',
+  max: config.writes.max,
+  windowMs: config.writes.windowMs,
 });
 
-export const defaultLimiter: RequestHandler = createLimiter({
-  routePrefix: '/api/v1',
-  max: config.default.max,
-  windowMs: config.default.windowMs,
+/** Relaxed policy: allows regular browsing of public summary and metrics endpoints. */
+export const readsLimiter: RequestHandler = createLimiter({
+  tier: 'reads',
+  max: config.reads.max,
+  windowMs: config.reads.windowMs,
 });
 
-/** Backward-compatibility alias */
-export const apiLimiter = defaultLimiter;
+/** Medium-strict policy: protects administrative read/write operations. */
+export const adminLimiter: RequestHandler = createLimiter({
+  tier: 'admin',
+  max: config.admin.max,
+  windowMs: config.admin.windowMs,
+});
+
+/** Backward-compatibility aliases */
+export const depositsLimiter = writesLimiter;
+export const summaryLimiter = readsLimiter;
+export const defaultLimiter = readsLimiter;
+export const apiLimiter = readsLimiter;

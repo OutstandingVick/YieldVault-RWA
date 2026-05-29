@@ -54,5 +54,7 @@ export const queryKeys = {
     all: ["balance"] as const,
     usdc: (walletAddress?: string | null) =>
       [...queryKeys.balance.all, "usdc", walletAddress] as const,
+    xlm: (walletAddress?: string | null) =>
+      [...queryKeys.balance.all, "xlm", walletAddress] as const,
   },
 } as const;

@@ -3,6 +3,7 @@ import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
 import { allowlistMiddleware } from './middleware/allowlist';
 import { invalidateCache } from './middleware/cache';
+import { writesLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
 import { withSpan, getCurrentTraceId } from './tracing';
@@ -104,6 +105,12 @@ async function handleVaultOperation(
         transactionHash: String(body.transactionHash),
         status: String(body.status),
         timestamp: String(body.timestamp),
+      }).catch((error) => {
+        logger.log('error', 'Failed to emit webhook delivery', {
+          error: error instanceof Error ? error.message : String(error),
+          eventType,
+          transactionId: body.id,
+        });
       });
 
       span.setAttributes({ 'vault.txHash': txHash });
@@ -211,7 +218,7 @@ async function handleVaultOperation(
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/deposits', allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
+router.post('/deposits', writesLimiter, allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'deposit'),
 );
 
@@ -220,7 +227,7 @@ router.post('/deposits', allowlistMiddleware, validate({ body: VaultOperationSch
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/withdrawals', allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
+router.post('/withdrawals', writesLimiter, allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'withdrawal'),
 );
 
@@ -231,7 +238,7 @@ router.post('/withdrawals', allowlistMiddleware, validate({ body: VaultOperation
  * Gated behind the "deposit-v2" feature flag.
  * Supports per-wallet targeting via x-wallet-address header or body.walletAddress.
  */
-router.post('/deposits/v2', requireFlag('deposit-v2'), validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
+router.post('/deposits/v2', writesLimiter, requireFlag('deposit-v2'), validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'deposit'),
 );
 
@@ -239,7 +246,7 @@ router.post('/deposits/v2', requireFlag('deposit-v2'), validate({ body: VaultOpe
  * POST /api/v1/vault/strategy
  * Gated behind the "strategy-selection" feature flag.
  */
-router.post('/strategy', requireFlag('strategy-selection'), (_req: Request, res: Response) => {
+router.post('/strategy', writesLimiter, requireFlag('strategy-selection'), (_req: Request, res: Response) => {
   res.status(200).json({ message: 'Strategy selection endpoint (v2 preview)' });
 });
 

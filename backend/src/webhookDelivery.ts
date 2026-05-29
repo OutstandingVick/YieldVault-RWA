@@ -23,6 +23,8 @@ export interface WebhookEndpoint {
   hasSecret: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 interface InternalWebhookEndpoint {
@@ -34,6 +36,8 @@ interface InternalWebhookEndpoint {
   secretHash?: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
+  deletedBy?: string;
 }
 
 export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed';
@@ -105,7 +109,7 @@ export function registerWebhookEndpoint(input: RegisterWebhookInput): WebhookEnd
 
 export function updateWebhookEndpoint(id: string, input: UpdateWebhookInput): WebhookEndpoint | null {
   const existing = endpoints.get(id);
-  if (!existing) {
+  if (!existing || existing.deletedAt) {
     return null;
   }
 
@@ -130,8 +134,45 @@ export function updateWebhookEndpoint(id: string, input: UpdateWebhookInput): We
   return sanitizeWebhookEndpoint(updated);
 }
 
-export function listWebhookEndpoints(): WebhookEndpoint[] {
+export function deleteWebhookEndpoint(id: string, actor: string): WebhookEndpoint | null {
+  const existing = endpoints.get(id);
+  if (!existing || existing.deletedAt) {
+    return null;
+  }
+
+  const updated: InternalWebhookEndpoint = {
+    ...existing,
+    deletedAt: new Date().toISOString(),
+    deletedBy: actor,
+    updatedAt: new Date().toISOString(),
+  };
+
+  endpoints.set(id, updated);
+  void persistWebhookEndpoint(updated);
+  return sanitizeWebhookEndpoint(updated);
+}
+
+export function restoreWebhookEndpoint(id: string, actor: string): WebhookEndpoint | null {
+  const existing = endpoints.get(id);
+  if (!existing || !existing.deletedAt) {
+    return null;
+  }
+
+  const updated: InternalWebhookEndpoint = {
+    ...existing,
+    deletedAt: undefined,
+    deletedBy: undefined,
+    updatedAt: new Date().toISOString(),
+  };
+
+  endpoints.set(id, updated);
+  void persistWebhookEndpoint(updated);
+  return sanitizeWebhookEndpoint(updated);
+}
+
+export function listWebhookEndpoints(includeDeleted = false): WebhookEndpoint[] {
   return Array.from(endpoints.values())
+    .filter((endpoint) => includeDeleted || !endpoint.deletedAt)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((endpoint) => sanitizeWebhookEndpoint(endpoint));
 }
@@ -255,7 +296,7 @@ export async function emitTransactionEvent(
   payload: TransactionEventPayload,
 ): Promise<number> {
   const activeEndpoints = Array.from(endpoints.values()).filter(
-    (endpoint) => endpoint.enabled && endpoint.eventTypes.includes(eventType),
+    (endpoint) => !endpoint.deletedAt && endpoint.enabled && endpoint.eventTypes.includes(eventType),
   );
 
   for (const endpoint of activeEndpoints) {
@@ -378,6 +419,8 @@ function sanitizeWebhookEndpoint(endpoint: InternalWebhookEndpoint): WebhookEndp
     hasSecret: Boolean(endpoint.secretHash),
     createdAt: endpoint.createdAt,
     updatedAt: endpoint.updatedAt,
+    deletedAt: endpoint.deletedAt,
+    deletedBy: endpoint.deletedBy,
   };
 }
 
@@ -396,7 +439,9 @@ async function persistWebhookEndpoint(endpoint: InternalWebhookEndpoint): Promis
         enabled,
         secretHash,
         createdAt,
-        updatedAt
+        updatedAt,
+        deletedAt,
+        deletedBy
       ) VALUES (
         ${endpoint.id},
         ${endpoint.url},
@@ -404,14 +449,18 @@ async function persistWebhookEndpoint(endpoint: InternalWebhookEndpoint): Promis
         ${endpoint.enabled ? 1 : 0},
         ${endpoint.secretHash ?? null},
         ${endpoint.createdAt},
-        ${endpoint.updatedAt}
+        ${endpoint.updatedAt},
+        ${endpoint.deletedAt ?? null},
+        ${endpoint.deletedBy ?? null}
       )
       ON CONFLICT(id) DO UPDATE SET
         url = excluded.url,
         eventTypes = excluded.eventTypes,
         enabled = excluded.enabled,
         secretHash = excluded.secretHash,
-        updatedAt = excluded.updatedAt
+        updatedAt = excluded.updatedAt,
+        deletedAt = excluded.deletedAt,
+        deletedBy = excluded.deletedBy
     `;
   } catch {
     // Runtime persistence is best-effort so local development and tests still work without migrations.
@@ -440,7 +489,9 @@ async function ensureWebhookPersistenceTable(): Promise<void> {
       enabled INTEGER NOT NULL,
       secretHash TEXT,
       createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
+      updatedAt TEXT NOT NULL,
+      deletedAt TEXT,
+      deletedBy TEXT
     )
   `);
   persistenceInitialized = true;

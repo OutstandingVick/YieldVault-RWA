@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
+import { normalizeWalletAddress } from './walletUtils';
 
 // Use the centralized Prisma Client instance
 const getPrisma = () => getPrismaClient();
@@ -15,6 +16,7 @@ export class ReferralService {
    */
   async recordDeposit(walletAddress: string, referralCode?: string): Promise<void> {
     const prisma = getPrisma();
+    const normalizedReferred = normalizeWalletAddress(walletAddress);
     try {
       await prisma.$transaction(async (tx) => {
         // 1. If code provided, ensure relationship exists
@@ -24,21 +26,22 @@ export class ReferralService {
           });
 
           if (code) {
+            const normalizedReferrer = normalizeWalletAddress(code.ownerAddress);
             // Check if user already has a referrer
             const existing = await tx.referral.findUnique({
-              where: { referredAddress: walletAddress },
+              where: { referredAddress: normalizedReferred },
             });
 
             if (!existing) {
               await tx.referral.create({
                 data: {
-                  referrerAddress: code.ownerAddress,
-                  referredAddress: walletAddress,
+                  referrerAddress: normalizedReferrer,
+                  referredAddress: normalizedReferred,
                 },
               });
               logger.log('info', 'New referral relationship recorded', {
-                referrer: code.ownerAddress,
-                referred: walletAddress,
+                referrer: normalizedReferrer,
+                referred: normalizedReferred,
               });
             }
           }
@@ -46,23 +49,23 @@ export class ReferralService {
 
         // 2. Check if this is the first deposit
         const referral = await tx.referral.findUnique({
-          where: { referredAddress: walletAddress },
+          where: { referredAddress: normalizedReferred },
         });
 
         if (referral && !referral.firstDepositAt) {
           await tx.referral.update({
-            where: { referredAddress: walletAddress },
+            where: { referredAddress: normalizedReferred },
             data: { firstDepositAt: new Date() },
           });
           logger.log('info', 'First deposit timestamp recorded for referral', {
-            referred: walletAddress,
+            referred: normalizedReferred,
           });
         }
       });
     } catch (error) {
       logger.log('error', 'Failed to record referral deposit', {
         error: error instanceof Error ? error.message : String(error),
-        walletAddress,
+        walletAddress: normalizedReferred,
       });
       // We don't throw here to avoid blocking the main deposit flow
     }
@@ -74,9 +77,10 @@ export class ReferralService {
    */
   async getReferralStats(referrerAddress: string): Promise<{ referral_count: number; total_reward_earned: string } | null> {
     const prisma = getPrisma();
+    const normalizedReferrer = normalizeWalletAddress(referrerAddress);
     const referrals = await prisma.referral.findMany({
       where: {
-        referrerAddress,
+        referrerAddress: normalizedReferrer,
         firstDepositAt: { not: null },
       },
     });
@@ -88,7 +92,7 @@ export class ReferralService {
     let totalReward = 0;
 
     for (const ref of referrals) {
-      const yield_earned = await this.calculateUserYield(ref.referredAddress);
+      const yield_earned = await this.calculateUserYield(normalizeWalletAddress(ref.referredAddress));
       if (yield_earned > 0) {
         const reward = yield_earned * REFERRAL_REWARD_PERCENTAGE;
         totalReward += reward;
@@ -107,11 +111,12 @@ export class ReferralService {
    */
   private async calculateUserYield(walletAddress: string): Promise<number> {
     const prisma = getPrisma();
+    const normalizedWallet = normalizeWalletAddress(walletAddress);
     // For the purpose of this task, we'll simulate yield.
     // In a real scenario, this would be: (shares * price) - totalDeposited
     // Here we'll look for transactions to at least make it dynamic-ish if they exist.
     const txs = await prisma.transaction.findMany({
-      where: { user: walletAddress, type: 'deposit' },
+      where: { user: normalizedWallet, type: 'deposit' },
     });
 
     if (txs.length === 0) return 0;
@@ -129,10 +134,11 @@ export class ReferralService {
    */
   async getOrCreateReferralCode(ownerAddress: string): Promise<string> {
     const prisma = getPrisma();
+    const normalizedOwner = normalizeWalletAddress(ownerAddress);
 
     // Check if code already exists
     const existing = await prisma.referralCode.findFirst({
-      where: { ownerAddress },
+      where: { ownerAddress: normalizedOwner },
     });
 
     if (existing) {
@@ -152,7 +158,7 @@ export class ReferralService {
 
     // Create new code
     await prisma.referralCode.create({
-      data: { code, ownerAddress },
+      data: { code, ownerAddress: normalizedOwner },
     });
 
     return code;
@@ -176,7 +182,7 @@ export class ReferralService {
   async createReferralCode(ownerAddress: string, code: string): Promise<void> {
     const prisma = getPrisma();
     await prisma.referralCode.create({
-      data: { code, ownerAddress },
+      data: { code, ownerAddress: normalizeWalletAddress(ownerAddress) },
     });
   }
 }
