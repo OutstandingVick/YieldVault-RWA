@@ -22,6 +22,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../middleware/structuredLogging';
+import { normalizeWalletAddress } from '../walletUtils';
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ function seedFromEnv(): void {
   const raw = process.env.ALLOWLIST_ADDRESSES || '';
   raw
     .split(',')
-    .map((addr) => addr.trim().toUpperCase())
+    .map((addr) => normalizeWalletAddress(addr))
     .filter(Boolean)
     .forEach((addr) => allowedAddresses.add(addr));
 
@@ -57,12 +58,12 @@ seedFromEnv();
 
 /** Returns true if the address is in the allowlist. */
 export function isAllowed(walletAddress: string): boolean {
-  return allowedAddresses.has(walletAddress.trim().toUpperCase());
+  return allowedAddresses.has(normalizeWalletAddress(walletAddress));
 }
 
 /** Adds a wallet address to the allowlist. Returns false if already present. */
 export function addAddress(walletAddress: string): boolean {
-  const normalised = walletAddress.trim().toUpperCase();
+  const normalised = normalizeWalletAddress(walletAddress);
   if (allowedAddresses.has(normalised)) return false;
   allowedAddresses.add(normalised);
   return true;
@@ -70,7 +71,7 @@ export function addAddress(walletAddress: string): boolean {
 
 /** Removes a wallet address from the allowlist. Returns false if not present. */
 export function removeAddress(walletAddress: string): boolean {
-  return allowedAddresses.delete(walletAddress.trim().toUpperCase());
+  return allowedAddresses.delete(normalizeWalletAddress(walletAddress));
 }
 
 /** Returns a sorted array of all allowlisted addresses (for admin visibility). */

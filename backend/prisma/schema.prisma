@@ -118,3 +118,33 @@ model ProcessedEvent {
   @@index([ledgerSeq])
   @@index([txHash])
 }
+
+model WebhookEndpoint {
+  id         String    @id
+  url        String
+  eventTypes String    // JSON array
+  enabled    Boolean
+  secretHash String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+  deletedBy  String?
+
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model AdminActionReceipt {
+  id             String   @id @default(uuid())
+  action         String
+  actor          String
+  timestamp      DateTime @default(now())
+  inputHash      String
+  resultingState String   // JSON string
+  signature      String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([actor])
+  @@index([timestamp])
+}

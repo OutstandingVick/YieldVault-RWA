@@ -26,6 +26,7 @@ import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from 
 import { getApyHistory } from './apySnapshot';
 import { cacheMiddleware } from './middleware/cache';
 import { requireAuth, AuthenticatedRequest } from './auth';
+import { normalizeWalletAddress } from './walletUtils';
 import { validateApiKey, hasRequiredApiKeyRole } from './middleware/apiKeyAuth';
 import {
   buildExportMetadataHeaderValue,
@@ -214,6 +215,7 @@ function filterTransactions(
 ): Transaction[] {
   const from = filters.from ? Date.parse(filters.from) : null;
   const to = filters.to ? Date.parse(filters.to) : null;
+  const normalizedWallet = filters.walletAddress ? normalizeWalletAddress(filters.walletAddress) : null;
 
   return transactions.filter((tx) => {
     if (filters.type && filters.type !== 'all' && tx.type !== filters.type) {
@@ -222,7 +224,7 @@ function filterTransactions(
     if (filters.status && filters.status !== 'all' && tx.status !== filters.status) {
       return false;
     }
-    if (filters.walletAddress && tx.walletAddress !== filters.walletAddress) {
+    if (normalizedWallet && normalizeWalletAddress(tx.walletAddress) !== normalizedWallet) {
       return false;
     }
     const transactionTime = Date.parse(tx.timestamp);
