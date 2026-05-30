@@ -76,7 +76,7 @@ use crate::upgrade::{
 };
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
-    Address, BytesN, Env, Vec,
+    Address, BytesN, Env, String, Vec,
 };
 
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -141,6 +141,8 @@ pub enum DataKey {
     PendingWithdrawal(Address),
     // Goal 3: min deposit
     MinDeposit,
+    // Minimum idle liquidity retained before allocating to a strategy
+    MinLiquidityBuffer,
     // Oracle configuration
     PriceOracle,
     OracleEnabled,
@@ -186,6 +188,8 @@ pub enum VaultError {
     TimelockNotExpired = 7,
     /// No pending withdrawal exists for this user.
     NoPendingWithdrawal = 8,
+    /// Strategy allocation would leave idle liquidity below the configured buffer.
+    LiquidityBufferNotMet = 9,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -951,9 +955,12 @@ impl YieldVault {
     }
 
     /// Move idle funds to the strategy.
-    pub fn invest(env: Env, amount: i128) {
+    pub fn invest(env: Env, amount: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
 
         let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
@@ -965,6 +972,10 @@ impl YieldVault {
             .unwrap_or(0);
         if idle_ta < amount {
             panic!("insufficient idle assets");
+        }
+        let remaining_idle = idle_ta.checked_sub(amount).expect("underflow");
+        if remaining_idle < Self::min_liquidity_buffer(env.clone()) {
+            return Err(VaultError::LiquidityBufferNotMet);
         }
 
         // Approve and deposit to strategy
@@ -980,10 +991,10 @@ impl YieldVault {
         strategy_client.deposit(&amount);
 
         // Update idle assets
-        env.storage().instance().set(
-            &DataKey::TotalAssets,
-            &idle_ta.checked_sub(amount).expect("underflow"),
-        );
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &remaining_idle);
+        Ok(())
     }
 
     /// Recall funds from the strategy.
@@ -1139,6 +1150,29 @@ impl YieldVault {
             .unwrap_or(0)
     }
 
+    /// Set the minimum idle vault liquidity retained before strategy allocation.
+    pub fn set_min_liquidity_buffer(env: Env, new_buffer: i128) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if new_buffer < 0 {
+            panic!("min_liquidity_buffer must be >= 0");
+        }
+        let old_buffer = Self::min_liquidity_buffer(env.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::MinLiquidityBuffer, &new_buffer);
+        env.events()
+            .publish((symbol_short!("liqbufchg"),), (old_buffer, new_buffer));
+    }
+
+    /// Returns the minimum idle vault liquidity retained before strategy allocation.
+    pub fn min_liquidity_buffer(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinLiquidityBuffer)
+            .unwrap_or(0)
+    }
+
     // ── Oracle configuration ──────────────────────────────────────────────────
 
     /// Set the price oracle contract address used for strategy value validation.
@@ -1291,7 +1325,7 @@ impl YieldVault {
             .get::<_, Option<Address>>(&DataKey::Strategy)
             .is_some();
         ContractMetadata {
-            version: CONTRACT_VERSION.into(),
+            version: String::from_str(&env, CONTRACT_VERSION),
             contract_paused: state.is_paused,
             has_strategy,
         }
