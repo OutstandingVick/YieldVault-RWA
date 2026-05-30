@@ -61,10 +61,53 @@ interface ValidateTargets {
   params?: ZodTypeAny;
 }
 
+export interface ValidationErrorDetail {
+  field: string;
+  message: string;
+  code: string;
+}
+
+function toValidationCode(issueCode: string): string {
+  switch (issueCode) {
+    case 'invalid_type':
+      return 'VAL_INVALID_TYPE';
+    case 'invalid_string':
+      return 'VAL_INVALID_STRING';
+    case 'too_small':
+      return 'VAL_TOO_SMALL';
+    case 'too_big':
+      return 'VAL_TOO_BIG';
+    case 'unrecognized_keys':
+      return 'VAL_UNRECOGNIZED_KEYS';
+    case 'custom':
+      return 'VAL_CUSTOM';
+    default:
+      return `VAL_${issueCode.replace(/[^a-zA-Z0-9]+/g, '_').toUpperCase()}`;
+  }
+}
+
 function formatZodError(err: ZodError): string {
   return err.errors
     .map((e) => `${e.path.length ? e.path.join('.') + ': ' : ''}${e.message}`)
     .join('; ');
+}
+
+function buildValidationDetails(err: ZodError): ValidationErrorDetail[] {
+  const details = err.errors.map((issue) => ({
+    field: issue.path.join('.'),
+    message: issue.message,
+    code: toValidationCode(issue.code),
+  }));
+
+  return details.sort((a, b) => {
+    if (a.field !== b.field) {
+      return a.field.localeCompare(b.field);
+    }
+    if (a.code !== b.code) {
+      return a.code.localeCompare(b.code);
+    }
+    return a.message.localeCompare(b.message);
+  });
 }
 
 export function validate(schemas: ValidateTargets) {
@@ -82,11 +125,15 @@ export function validate(schemas: ValidateTargets) {
       next();
     } catch (err) {
       if (err instanceof ZodError) {
+        const details = buildValidationDetails(err);
         res.status(400).json({
           error: 'Bad Request',
           status: 400,
+          code: 'VALIDATION_ERROR',
+          summary: 'Request validation failed',
+          errors: details,
           message: formatZodError(err),
-          details: err.errors.map((e) => ({ field: e.path.join('.'), message: e.message })),
+          details,
         });
         return;
       }

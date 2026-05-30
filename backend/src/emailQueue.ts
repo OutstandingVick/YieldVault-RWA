@@ -1,7 +1,21 @@
-import { PrismaClient, EmailQueue } from '@prisma/client';
-import { prisma } from './prismaClient';
+import { PrismaClient } from '@prisma/client';
+import { getPrismaClient } from './prismaClient';
 import { emailService, EmailOptions } from './emailService';
 import { logger } from './middleware/structuredLogging';
+
+interface EmailQueueItem {
+  id: string;
+  to: string;
+  subject: string;
+  text: string;
+  html?: string | null;
+  status: string;
+  retryCount: number;
+  maxRetries: number;
+  lastError?: string | null;
+  nextRetryAt?: Date | null;
+  createdAt?: Date;
+}
 
 export class EmailQueueService {
   private prisma: PrismaClient;
@@ -9,11 +23,15 @@ export class EmailQueueService {
   private isProcessing = false;
 
   constructor() {
-    this.prisma = prisma;
+    this.prisma = getPrismaClient();
   }
 
-  async enqueueEmail(options: EmailOptions): Promise<EmailQueue> {
-    return this.prisma.emailQueue.create({
+  private get queueDelegate(): any {
+    return (this.prisma as any).emailQueue;
+  }
+
+  async enqueueEmail(options: EmailOptions): Promise<EmailQueueItem> {
+    return this.queueDelegate.create({
       data: {
         to: options.to,
         subject: options.subject,
@@ -36,7 +54,7 @@ export class EmailQueueService {
 
     this.isProcessing = true;
     try {
-      const pendingEmails = await this.prisma.emailQueue.findMany({
+      const pendingEmails = await this.queueDelegate.findMany({
         where: {
           status: {
             in: ['pending', 'failed'],
@@ -62,9 +80,9 @@ export class EmailQueueService {
     }
   }
 
-  private async processEmail(email: EmailQueue): Promise<void> {
+  private async processEmail(email: EmailQueueItem): Promise<void> {
     try {
-      await this.prisma.emailQueue.update({
+      await this.queueDelegate.update({
         where: { id: email.id },
         data: { status: 'processing' },
       });
@@ -73,11 +91,11 @@ export class EmailQueueService {
         to: email.to,
         subject: email.subject,
         text: email.text,
-        html: email.html,
+        html: email.html ?? '',
       });
 
       if (success) {
-        await this.prisma.emailQueue.update({
+        await this.queueDelegate.update({
           where: { id: email.id },
           data: { status: 'completed' },
         });
@@ -90,11 +108,11 @@ export class EmailQueueService {
     }
   }
 
-  private async handleFailure(email: EmailQueue, errorMessage: string): Promise<void> {
+  private async handleFailure(email: EmailQueueItem, errorMessage: string): Promise<void> {
     const newRetryCount = email.retryCount + 1;
 
     if (newRetryCount >= email.maxRetries) {
-      await this.prisma.emailQueue.update({
+      await this.queueDelegate.update({
         where: { id: email.id },
         data: {
           status: 'dead-letter',
@@ -108,7 +126,7 @@ export class EmailQueueService {
       });
     } else {
       const nextRetryAt = this.calculateNextRetry(newRetryCount);
-      await this.prisma.emailQueue.update({
+      await this.queueDelegate.update({
         where: { id: email.id },
         data: {
           status: 'failed',
@@ -125,20 +143,20 @@ export class EmailQueueService {
     }
   }
 
-  async getEmailQueue(status?: string): Promise<EmailQueue[]> {
+  async getEmailQueue(status?: string): Promise<EmailQueueItem[]> {
     const where = status ? { status } : {};
-    return this.prisma.emailQueue.findMany({
+    return this.queueDelegate.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async replayEmail(emailId: string): Promise<EmailQueue> {
-    await this.prisma.emailQueue.findUniqueOrThrow({
+  async replayEmail(emailId: string): Promise<EmailQueueItem> {
+    await this.queueDelegate.findUniqueOrThrow({
       where: { id: emailId },
     });
 
-    return this.prisma.emailQueue.update({
+    return this.queueDelegate.update({
       where: { id: emailId },
       data: {
         status: 'pending',

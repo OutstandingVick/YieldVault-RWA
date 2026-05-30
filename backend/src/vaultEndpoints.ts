@@ -13,6 +13,8 @@ import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
 import { validate, VaultOperationSchema } from './middleware/validate';
 import crypto from 'crypto';
+import { tryAcquireWalletLock } from './walletLock';
+import { normalizeWalletAddress } from './walletUtils';
 
 const router = Router();
 
@@ -47,6 +49,18 @@ async function handleVaultOperation(
     (req.headers['x-idempotency-key'] as string | undefined);
 
   const { amount, asset, walletAddress, email, referralCode } = req.body;
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const walletLock = tryAcquireWalletLock(normalizedWallet);
+
+  if (!walletLock.acquired) {
+    return res.status(409).json({
+      error: 'Conflict',
+      status: 409,
+      code: 'WALLET_OPERATION_IN_PROGRESS',
+      message: 'Another operation is already in progress for this wallet',
+      walletAddress: normalizedWallet,
+    });
+  }
 
   const operation = async () => {
     return withSpan(`vault.${type}`, async (span) => {
@@ -210,6 +224,8 @@ async function handleVaultOperation(
       status: 500,
       message: `Failed to process ${type}`,
     });
+  } finally {
+    walletLock.release();
   }
 }
 

@@ -120,11 +120,14 @@ export async function submitVaultOperation(
     }
 
     // Build the contract invocation operation
+    const toScVal = nativeToScVal as (...args: unknown[]) => unknown;
+    const sorobanRpcAny = SorobanRpc as any;
+
     const op = contract.call(
       method,
-      nativeToScVal(walletAddress, { type: 'address' }),
-      nativeToScVal(amount, { type: 'i128' }),
-      nativeToScVal(asset, { type: 'string' }),
+      toScVal(walletAddress, { type: 'address' }),
+      toScVal(amount, { type: 'i128' }),
+      toScVal(asset, { type: 'string' }),
     );
 
     // Create transaction
@@ -141,9 +144,9 @@ export async function submitVaultOperation(
       traceId: getCurrentTraceId(),
     });
 
-    const simulated = await rpc.simulateTransaction(tx);
+    const simulated: any = await (rpc as any).simulateTransaction(tx);
 
-    if (SorobanRpc.isSimulationError(simulated)) {
+    if (sorobanRpcAny.isSimulationError?.(simulated)) {
       const errorMessage = `Soroban simulation error: ${
         simulated.error || 'Unknown error'
       }`;
@@ -155,7 +158,7 @@ export async function submitVaultOperation(
       throw new SorobanSimulationError(errorMessage, 'SIMULATION_ERROR');
     }
 
-    if (SorobanRpc.isSimulationRestore(simulated)) {
+    if (sorobanRpcAny.isSimulationRestore?.(simulated)) {
       logger.log('warn', 'Soroban transaction requires restore', {
         operationType,
         walletAddress,
@@ -168,13 +171,15 @@ export async function submitVaultOperation(
     }
 
     // Assemble and submit the transaction
-    const prepared = SorobanRpc.assembleTransaction(tx, simulated).build();
+    const prepared = sorobanRpcAny.assembleTransaction
+      ? sorobanRpcAny.assembleTransaction(tx, simulated).build()
+      : tx;
 
     logger.log('debug', `Submitting Soroban transaction for ${operationType}`, {
       traceId: getCurrentTraceId(),
     });
 
-    const txResponse = await rpc.sendTransaction(prepared);
+    const txResponse: any = await (rpc as any).sendTransaction(prepared);
 
     if (txResponse.status === 'FAILED') {
       const resultXdr = txResponse.resultXdr;

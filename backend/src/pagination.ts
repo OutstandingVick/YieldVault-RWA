@@ -36,16 +36,18 @@ export interface PaginationQuery {
 export interface PaginationMeta {
   /** Number of items returned in this response. */
   count: number;
+  /** Effective request limit used for this page. */
+  limit: number;
   /** Total number of items available (if known). */
-  total?: number;
+  total: number | null;
   /** Cursor for the next page (if more items exist). */
-  nextCursor?: string;
+  nextCursor: string | null;
   /** Cursor for the previous page (if applicable). */
-  prevCursor?: string;
+  prevCursor: string | null;
   /** Current page number (for offset-based pagination). */
-  currentPage?: number;
+  currentPage: number | null;
   /** Total number of pages (if total is known). */
-  totalPages?: number;
+  totalPages: number | null;
   /** Whether there are more items after this page. */
   hasNextPage: boolean;
   /** Whether there are items before this page. */
@@ -179,18 +181,15 @@ export function paginateWithCursor<T>(
     if (cursorIndex === -1) {
       return {
         data: [],
-        pagination: {
+        pagination: createPaginationEnvelope({
           count: 0,
+          limit,
+          total: query.page ? items.length : null,
           hasNextPage: false,
           hasPrevPage: false,
-          ...(query.page
-            ? {
-                currentPage: Math.max(1, query.page),
-                total: items.length,
-                totalPages: Math.max(1, Math.ceil(items.length / limit)),
-              }
-            : {}),
-        },
+          currentPage: query.page ? Math.max(1, query.page) : null,
+          totalPages: query.page ? Math.max(1, Math.ceil(items.length / limit)) : null,
+        }),
       };
     }
 
@@ -200,12 +199,13 @@ export function paginateWithCursor<T>(
   if (invalidCursor) {
     return {
       data: [],
-      pagination: {
+      pagination: createPaginationEnvelope({
         count: 0,
+        limit,
         total: items.length,
         hasNextPage: false,
         hasPrevPage: false,
-      },
+      }),
     };
   }
 
@@ -215,19 +215,15 @@ export function paginateWithCursor<T>(
   const data = hasMore ? pageItems.slice(0, limit) : pageItems;
 
   // Build pagination metadata
-  const pagination: PaginationMeta = {
+  const pagination: PaginationMeta = createPaginationEnvelope({
     count: data.length,
+    limit,
     total: items.length,
     hasNextPage: hasMore,
     hasPrevPage: startIndex > 0,
-    ...(query.page
-      ? {
-          currentPage: query.page,
-          total: items.length,
-          totalPages: Math.max(1, Math.ceil(items.length / limit)),
-        }
-      : {}),
-  };
+    currentPage: query.page || null,
+    totalPages: query.page ? Math.max(1, Math.ceil(items.length / limit)) : null,
+  });
 
   if (hasMore && data.length > 0) {
     pagination.nextCursor = getCursor(data[data.length - 1]);
@@ -263,14 +259,15 @@ export function paginateWithOffset<T>(
   const data = items.slice(startIndex, endIndex);
   const totalPages = Math.ceil(items.length / limit);
 
-  const pagination: PaginationMeta = {
+  const pagination: PaginationMeta = createPaginationEnvelope({
     count: data.length,
+    limit,
     total: items.length,
     currentPage: page,
     totalPages,
     hasNextPage: page < totalPages,
     hasPrevPage: page > 1,
-  };
+  });
 
   return { data, pagination };
 }
@@ -333,6 +330,30 @@ export function createPaginatedResponse<T>(
     pagination,
     timestamp: new Date().toISOString(),
     ...extras,
+  };
+}
+
+export function createPaginationEnvelope(meta: {
+  count: number;
+  limit: number;
+  total?: number | null;
+  nextCursor?: string | null;
+  prevCursor?: string | null;
+  currentPage?: number | null;
+  totalPages?: number | null;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}): PaginationMeta {
+  return {
+    count: meta.count,
+    limit: meta.limit,
+    total: meta.total ?? null,
+    nextCursor: meta.nextCursor ?? null,
+    prevCursor: meta.prevCursor ?? null,
+    currentPage: meta.currentPage ?? null,
+    totalPages: meta.totalPages ?? null,
+    hasNextPage: meta.hasNextPage,
+    hasPrevPage: meta.hasPrevPage,
   };
 }
 
