@@ -27,6 +27,7 @@ import YieldBreakdownChart from "../components/YieldBreakdownChart";
 import { useReferralStats, useReferralLink } from "../hooks/useReferral";
 import ShareModal from "../components/ShareModal";
 import EmptyState from "../components/ui/EmptyState";
+import OnboardingPanel from "../components/OnboardingPanel";
 import { useNavigate } from "react-router-dom";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 
@@ -348,11 +349,12 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       />
 
       {!walletAddress ? (
-        <div style={{ textAlign: "center", padding: "48px" }}>
-          <p style={{ color: "var(--text-secondary)" }}>
-            Please connect your wallet to view your portfolio.
-          </p>
-        </div>
+        <OnboardingPanel
+          walletConnected={false}
+          onConnectWallet={() => window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"))}
+          onReviewVault={() => navigate("/")}
+          onDeposit={() => navigate("/")}
+        />
       ) : (
         <div className="flex flex-col gap-lg">
           {error && <ApiStatusBanner error={error} />}
