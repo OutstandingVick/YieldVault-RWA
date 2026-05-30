@@ -27,7 +27,7 @@ import YieldBreakdownChart from "../components/YieldBreakdownChart";
 import { useReferralStats, useReferralLink } from "../hooks/useReferral";
 import ShareModal from "../components/ShareModal";
 import EmptyState from "../components/ui/EmptyState";
-import OnboardingPanel from "../components/OnboardingPanel";
+import FirstTimePortfolioPanel from "../components/FirstTimePortfolioPanel";
 import { useNavigate } from "react-router-dom";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 
@@ -349,7 +349,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       />
 
       {!walletAddress ? (
-        <OnboardingPanel
+        <FirstTimePortfolioPanel
           walletConnected={false}
           onConnectWallet={() => window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"))}
           onReviewVault={() => navigate("/")}
@@ -429,12 +429,11 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
           {/* Empty state: wallet connected, loading done, no portfolio value */}
           {!isLoading && totalValue === 0 ? (
-            <EmptyState
-              title="Your portfolio is empty."
-              description="Once you deposit, you'll be able to track your assets and growth here."
-              icon={<Briefcase />}
-              actionLabel="Deposit Now"
-              onAction={() => navigate("/")}
+            <FirstTimePortfolioPanel
+              walletConnected={true}
+              onConnectWallet={() => {}}
+              onReviewVault={() => navigate("/")}
+              onDeposit={() => navigate("/")}
             />
           ) : (
           <section
