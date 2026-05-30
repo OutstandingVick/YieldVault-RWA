@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import {
   Activity,
   AlertCircle,
@@ -34,16 +33,7 @@ import EmptyState from "./ui/EmptyState";
 import { TransactionConfirmationModal } from "./TransactionConfirmationModal";
 import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
-
-/**
- * Valid transaction tabs in the vault dashboard.
- */
-type TransactionTab = "deposit" | "withdraw";
-
-/**
- * Current step in the transaction wizard flow.
- */
-type TransactionStep = "amount" | "review" | "result";
+import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -191,7 +181,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   usdcBalance = 0,
   xlmBalance = 0,
 }) => {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const dashboardUrl = useDashboardUrlState();
   const {
     formattedTvl,
     formattedApy,
@@ -205,7 +195,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const toast = useToast();
   const delayedLoading = useDelayedLoading(isLoading);
 
-  const [activeTab, setActiveTab] = useState<TransactionTab>("deposit");
   const availableBalance = walletAddress ? usdcBalance : 0;
 
   const transactionSchema = React.useMemo<ValidationSchema<{ amount: string }>>(() => ({
@@ -216,7 +205,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         if (isNaN(num) || !isFinite(num)) return "Enter a valid number.";
         if (num <= 0) return "Amount must be greater than 0.";
 
-        if (activeTab === "deposit") {
+        if (dashboardUrl.state.tab === "deposit") {
           if (num < MIN_DEPOSIT_AMOUNT) {
             return `Minimum deposit is ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC.`;
           }
@@ -234,7 +223,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         return undefined;
       }
     }
-  }), [activeTab, availableBalance, isCapReached]);
+  }), [dashboardUrl.state.tab, availableBalance, isCapReached]);
 
   const {
     values,
@@ -244,12 +233,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleBlur,
     setValues,
     setFieldError
-  } = useForm({ amount: "" }, transactionSchema);
+  } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
 
   // Wizard state
-  const [currentStep, setCurrentStep] = useState<TransactionStep>("amount");
   const [transactionResult, setTransactionResult] = useState<{
     success: boolean;
     message: string;
@@ -260,28 +248,18 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   // Handle deep link parameters
   useEffect(() => {
-    const action = searchParams.get("action");
-    const amountParam = searchParams.get("amount");
+    const action = dashboardUrl.state.tab;
+    const amountParam = dashboardUrl.state.amount;
 
     if (action !== "deposit") {
       return;
     }
 
-    setActiveTab("deposit");
-
-    const parsedAmount = amountParam === null ? Number.NaN : Number(amountParam);
+    const parsedAmount = amountParam === "" ? Number.NaN : Number(amountParam);
     if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
       setValues({ amount: parsedAmount.toString() });
-    } else {
-      setValues({ amount: "" });
     }
-
-    // Remove only deep-link query params while preserving any unrelated URL state.
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("action");
-    nextParams.delete("amount");
-    setSearchParams(nextParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
 
   const depositMutation = useDepositMutation();
   const withdrawMutation = useWithdrawMutation();
@@ -297,7 +275,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
     walletAddress,
     amount,
-    activeTab
+    dashboardUrl.state.tab
   );
 
   const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();
@@ -305,13 +283,14 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const resetWizard = () => {
     setValues({ amount: "" });
-    setCurrentStep("amount");
+    dashboardUrl.setStep("amount");
+    dashboardUrl.setAmount("");
     setTransactionResult(null);
   };
 
   const goToReview = () => {
     const validationError = getAmountValidationError(
-      activeTab,
+      dashboardUrl.state.tab,
       amount,
       availableBalance,
       isCapReached,
@@ -328,19 +307,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       return;
     }
 
-    setCurrentStep("review");
+    dashboardUrl.setStep("review");
   };
 
   useEffect(() => {
     const handleDeposit = () => {
-      setActiveTab("deposit");
+      dashboardUrl.setTab("deposit");
       setTimeout(() => {
         const input = document.querySelector(".input-field") as HTMLInputElement | null;
         if (input) input.focus();
       }, 0);
     };
     const handleWithdraw = () => {
-      setActiveTab("withdraw");
+      dashboardUrl.setTab("withdraw");
       setTimeout(() => {
         const input = document.querySelector(".input-field") as HTMLInputElement | null;
         if (input) input.focus();
@@ -352,7 +331,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       window.removeEventListener("TRIGGER_DEPOSIT", handleDeposit);
       window.removeEventListener("TRIGGER_WITHDRAW", handleWithdraw);
     };
-  }, []);
+  }, [dashboardUrl]);
 
   const isProcessing = depositMutation.isPending
     ? "deposit"
@@ -363,9 +342,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const strategy = summary.strategy;
   const enteredAmount = Number(amount);
-<<<<<<< HEAD
   const activeAmountError = getAmountValidationError(
-    activeTab,
+    dashboardUrl.state.tab,
     amount,
     availableBalance,
     isCapReached,
@@ -373,12 +351,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     feeXlm,
   );
   const isValidAmount = !activeAmountError;
-  const showInlineError = touched[activeTab] && Boolean(activeAmountError);
-=======
-  const activeAmountError = errors.amount;
-  const isValidAmount = !activeAmountError && amount.length > 0;
   const showInlineError = touched.amount && Boolean(activeAmountError);
->>>>>>> origin/main
   const managementFeeBps = 35;
   const estimatedFee = isValidAmount
     ? (enteredAmount * managementFeeBps) / 10_000
@@ -391,7 +364,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     isBusy ||
     Boolean(activeAmountError) ||
     !amount ||
-    (activeTab === "deposit" && isCapReached);
+    (dashboardUrl.state.tab === "deposit" && isCapReached);
 
 
   const handleTransaction = async (actionType: TransactionTab) => {
@@ -444,7 +417,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           ? `${value.toFixed(2)} USDC has been deposited into the vault.`
           : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
       });
-      setCurrentStep("result");
+      dashboardUrl.setStep("result");
       
       toast.success({
         title: actionType === "deposit" ? "Deposit Successful" : "Withdrawal Successful",
@@ -460,7 +433,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             setFieldError("amount", detail.message);
           }
         });
-        setCurrentStep("amount");
+        dashboardUrl.setStep("amount");
       }
 
       setTransactionResult({
@@ -470,7 +443,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             ? err.message
             : "An error occurred during the transaction.",
       });
-      setCurrentStep("result");
+      dashboardUrl.setStep("result");
       
       toast.error({
         title: "Transaction Failed",
@@ -750,21 +723,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           )}
 
           <Tabs
-            value={activeTab}
+            value={dashboardUrl.state.tab}
             defaultValue="deposit"
             onValueChange={(value) => {
-              setActiveTab(value as TransactionTab);
+              dashboardUrl.setTab(value as TransactionTab);
               setValues({ amount: "" });
+              dashboardUrl.setAmount("");
             }}
           >
-            {currentStep === "amount" && (
+            {dashboardUrl.state.step === "amount" && (
               <TabsList style={{ marginBottom: "24px" }}>
                 <TabsTrigger value="deposit">Deposit</TabsTrigger>
                 <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
               </TabsList>
             )}
 
-            <StepIndicator currentStep={currentStep} />
+            <StepIndicator currentStep={dashboardUrl.state.step} />
 
             {(["deposit", "withdraw"] as const).map((tab) => (
               <TabsContent key={tab} value={tab}>
@@ -773,7 +747,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 )}
 
                   <div style={{ minHeight: "380px", display: "flex", flexDirection: "column" }}>
-                    {currentStep === "amount" && (
+                    {dashboardUrl.state.step === "amount" && (
                       <div className="animate-in fade-in duration-300">
                         <div style={{ marginBottom: "24px" }}>
                           <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
@@ -895,7 +869,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       </div>
                     )}
 
-                    {currentStep === "review" && (
+                    {dashboardUrl.state.step === "review" && (
                       <div className="animate-in fade-in slide-in-from-right-4 duration-300 flex-1 flex flex-col">
                         <div className="flex-1">
                           <h4 style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
@@ -1121,7 +1095,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             type="button"
                             className="btn btn-outline"
                             style={{ flex: 1 }}
-                            onClick={() => setCurrentStep("amount")}
+                            onClick={() => dashboardUrl.setStep("amount")}
                             disabled={isBusy}
                           >
                             Back
@@ -1150,7 +1124,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       </div>
                     )}
 
-                    {currentStep === "result" && transactionResult && (
+                    {dashboardUrl.state.step === "result" && transactionResult && (
                       <div className="result-view flex-1 flex flex-col justify-center">
                         <div className={`result-icon-container ${transactionResult.success ? "success" : "error"} animate-scale-in`}>
                           {transactionResult.success ? <Check size={32} /> : <AlertTriangle size={32} />}
