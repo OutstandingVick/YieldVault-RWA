@@ -186,3 +186,23 @@ model EmailQueue {
   @@index([status])
   @@index([createdAt])
 }
+
+model WebhookDeadLetter {
+  id                 String   @id @default(uuid())
+  endpointId         String
+  endpointUrl        String
+  eventType          String
+  payload            String
+  attempts           Int
+  lastError          String?
+  originalDeliveryId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  retriedAt          DateTime?
+  status             String   @default("dead-letter")
+
+  @@index([endpointId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([status])
+}
