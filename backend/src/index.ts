@@ -20,6 +20,13 @@ import {
 import { idempotencyStore } from './idempotency';
 import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
 import { recordAdminAuditLog } from './adminAudit';
+import {
+  startImpersonationSession,
+  endImpersonationSession,
+  validateImpersonationSession,
+  listImpersonationSessions,
+  resolveImpersonationSessionContext,
+} from './impersonationSessionService';
 import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
 import { sorobanCircuitBreaker } from './circuitBreaker';
@@ -1125,18 +1132,209 @@ app.get('/admin/allowlist', validateApiKey, (_req: Request, res: Response) => {
 });
 
 /**
- * GET /admin/impersonate/:wallet - inspect vault state as a specific wallet
+ * POST /admin/impersonate/sessions - start a time-bounded impersonation session
  * Requires super-admin API key.
  */
-app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: Response) => {
-  const wallet = String(req.params.wallet || '').trim();
+app.post('/admin/impersonate/sessions', validateApiKey, async (req: Request, res: Response) => {
+  const actingAdminAddress = resolveActingAdminAddress(req);
+  const { actor, apiKeyHash, ipAddress, userAgent } = resolveImpersonationSessionContext(req);
+  const targetWallet = typeof req.body?.targetWallet === 'string' ? req.body.targetWallet.trim() : '';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
+    targetWallet: targetWallet || 'unknown',
+    impersonation: true,
+  };
+
+  if (!targetWallet || !reason) {
+    req.adminAuditAction = 'admin.impersonate.session.invalid';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'targetWallet and reason are required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.session.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required for impersonation sessions',
+    });
+    return;
+  }
+
+  try {
+    const session = await startImpersonationSession({
+      actor: actingAdminAddress,
+      apiKeyHash,
+      targetWallet,
+      reason,
+      ipAddress,
+      userAgent,
+    });
+
+    req.adminAuditAction = 'admin.impersonate.session.started';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      sessionId: session.id,
+      expiresAt: session.expiresAt,
+    };
+
+    res.status(201).json({ session });
+  } catch (error) {
+    req.adminAuditAction = 'admin.impersonate.session.failed';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to start impersonation session',
+    });
+  }
+});
+
+/**
+ * GET /admin/impersonate/sessions - list active and historical impersonation sessions
+ * Requires super-admin API key.
+ */
+app.get('/admin/impersonate/sessions', validateApiKey, async (req: Request, res: Response) => {
   const actingAdminAddress = resolveActingAdminAddress(req);
 
   req.adminAuditActor = actingAdminAddress;
   req.adminAuditMetadata = {
     actingAdminAddress,
     adminRole: req.authApiKeyRole || 'admin',
+    impersonation: true,
+  };
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.session.list.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to list impersonation sessions',
+    });
+    return;
+  }
+
+  const statusRaw = typeof req.query.status === 'string' ? req.query.status : 'all';
+  const status =
+    statusRaw === 'active' || statusRaw === 'ended' || statusRaw === 'expired' ? statusRaw : 'all';
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const targetWallet = typeof req.query.targetWallet === 'string' ? req.query.targetWallet : undefined;
+  const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 50;
+
+  try {
+    const sessions = await listImpersonationSessions({
+      status,
+      actor,
+      targetWallet,
+      limit: Number.isFinite(limit) && limit > 0 ? limit : 50,
+    });
+
+    req.adminAuditAction = 'admin.impersonate.session.list';
+    res.status(200).json({ sessions, count: sessions.length });
+  } catch (error) {
+    req.adminAuditAction = 'admin.impersonate.session.list.failed';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to list impersonation sessions',
+    });
+  }
+});
+
+/**
+ * DELETE /admin/impersonate/sessions/:id - end an active impersonation session
+ * Requires super-admin API key.
+ */
+app.delete('/admin/impersonate/sessions/:id', validateApiKey, async (req: Request, res: Response) => {
+  const actingAdminAddress = resolveActingAdminAddress(req);
+  const sessionId = String(req.params.id || '').trim();
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
+    sessionId: sessionId || 'unknown',
+    impersonation: true,
+  };
+
+  if (!sessionId) {
+    req.adminAuditAction = 'admin.impersonate.session.end.invalid';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'session id is required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.session.end.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to end impersonation sessions',
+    });
+    return;
+  }
+
+  try {
+    const session = await endImpersonationSession(sessionId, actingAdminAddress);
+    if (!session) {
+      req.adminAuditAction = 'admin.impersonate.session.end.not_found';
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Impersonation session not found or already expired',
+      });
+      return;
+    }
+
+    req.adminAuditAction = 'admin.impersonate.session.ended';
+    res.status(200).json({ session });
+  } catch (error) {
+    req.adminAuditAction = 'admin.impersonate.session.end.failed';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to end impersonation session',
+    });
+  }
+});
+
+/**
+ * GET /admin/impersonate/:wallet - inspect vault state as a specific wallet
+ * Requires super-admin API key and a valid non-expired impersonation session.
+ */
+app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: Response) => {
+  const wallet = String(req.params.wallet || '').trim();
+  const actingAdminAddress = resolveActingAdminAddress(req);
+  const sessionId = String(req.get('x-impersonation-session-id') || '').trim();
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
     targetWallet: wallet || 'unknown',
+    sessionId: sessionId || undefined,
     impersonation: true,
   };
 
@@ -1160,11 +1358,56 @@ app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: 
     return;
   }
 
+  if (!sessionId) {
+    req.adminAuditAction = 'admin.impersonate.session.required';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'x-impersonation-session-id header is required',
+    });
+    return;
+  }
+
+  const validation = await validateImpersonationSession(sessionId, wallet, actingAdminAddress);
+  if (!validation.ok) {
+    const statusCode = validation.reason === 'not_found' ? 404 : 403;
+    req.adminAuditAction =
+      validation.reason === 'expired'
+        ? 'admin.impersonate.expired'
+        : 'admin.impersonate.session.invalid';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      validationReason: validation.reason,
+    };
+    res.status(statusCode).json({
+      error: statusCode === 404 ? 'Not Found' : 'Forbidden',
+      status: statusCode,
+      message:
+        validation.reason === 'expired'
+          ? 'Impersonation session has expired; start a new session to continue'
+          : validation.reason === 'ended'
+            ? 'Impersonation session has ended; start a new session to continue'
+            : validation.reason === 'wallet_mismatch'
+              ? 'Session target wallet does not match requested wallet'
+              : validation.reason === 'actor_mismatch'
+                ? 'Session actor does not match requesting admin'
+                : 'Impersonation session not found',
+    });
+    return;
+  }
+
   req.adminAuditAction = 'admin.impersonate';
 
   try {
     const snapshot = await buildImpersonatedVaultState(wallet);
-    res.status(200).json(snapshot);
+    res.status(200).json({
+      ...snapshot,
+      impersonationSession: {
+        id: validation.session.id,
+        expiresAt: validation.session.expiresAt,
+        reason: validation.session.reason,
+      },
+    });
   } catch (error) {
     req.adminAuditAction = 'admin.impersonate.failed';
     req.adminAuditMetadata = {
