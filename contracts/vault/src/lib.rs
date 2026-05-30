@@ -83,6 +83,9 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MAX_PAGE_SIZE: u32 = 50;
 
+/// Timelock delay for critical parameter updates: 48 hours in seconds.
+const PARAM_TIMELOCK_DELAY: u64 = 172_800;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Shipment status for RWA asset tracking.
@@ -149,12 +152,29 @@ pub enum DataKey {
     PriceOracle,
     OracleEnabled,
     OracleHeartbeat,
+    // Timelocked parameter updates
+    PendingParamUpdate(ParamKey),
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// DAO governance proposal for strategy selection.
-pub struct StrategyProposal {
+/// Identifies which critical parameter is being updated via timelock.
+pub enum ParamKey {
+    FeeBps,
+    MinDeposit,
+    LargeWithdrawalThreshold,
+    MinLiquidityBuffer,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// A queued parameter update that becomes effective after the timelock expires.
+pub struct PendingParamUpdate {
+    pub new_value: i128,
+    pub unlock_timestamp: u64,
+}
+
+
     pub strategy: Address,
     pub yes_votes: i128,
     pub no_votes: i128,
@@ -196,6 +216,12 @@ pub enum VaultError {
     ExceedsStrategyCap = 10,
     /// Strategy allocation exceeds configured risk threshold.
     ExceedsRiskThreshold = 11,
+    /// No pending parameter update exists for this key.
+    NoPendingParamUpdate = 12,
+    /// Parameter update timelock has not expired yet.
+    ParamTimelockNotExpired = 13,
+    /// A pending parameter update already exists for this key.
+    ParamUpdateAlreadyPending = 14,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -1263,6 +1289,150 @@ impl YieldVault {
             panic!("threshold must be 0-10000");
         }
         env.storage().instance().set(&DataKey::StrategyRiskThreshold(strategy), &threshold);
+    }
+
+    // ── Timelocked parameter updates ─────────────────────────────────────────
+
+    /// Propose a critical parameter update. The change will not take effect until
+    /// `execute_param_update` is called after the 48-hour timelock expires.
+    ///
+    /// ### Parameters
+    /// * `param` - Which parameter to update.
+    /// * `new_value` - The proposed new value.
+    ///
+    /// ### Errors
+    /// * `ParamUpdateAlreadyPending` - If a pending update already exists for this param.
+    pub fn propose_param_update(
+        env: Env,
+        param: ParamKey,
+        new_value: i128,
+    ) -> Result<u64, VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let key = DataKey::PendingParamUpdate(param);
+        if env.storage().instance().has(&key) {
+            return Err(VaultError::ParamUpdateAlreadyPending);
+        }
+
+        let unlock_ts = env
+            .ledger()
+            .timestamp()
+            .checked_add(PARAM_TIMELOCK_DELAY)
+            .expect("overflow");
+
+        let pending = PendingParamUpdate {
+            new_value,
+            unlock_timestamp: unlock_ts,
+        };
+        env.storage().instance().set(&key, &pending);
+
+        env.events()
+            .publish((symbol_short!("prmprop"),), (new_value, unlock_ts));
+
+        Ok(unlock_ts)
+    }
+
+    /// Execute a previously proposed parameter update after the timelock has expired.
+    ///
+    /// ### Errors
+    /// * `NoPendingParamUpdate` - If no pending update exists for this param.
+    /// * `ParamTimelockNotExpired` - If the timelock has not yet elapsed.
+    pub fn execute_param_update(env: Env, param: ParamKey) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let key = DataKey::PendingParamUpdate(param.clone());
+        let pending: PendingParamUpdate = env
+            .storage()
+            .instance()
+            .get(&key)
+            .ok_or(VaultError::NoPendingParamUpdate)?;
+
+        if env.ledger().timestamp() < pending.unlock_timestamp {
+            return Err(VaultError::ParamTimelockNotExpired);
+        }
+
+        env.storage().instance().remove(&key);
+
+        match param {
+            ParamKey::FeeBps => {
+                let new_bps = pending.new_value;
+                if new_bps < 0 || new_bps > 10_000 {
+                    panic!("fee_bps must be 0-10000");
+                }
+                let old_bps: i128 =
+                    env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+                env.storage().instance().set(&DataKey::FeeBps, &new_bps);
+                env.events()
+                    .publish((symbol_short!("feechg"),), (old_bps, new_bps));
+            }
+            ParamKey::MinDeposit => {
+                let new_min = pending.new_value;
+                if new_min < 0 {
+                    panic!("min_deposit must be >= 0");
+                }
+                let old_min: i128 = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::MinDeposit)
+                    .unwrap_or(0);
+                env.storage().instance().set(&DataKey::MinDeposit, &new_min);
+                env.events()
+                    .publish((symbol_short!("mindepchg"),), (old_min, new_min));
+            }
+            ParamKey::LargeWithdrawalThreshold => {
+                let new_threshold = pending.new_value;
+                if new_threshold <= 0 {
+                    panic!("threshold must be > 0");
+                }
+                env.storage()
+                    .instance()
+                    .set(&DataKey::LargeWithdrawalThreshold, &new_threshold);
+            }
+            ParamKey::MinLiquidityBuffer => {
+                let new_buffer = pending.new_value;
+                if new_buffer < 0 {
+                    panic!("min_liquidity_buffer must be >= 0");
+                }
+                let old_buffer = Self::min_liquidity_buffer(env.clone());
+                env.storage()
+                    .instance()
+                    .set(&DataKey::MinLiquidityBuffer, &new_buffer);
+                env.events()
+                    .publish((symbol_short!("liqbufchg"),), (old_buffer, new_buffer));
+            }
+        }
+
+        env.events()
+            .publish((symbol_short!("prmexec"),), pending.new_value);
+
+        Ok(())
+    }
+
+    /// Cancel a pending parameter update before it is executed.
+    ///
+    /// ### Errors
+    /// * `NoPendingParamUpdate` - If no pending update exists for this param.
+    pub fn cancel_param_update(env: Env, param: ParamKey) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let key = DataKey::PendingParamUpdate(param);
+        if !env.storage().instance().has(&key) {
+            return Err(VaultError::NoPendingParamUpdate);
+        }
+
+        env.storage().instance().remove(&key);
+        env.events().publish((symbol_short!("prmcancel"),), ());
+        Ok(())
+    }
+
+    /// Returns the pending parameter update for a given param key, if any.
+    pub fn pending_param_update(env: Env, param: ParamKey) -> Option<PendingParamUpdate> {
+        env.storage()
+            .instance()
+            .get(&DataKey::PendingParamUpdate(param))
     }
 
     pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {

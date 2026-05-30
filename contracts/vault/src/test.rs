@@ -1150,3 +1150,138 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.total_shares(), 200);
     assert_eq!(vault.total_assets(), 200);
 }
+
+// ─── Timelocked parameter updates ────────────────────────────────────────────
+
+#[test]
+fn test_propose_param_update_stores_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let unlock_ts = vault.propose_param_update(&ParamKey::FeeBps, &500);
+    let pending = vault.pending_param_update(&ParamKey::FeeBps).unwrap();
+    assert_eq!(pending.new_value, 500);
+    assert_eq!(pending.unlock_timestamp, unlock_ts);
+}
+
+#[test]
+fn test_propose_param_update_duplicate_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::FeeBps, &500);
+    let result = vault.try_propose_param_update(&ParamKey::FeeBps, &200);
+    assert_eq!(result, Err(Ok(VaultError::ParamUpdateAlreadyPending)));
+}
+
+#[test]
+fn test_execute_param_update_before_timelock_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::FeeBps, &500);
+    let result = vault.try_execute_param_update(&ParamKey::FeeBps);
+    assert_eq!(result, Err(Ok(VaultError::ParamTimelockNotExpired)));
+}
+
+#[test]
+fn test_execute_param_update_fee_bps_after_timelock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::FeeBps, &300);
+
+    // Advance time past the 48-hour timelock
+    env.ledger().with_mut(|l| l.timestamp += 172_801);
+
+    vault.execute_param_update(&ParamKey::FeeBps);
+    assert_eq!(vault.fee_bps(), 300);
+    // Pending entry should be cleared
+    assert!(vault.pending_param_update(&ParamKey::FeeBps).is_none());
+}
+
+#[test]
+fn test_execute_param_update_min_deposit_after_timelock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::MinDeposit, &100);
+    env.ledger().with_mut(|l| l.timestamp += 172_801);
+    vault.execute_param_update(&ParamKey::MinDeposit);
+    assert_eq!(vault.min_deposit(), 100);
+}
+
+#[test]
+fn test_execute_param_update_large_withdrawal_threshold_after_timelock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::LargeWithdrawalThreshold, &5000);
+    env.ledger().with_mut(|l| l.timestamp += 172_801);
+    vault.execute_param_update(&ParamKey::LargeWithdrawalThreshold);
+    assert_eq!(vault.large_withdrawal_threshold(), 5000);
+}
+
+#[test]
+fn test_execute_param_update_min_liquidity_buffer_after_timelock() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::MinLiquidityBuffer, &200);
+    env.ledger().with_mut(|l| l.timestamp += 172_801);
+    vault.execute_param_update(&ParamKey::MinLiquidityBuffer);
+    assert_eq!(vault.min_liquidity_buffer(), 200);
+}
+
+#[test]
+fn test_cancel_param_update_removes_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::FeeBps, &500);
+    vault.cancel_param_update(&ParamKey::FeeBps);
+    assert!(vault.pending_param_update(&ParamKey::FeeBps).is_none());
+}
+
+#[test]
+fn test_cancel_param_update_no_pending_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let result = vault.try_cancel_param_update(&ParamKey::FeeBps);
+    assert_eq!(result, Err(Ok(VaultError::NoPendingParamUpdate)));
+}
+
+#[test]
+fn test_execute_param_update_no_pending_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let result = vault.try_execute_param_update(&ParamKey::FeeBps);
+    assert_eq!(result, Err(Ok(VaultError::NoPendingParamUpdate)));
+}
+
+#[test]
+fn test_cancel_then_repropose_param_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (vault, _, _, _) = setup_vault(&env);
+
+    vault.propose_param_update(&ParamKey::FeeBps, &500);
+    vault.cancel_param_update(&ParamKey::FeeBps);
+
+    // Should be able to propose again after cancellation
+    vault.propose_param_update(&ParamKey::FeeBps, &200);
+    let pending = vault.pending_param_update(&ParamKey::FeeBps).unwrap();
+    assert_eq!(pending.new_value, 200);
+}
