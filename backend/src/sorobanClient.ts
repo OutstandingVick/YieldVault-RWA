@@ -145,7 +145,9 @@ export async function submitVaultOperation(
 
     const simulated = await rpcClient.simulateTransaction(tx);
 
-    if (StellarRpc.Api.isSimulationError(simulated)) {
+    const rpcApi = (StellarRpc as any).Api ?? (StellarRpc as any);
+
+    if (typeof rpcApi.isSimulationError === 'function' && rpcApi.isSimulationError(simulated)) {
       const errorMessage = `Soroban simulation error: ${
         'error' in simulated ? String(simulated.error) : 'Unknown error'
       }`;
@@ -157,7 +159,7 @@ export async function submitVaultOperation(
       throw new SorobanSimulationError(errorMessage, 'SIMULATION_ERROR');
     }
 
-    if (StellarRpc.Api.isSimulationRestore(simulated)) {
+    if (typeof rpcApi.isSimulationRestore === 'function' && rpcApi.isSimulationRestore(simulated)) {
       logger.log('warn', 'Soroban transaction requires restore', {
         operationType,
         walletAddress,
