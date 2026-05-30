@@ -15,12 +15,17 @@ export interface TransactionEventPayload {
   timestamp: string;
 }
 
+export type WebhookVerificationStatus = 'pending' | 'verified' | 'failed';
+
 export interface WebhookEndpoint {
   id: string;
   url: string;
   eventTypes: TransactionEventType[];
   enabled: boolean;
   hasSecret: boolean;
+  verificationStatus: WebhookVerificationStatus;
+  verifiedAt?: string;
+  lastVerificationError?: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -34,6 +39,12 @@ interface InternalWebhookEndpoint {
   enabled: boolean;
   secret?: string;
   secretHash?: string;
+  verificationStatus: WebhookVerificationStatus;
+  challengeToken?: string;
+  challengeTokenHash?: string;
+  challengeExpiresAt?: string;
+  verifiedAt?: string;
+  lastVerificationError?: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -102,25 +113,148 @@ const deliveryRetention = parseInt(process.env.WEBHOOK_DELIVERY_RETENTION || '20
 const jitterFactor = parseFloat(process.env.WEBHOOK_JITTER_FACTOR || '0.5');
 const jitterMaxMs = parseInt(process.env.WEBHOOK_JITTER_MAX_MS || '30000', 10);
 
+const verificationTimeoutMs = parseInt(process.env.WEBHOOK_VERIFICATION_TIMEOUT_MS || '5000', 10);
+const challengeTtlMs = parseInt(process.env.WEBHOOK_CHALLENGE_TTL_SECONDS || '900', 10) * 1000;
+const allowUnverifiedDelivery = process.env.WEBHOOK_ALLOW_UNVERIFIED === 'true';
+
+function createChallengeToken(): string {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function hashChallengeToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+export async function probeWebhookVerification(endpoint: InternalWebhookEndpoint): Promise<boolean> {
+  if (!endpoint.challengeToken) {
+    return false;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), verificationTimeoutMs);
+
+  try {
+    const body = {
+      type: 'webhook.verification',
+      challenge: endpoint.challengeToken,
+    };
+
+    const response = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'YieldVault-Webhook-Verification/1.0',
+        'X-YieldVault-Challenge': endpoint.challengeToken,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Verification endpoint returned HTTP ${response.status}`);
+    }
+
+    const responseChallenge = response.headers.get('x-yieldvault-challenge');
+    if (responseChallenge === endpoint.challengeToken) {
+      return true;
+    }
+
+    const responseBody = await response.json().catch(() => null) as { challenge?: string } | null;
+    return responseBody?.challenge === endpoint.challengeToken;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function verifyWebhookEndpoint(id: string): Promise<WebhookEndpoint | null> {
+  const existing = endpoints.get(id);
+  if (!existing || existing.deletedAt) {
+    return null;
+  }
+
+  if (
+    existing.challengeExpiresAt &&
+    Date.parse(existing.challengeExpiresAt) <= Date.now()
+  ) {
+    const expired: InternalWebhookEndpoint = {
+      ...existing,
+      verificationStatus: 'failed',
+      lastVerificationError: 'Verification challenge expired',
+      updatedAt: new Date().toISOString(),
+    };
+    endpoints.set(id, expired);
+    void persistWebhookEndpoint(expired);
+    return sanitizeWebhookEndpoint(expired);
+  }
+
+  try {
+    const verified = await probeWebhookVerification(existing);
+    if (!verified) {
+      const failed: InternalWebhookEndpoint = {
+        ...existing,
+        verificationStatus: 'failed',
+        lastVerificationError: 'Challenge response did not match',
+        updatedAt: new Date().toISOString(),
+      };
+      endpoints.set(id, failed);
+      void persistWebhookEndpoint(failed);
+      return sanitizeWebhookEndpoint(failed);
+    }
+
+    const updated: InternalWebhookEndpoint = {
+      ...existing,
+      verificationStatus: 'verified',
+      verifiedAt: new Date().toISOString(),
+      enabled: true,
+      challengeToken: undefined,
+      lastVerificationError: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    endpoints.set(id, updated);
+    void persistWebhookEndpoint(updated);
+    return sanitizeWebhookEndpoint(updated);
+  } catch (error) {
+    const failed: InternalWebhookEndpoint = {
+      ...existing,
+      verificationStatus: 'failed',
+      lastVerificationError: error instanceof Error ? error.message : String(error),
+      updatedAt: new Date().toISOString(),
+    };
+    endpoints.set(id, failed);
+    void persistWebhookEndpoint(failed);
+    return sanitizeWebhookEndpoint(failed);
+  }
+}
+
 export function registerWebhookEndpoint(input: RegisterWebhookInput): WebhookEndpoint {
   assertValidWebhookUrl(input.url);
 
   const now = new Date().toISOString();
+  const challengeToken = createChallengeToken();
   const endpoint: InternalWebhookEndpoint = {
     id: `wh_${crypto.randomBytes(6).toString('hex')}`,
     url: input.url,
     eventTypes: input.eventTypes && input.eventTypes.length > 0
       ? input.eventTypes
       : ['transaction.deposit.created', 'transaction.withdrawal.created'],
-    enabled: input.enabled ?? true,
+    enabled: input.enabled ?? false,
     secret: input.secret,
     secretHash: input.secret ? hashWebhookSecret(input.secret) : undefined,
+    verificationStatus: 'pending',
+    challengeToken,
+    challengeTokenHash: hashChallengeToken(challengeToken),
+    challengeExpiresAt: new Date(Date.now() + challengeTtlMs).toISOString(),
     createdAt: now,
     updatedAt: now,
   };
 
   endpoints.set(endpoint.id, endpoint);
   void persistWebhookEndpoint(endpoint);
+  void probeWebhookVerification(endpoint).then((verified) => {
+    if (verified) {
+      void verifyWebhookEndpoint(endpoint.id);
+    }
+  });
   return sanitizeWebhookEndpoint(endpoint);
 }
 
@@ -410,7 +544,11 @@ export async function emitTransactionEvent(
   payload: TransactionEventPayload,
 ): Promise<number> {
   const activeEndpoints = Array.from(endpoints.values()).filter(
-    (endpoint) => !endpoint.deletedAt && endpoint.enabled && endpoint.eventTypes.includes(eventType),
+    (endpoint) =>
+      !endpoint.deletedAt &&
+      endpoint.enabled &&
+      endpoint.eventTypes.includes(eventType) &&
+      (allowUnverifiedDelivery || endpoint.verificationStatus === 'verified'),
   );
 
   for (const endpoint of activeEndpoints) {
@@ -547,6 +685,9 @@ function sanitizeWebhookEndpoint(endpoint: InternalWebhookEndpoint): WebhookEndp
     eventTypes: [...endpoint.eventTypes],
     enabled: endpoint.enabled,
     hasSecret: Boolean(endpoint.secretHash),
+    verificationStatus: endpoint.verificationStatus,
+    verifiedAt: endpoint.verifiedAt,
+    lastVerificationError: endpoint.lastVerificationError,
     createdAt: endpoint.createdAt,
     updatedAt: endpoint.updatedAt,
     deletedAt: endpoint.deletedAt,

@@ -79,6 +79,7 @@ import { latencyMonitoringService } from './latencyMonitoring';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
 import {
+  verifyWebhookEndpoint,
   registerWebhookEndpoint,
   updateWebhookEndpoint,
   deleteWebhookEndpoint,
@@ -1468,6 +1469,43 @@ app.post('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
       error: 'Unprocessable Entity',
       status: 422,
       message: error instanceof Error ? error.message : 'Invalid webhook configuration',
+    });
+  }
+});
+
+/**
+ * POST /admin/webhooks/:id/verify - run challenge-response verification for an endpoint
+ */
+app.post('/admin/webhooks/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const endpoint = await verifyWebhookEndpoint(req.params.id);
+    if (!endpoint) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Webhook endpoint not found',
+      });
+      return;
+    }
+
+    await recordAdminAuditLog(req, 'webhook.verify', endpoint.verificationStatus === 'verified' ? 200 : 422, {
+      endpointId: endpoint.id,
+      verificationStatus: endpoint.verificationStatus,
+      lastVerificationError: endpoint.lastVerificationError,
+    });
+
+    res.status(endpoint.verificationStatus === 'verified' ? 200 : 422).json({
+      message:
+        endpoint.verificationStatus === 'verified'
+          ? 'Webhook endpoint verified'
+          : 'Webhook endpoint verification failed',
+      endpoint,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to verify webhook endpoint',
     });
   }
 });
