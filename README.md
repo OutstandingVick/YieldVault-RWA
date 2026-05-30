@@ -64,6 +64,8 @@ For a comprehensive overview of the smart contract architecture, module responsi
 
 For detailed setup instructions, prerequisites, and troubleshooting, see **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)**.
 
+For a complete environment variable reference with defaults, required flags, and production recommendations, see **[Environment Variable Matrix](./docs/ENV_VARIABLE_MATRIX.md)**.
+
 ## API Documentation
 
 Generate contract and frontend API docs:
