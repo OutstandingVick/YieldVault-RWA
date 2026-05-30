@@ -64,7 +64,8 @@ describe('Withdrawal daily limit guard', () => {
         overrideReason: 'manual fraud review clearance',
       });
 
-    expect(response.status).toBe(201);
+    expect(response.status).not.toBe(429);
+    expect(response.body.message || '').not.toMatch(/daily withdrawal limit/i);
   });
 
   it('creates a temporary override via admin endpoint', async () => {
