@@ -91,6 +91,7 @@ export class EmailQueueService {
         to: email.to,
         subject: email.subject,
         text: email.text,
+        text: email.text ?? '',
         html: email.html ?? '',
       });
 
