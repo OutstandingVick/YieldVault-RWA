@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "WebhookEndpoint" (
+CREATE TABLE IF NOT EXISTS "WebhookEndpoint" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "url" TEXT NOT NULL,
     "eventTypes" TEXT NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE "WebhookEndpoint" (
 );
 
 -- CreateTable
-CREATE TABLE "WebhookDelivery" (
+CREATE TABLE IF NOT EXISTS "WebhookDelivery" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "endpointId" TEXT NOT NULL,
     "endpointUrl" TEXT NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE "WebhookDelivery" (
 );
 
 -- CreateIndex
-CREATE INDEX "WebhookDelivery_createdAt_idx" ON "WebhookDelivery"("createdAt");
+CREATE INDEX IF NOT EXISTS "WebhookDelivery_createdAt_idx" ON "WebhookDelivery"("createdAt");
 
 -- CreateIndex
-CREATE INDEX "WebhookDelivery_endpointId_idx" ON "WebhookDelivery"("endpointId");
+CREATE INDEX IF NOT EXISTS "WebhookDelivery_endpointId_idx" ON "WebhookDelivery"("endpointId");
