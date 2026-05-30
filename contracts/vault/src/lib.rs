@@ -54,9 +54,9 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod benji_strategy;
-pub mod external_calls;
 #[cfg(test)]
 mod event_tests;
+pub mod external_calls;
 #[cfg(test)]
 mod fuzz_math;
 #[cfg(test)]
@@ -972,17 +972,28 @@ impl YieldVault {
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         // Cap check
-        let cap: i128 = env.storage().instance().get(&DataKey::StrategyCap(strategy_addr.clone())).unwrap_or(i128::MAX);
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StrategyCap(strategy_addr.clone()))
+            .unwrap_or(i128::MAX);
         let total_invested = strategy_client.total_value();
         if total_invested.checked_add(amount).expect("overflow") > cap {
             return Err(VaultError::ExceedsStrategyCap);
         }
 
         // Risk Threshold check
-        let threshold: i128 = env.storage().instance().get(&DataKey::StrategyRiskThreshold(strategy_addr.clone())).unwrap_or(10_000);
+        let threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StrategyRiskThreshold(strategy_addr.clone()))
+            .unwrap_or(10_000);
         let total_assets = Self::total_assets(env.clone());
         let new_total_invested = total_invested.checked_add(amount).expect("overflow");
-        if total_assets > 0 && (new_total_invested.checked_mul(10_000).expect("overflow") / total_assets) > threshold {
+        if total_assets > 0
+            && (new_total_invested.checked_mul(10_000).expect("overflow") / total_assets)
+                > threshold
+        {
             return Err(VaultError::ExceedsRiskThreshold);
         }
 
@@ -1201,9 +1212,7 @@ impl YieldVault {
     pub fn set_price_oracle(env: Env, oracle: Address) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        env.storage()
-            .instance()
-            .set(&DataKey::PriceOracle, &oracle);
+        env.storage().instance().set(&DataKey::PriceOracle, &oracle);
     }
 
     /// Returns the configured price oracle address, if any.
@@ -1252,7 +1261,9 @@ impl YieldVault {
     pub fn set_strategy_cap(env: Env, strategy: Address, cap: i128) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        env.storage().instance().set(&DataKey::StrategyCap(strategy), &cap);
+        env.storage()
+            .instance()
+            .set(&DataKey::StrategyCap(strategy), &cap);
     }
 
     /// Set the strategy risk threshold in basis points (0–10000).
@@ -1262,7 +1273,9 @@ impl YieldVault {
         if threshold < 0 || threshold > 10_000 {
             panic!("threshold must be 0-10000");
         }
-        env.storage().instance().set(&DataKey::StrategyRiskThreshold(strategy), &threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::StrategyRiskThreshold(strategy), &threshold);
     }
 
     pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
