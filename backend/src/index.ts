@@ -30,6 +30,10 @@ import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
 import { validate, LoginSchema, RefreshSchema } from './middleware/validate';
 import {
+  setWithdrawalLimitOverride,
+  listWithdrawalLimitAuditEntries,
+} from './middleware/withdrawalDailyLimit';
+import {
   validateApiKey,
   authenticateApiKeyValue,
   registerApiKey,
@@ -962,6 +966,61 @@ app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Respo
       message: errorMessage,
     });
   }
+});
+
+/**
+ * POST /admin/withdrawal-limits/override
+ * Grants a temporary admin override for a wallet's daily withdrawal limit.
+ * Requires super-admin API key.
+ */
+app.post('/admin/withdrawal-limits/override', validateApiKey, async (req: Request, res: Response) => {
+  const walletAddress = typeof req.body?.walletAddress === 'string' ? req.body.walletAddress.trim() : '';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  const ttlSeconds =
+    typeof req.body?.ttlSeconds === 'number' && req.body.ttlSeconds > 0
+      ? req.body.ttlSeconds
+      : 3600;
+
+  if (!walletAddress || !reason) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'walletAddress and reason are required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to override withdrawal limits',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const override = setWithdrawalLimitOverride(walletAddress, reason, actor, ttlSeconds);
+
+  await recordAdminAuditLog(req, 'withdrawal.limit.override.grant', 201, {
+    walletAddress: override.wallet,
+    reason: override.reason,
+    expiresAt: override.expiresAt,
+    actor,
+  });
+
+  res.status(201).json({ override });
+});
+
+/**
+ * GET /admin/withdrawal-limits/audit
+ * Lists recent blocked and overridden withdrawal attempts.
+ */
+app.get('/admin/withdrawal-limits/audit', validateApiKey, (req: Request, res: Response) => {
+  const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 50;
+  res.status(200).json({
+    entries: listWithdrawalLimitAuditEntries(Number.isFinite(limit) ? limit : 50),
+  });
 });
 
 // ─── Allowlist Admin Endpoints (Issue #375) ──────────────────────────────────

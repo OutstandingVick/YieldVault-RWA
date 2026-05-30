@@ -36,6 +36,7 @@ export const VaultOperationSchema = z
     walletAddress: walletAddressSchema,
     email: z.string().email().optional(),
     referralCode: z.string().max(64).optional(),
+    overrideReason: z.string().min(1).max(500).optional(),
   })
   .strict();
 

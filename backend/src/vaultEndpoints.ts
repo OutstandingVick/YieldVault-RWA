@@ -12,6 +12,7 @@ import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
 import { validate, VaultOperationSchema } from './middleware/validate';
+import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import crypto from 'crypto';
 
 const router = Router();
@@ -227,7 +228,7 @@ router.post('/deposits', writesLimiter, allowlistMiddleware, validate({ body: Va
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/withdrawals', writesLimiter, allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
+router.post('/withdrawals', writesLimiter, allowlistMiddleware, validate({ body: VaultOperationSchema }), withdrawalDailyLimitMiddleware(), (req: Request, res: Response) =>
   handleVaultOperation(req, res, 'withdrawal'),
 );
 
