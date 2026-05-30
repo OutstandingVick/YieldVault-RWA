@@ -11,7 +11,7 @@ describe('Backend governance', () => {
   const adminApiKey = 'admin-test-key';
   const superAdminApiKey = 'super-admin-test-key';
   const targetWallet = normalizeWalletAddress(
-    'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+    'G234567ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQ',
   );
 
   beforeEach(() => {
