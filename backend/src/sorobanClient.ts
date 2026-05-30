@@ -6,7 +6,7 @@
 import {
   Keypair,
   Contract,
-  rpc as StellarRpc,
+  SorobanRpc as StellarRpc,
   nativeToScVal,
   StrKey,
   TransactionBuilder,

@@ -90,7 +90,6 @@ export class EmailQueueService {
       const success = await emailService.sendEmailDirectly({
         to: email.to,
         subject: email.subject,
-        text: email.text,
         text: email.text ?? '',
         html: email.html ?? '',
       });
