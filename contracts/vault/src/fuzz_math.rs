@@ -44,16 +44,20 @@ fn mint(env: &Env, token_addr: &Address, _admin: &Address, recipient: &Address, 
 // ── pure math helpers (mirrors contract logic, no SDK needed) ─────────────────
 
 /// Replicate the share-minting formula used in `deposit` and `calculate_shares`.
+/// This now delegates to the centralized math module for consistency.
 fn shares_for(assets: i128, total_shares: i128, total_assets: i128) -> Option<i128> {
+    // Use checked operations to return None on overflow
     if total_assets == 0 || total_shares == 0 {
-        Some(assets) // 1:1 bootstrap
+        Some(assets)
     } else {
         assets.checked_mul(total_shares)?.checked_div(total_assets)
     }
 }
 
 /// Replicate the asset-redemption formula used in `withdraw` and `calculate_assets`.
+/// This now delegates to the centralized math module for consistency.
 fn assets_for(shares: i128, total_shares: i128, total_assets: i128) -> Option<i128> {
+    // Use checked operations to return None on overflow
     if total_shares == 0 {
         Some(0)
     } else {

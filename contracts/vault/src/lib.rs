@@ -59,6 +59,7 @@ pub mod external_calls;
 mod event_tests;
 #[cfg(test)]
 mod fuzz_math;
+pub mod math;
 #[cfg(test)]
 mod oracle_tests;
 pub mod permissions;
@@ -650,30 +651,40 @@ impl YieldVault {
         }
     }
 
+    /// Calculates the number of shares that would be minted for a given asset amount.
+    ///
+    /// Uses the deterministic round-down policy defined in the `math` module.
+    /// See [`math::assets_to_shares`] for detailed rounding behavior.
+    ///
+    /// ### Parameters
+    /// * `assets` - The amount of underlying tokens to convert.
+    ///
+    /// ### Returns
+    /// The number of shares that would be minted (rounded down).
+    ///
+    /// ### Rounding
+    /// Always rounds DOWN to prevent over-minting shares.
     pub fn calculate_shares(env: Env, assets: i128) -> i128 {
         let state = Self::get_state(&env);
-        if state.total_assets == 0 || state.total_shares == 0 {
-            assets
-        } else {
-            assets
-                .checked_mul(state.total_shares)
-                .expect("overflow")
-                .checked_div(state.total_assets)
-                .expect("division by zero or overflow")
-        }
+        crate::math::assets_to_shares(assets, state.total_shares, state.total_assets)
     }
 
+    /// Calculates the number of assets that would be returned for a given share amount.
+    ///
+    /// Uses the deterministic round-down policy defined in the `math` module.
+    /// See [`math::shares_to_assets`] for detailed rounding behavior.
+    ///
+    /// ### Parameters
+    /// * `shares` - The number of shares to convert.
+    ///
+    /// ### Returns
+    /// The amount of underlying tokens that would be returned (rounded down).
+    ///
+    /// ### Rounding
+    /// Always rounds DOWN to prevent over-withdrawal of assets.
     pub fn calculate_assets(env: Env, shares: i128) -> i128 {
         let state = Self::get_state(&env);
-        if state.total_shares == 0 {
-            0
-        } else {
-            shares
-                .checked_mul(state.total_assets)
-                .expect("overflow")
-                .checked_div(state.total_shares)
-                .expect("division by zero or overflow")
-        }
+        crate::math::shares_to_assets(shares, state.total_shares, state.total_assets)
     }
 
     /// Deposits underlying tokens in exchange for vault shares.
@@ -684,6 +695,10 @@ impl YieldVault {
     ///
     /// ### Returns
     /// The number of shares minted to the user.
+    ///
+    /// ### Rounding
+    /// Uses round-down conversion (see [`math::assets_to_shares`]).
+    /// Rejects deposits that would mint zero shares to prevent silent loss of funds.
     ///
     /// ### Events
     /// Publishes a `(symbol_short!("deposit"),)` event with `(amount, shares_minted)`.
@@ -711,15 +726,9 @@ impl YieldVault {
         let token_addr: Address = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
         let token_client = token::Client::new(&env, &token_addr);
 
-        let shares_to_mint = if state.total_assets == 0 || state.total_shares == 0 {
-            amount
-        } else {
-            amount
-                .checked_mul(state.total_shares)
-                .expect("overflow")
-                .checked_div(state.total_assets)
-                .expect("division by zero or overflow")
-        };
+        // Use centralized conversion with deterministic round-down policy
+        let shares_to_mint =
+            crate::math::assets_to_shares(amount, state.total_shares, state.total_assets);
 
         // Prevent silent loss of funds if shares round down to 0
         if shares_to_mint == 0 {
@@ -790,6 +799,9 @@ impl YieldVault {
     ///
     /// ### Returns
     /// The quantity of underlying tokens returned to the user (0 if timelocked).
+    ///
+    /// ### Rounding
+    /// Uses round-down conversion (see [`math::shares_to_assets`]).
     pub fn withdraw(env: Env, user: Address, shares: i128) -> Result<i128, VaultError> {
         let mut state = Self::get_state(&env);
         if state.is_paused {
@@ -814,15 +826,9 @@ impl YieldVault {
             .get(&DataKey::LargeWithdrawalThreshold)
             .unwrap_or(i128::MAX);
 
-        let assets_to_return = if state.total_shares == 0 {
-            0
-        } else {
-            shares
-                .checked_mul(state.total_assets)
-                .expect("overflow")
-                .checked_div(state.total_shares)
-                .expect("division by zero or overflow")
-        };
+        // Use centralized conversion with deterministic round-down policy
+        let assets_to_return =
+            crate::math::shares_to_assets(shares, state.total_shares, state.total_assets);
 
         if assets_to_return > threshold {
             // Create a pending withdrawal with a 24-hour timelock
@@ -847,6 +853,9 @@ impl YieldVault {
     }
 
     /// Completes a pending large withdrawal after the timelock has expired.
+    ///
+    /// ### Rounding
+    /// Uses round-down conversion (see [`math::shares_to_assets`]).
     pub fn execute_withdrawal(env: Env, user: Address) -> Result<i128, VaultError> {
         user.require_auth();
 
@@ -865,16 +874,13 @@ impl YieldVault {
             .remove(&DataKey::PendingWithdrawal(user.clone()));
 
         let mut state = Self::get_state(&env);
-        let assets_to_return = if state.total_shares == 0 {
-            0
-        } else {
-            pending
-                .shares
-                .checked_mul(state.total_assets)
-                .expect("overflow")
-                .checked_div(state.total_shares)
-                .expect("division by zero or overflow")
-        };
+
+        // Use centralized conversion with deterministic round-down policy
+        let assets_to_return = crate::math::shares_to_assets(
+            pending.shares,
+            state.total_shares,
+            state.total_assets,
+        );
 
         Self::do_withdraw(&env, &mut state, user, pending.shares, assets_to_return)
     }
