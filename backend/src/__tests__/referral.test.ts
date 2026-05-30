@@ -2,13 +2,14 @@ import request from 'supertest';
 import app from '../index';
 import { getPrismaClient, disconnectPrismaClient } from '../prismaClient';
 import { referralService } from '../referralService';
+import { VALID_TEST_WALLET, SECOND_TEST_WALLET } from './setup';
 
 // Use the centralized Prisma Client instance
 const getPrisma = () => getPrismaClient();
 
 describe('Referral System Integration', () => {
-  const referrerWallet = 'G_REFERRER_WALLET_ADDRESS';
-  const referredWallet = 'G_REFERRED_WALLET_ADDRESS';
+  const referrerWallet = VALID_TEST_WALLET;
+  const referredWallet = SECOND_TEST_WALLET;
   const referralCode = 'WELCOME2026';
 
   beforeAll(async () => {
