@@ -149,6 +149,12 @@ pub enum DataKey {
     PriceOracle,
     OracleEnabled,
     OracleHeartbeat,
+    // Snapshot / checkpointing
+    CheckpointNonce,
+    CheckpointLedger(u32),
+    CheckpointTotalAssets(u32),
+    CheckpointTotalShares(u32),
+    CheckpointBalance(u32, Address),
 }
 
 #[contracttype]
@@ -1353,6 +1359,84 @@ impl YieldVault {
                 ids.len()
             }
         }
+    }
+
+    /// Create a new checkpoint snapshot of total assets and total shares.
+    /// Only the Admin may call this. Returns the new checkpoint id.
+    pub fn create_checkpoint(env: Env) -> u32 {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let mut next_nonce: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CheckpointNonce)
+            .unwrap_or(0u32);
+        next_nonce = next_nonce.checked_add(1).expect("overflow");
+
+        // Record ledger sequence for provenance
+        let ledger_seq = env.ledger().sequence();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointNonce, &next_nonce);
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointLedger(next_nonce), &ledger_seq);
+
+        // Snapshot global totals
+        let total_assets = Self::total_assets(env.clone());
+        let total_shares = Self::total_shares(env.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointTotalAssets(next_nonce), &total_assets);
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointTotalShares(next_nonce), &total_shares);
+
+        next_nonce
+    }
+
+    /// Returns the total shares recorded at a given checkpoint id.
+    pub fn total_shares_at(env: Env, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointTotalShares(checkpoint_id))
+            .unwrap_or(0i128)
+    }
+
+    /// Returns the total assets recorded at a given checkpoint id.
+    pub fn total_assets_at(env: Env, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointTotalAssets(checkpoint_id))
+            .unwrap_or(0i128)
+    }
+
+    /// Snapshot the caller's share balance for the latest checkpoint.
+    /// The caller must `require_auth` as the `user` parameter.
+    pub fn snapshot_user_balance(env: Env, user: Address) {
+        user.require_auth();
+        let nonce: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::CheckpointNonce)
+            .unwrap_or(0u32);
+        if nonce == 0 {
+            panic!("no checkpoint exists");
+        }
+        let bal = Self::balance(env.clone(), user.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointBalance(nonce, user), &bal);
+    }
+
+    /// Returns the user's snapshot balance at a given checkpoint id (0 if not recorded).
+    pub fn balance_at(env: Env, user: Address, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointBalance(checkpoint_id, user))
+            .unwrap_or(0i128)
     }
     /// Read-only: returns contract metadata such as version and simple config flags.
     pub fn metadata(env: Env) -> ContractMetadata {
