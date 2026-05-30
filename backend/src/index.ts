@@ -11,6 +11,7 @@ import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
 import listRouter from './listEndpoints';
+import { authRouter } from './auth';
 import {
   register,
   httpRequestCount,
@@ -224,14 +225,15 @@ app.use('/api/v1', apiV1);
 
 // Mount routers to v1
 apiV1.use('/vault', vaultRouter);
+apiV1.use('/auth', authRouter);
 apiV1.use('/', listRouter);
 
 /**
  * Example protected API endpoint with caching
  * Demonstrates rate limiting per API key and response caching
  */
-app.get(
-  '/api/vault/summary',
+apiV1.get(
+  '/vault/summary',
   apiLimiter,
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
   (_req: Request, res: Response) => {
@@ -439,25 +441,27 @@ app.use((req: Request, res: Response) => {
 
 // ─── Server Start ───────────────────────────────────────────────────────────
 
-const server = app.listen(port, () => {
-  logger.log('info', '🚀 YieldVault Backend started', {
-    port,
-    environment: nodeEnv,
-    logLevel,
-    drainTimeout,
-    cacheMetricsTtl: cacheVaultMetricsTtl,
+if (process.env.NODE_ENV !== 'test') {
+  const server = app.listen(port, () => {
+    logger.log('info', '🚀 YieldVault Backend started', {
+      port,
+      environment: nodeEnv,
+      logLevel,
+      drainTimeout,
+      cacheMetricsTtl: cacheVaultMetricsTtl,
+    });
+    logger.log('info', '📊 Health check: http://localhost:' + port + '/health');
+    logger.log('info', '✅ Ready check: http://localhost:' + port + '/ready');
   });
-  logger.log('info', '📊 Health check: http://localhost:' + port + '/health');
-  logger.log('info', '✅ Ready check: http://localhost:' + port + '/ready');
-});
 
-// Register graceful shutdown handler
-const shutdownHandler = new GracefulShutdownHandler(drainTimeout);
-shutdownHandler.register(server);
+  // Register graceful shutdown handler
+  const shutdownHandler = new GracefulShutdownHandler(drainTimeout);
+  shutdownHandler.register(server);
 
-// Register database shutdown task
-shutdownHandler.onShutdown(async () => {
-  await db.shutdown();
-});
+  // Register database shutdown task
+  shutdownHandler.onShutdown(async () => {
+    await db.shutdown();
+  });
+}
 
 export default app;

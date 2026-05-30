@@ -30,8 +30,6 @@ const getCORSOrigins = (): (string | RegExp)[] => {
   });
 };
 
-const allowedOrigins = getCORSOrigins();
-
 export const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
     // allow requests with no origin (like mobile apps or curl requests)
@@ -39,7 +37,8 @@ export const corsOptions: CorsOptions = {
       return callback(null, true);
     }
 
-    const isAllowed = allowedOrigins.some(allowed => {
+    const currentAllowedOrigins = getCORSOrigins();
+    const isAllowed = currentAllowedOrigins.some(allowed => {
       if (allowed instanceof RegExp) {
         return allowed.test(origin);
       }
@@ -65,11 +64,12 @@ export const corsOptions: CorsOptions = {
 export const corsMiddleware = (req: Request, res: Response, next: NextFunction) => {
   cors(corsOptions)(req, res, (err) => {
     if (err) {
-      return res.status(403).json({
+      res.status(403).json({
         error: 'Forbidden',
         status: 403,
         message: 'CORS policy: This origin is not allowed access.',
       });
+      return;
     }
     next();
   });

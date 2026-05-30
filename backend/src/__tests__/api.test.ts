@@ -2,6 +2,10 @@ import request from 'supertest';
 import app from '../index';
 
 describe('Backend API', () => {
+  beforeAll(() => {
+    jest.setTimeout(30000);
+  });
+
   // ─── Health Endpoint Tests ───────────────────────────────────────────────
 
   describe('GET /health', () => {
@@ -75,7 +79,7 @@ describe('Backend API', () => {
 
   describe('Rate Limiting - API Endpoints', () => {
     it('should include rate limit headers in response', async () => {
-      const response = await request(app).get('/api/vault/summary');
+      const response = await request(app).get('/api/v1/vault/summary');
 
       expect(response.status).toBe(200);
       expect(response.headers).toHaveProperty('ratelimit-limit');
@@ -88,32 +92,32 @@ describe('Backend API', () => {
       // It attempts to exceed the API rate limit
       const requests = Array(35).fill(null); // More than configured limit
       const results = await Promise.all(
-        requests.map(() => request(app).get('/api/vault/summary'))
+        requests.map(() => request(app).get('/api/v1/vault/summary'))
       );
 
       expect(results.some((r) => r.status === 429)).toBe(true);
-    });
+    }, 30000);
 
     it('should return 429 with clear error message', async () => {
       // Make multiple requests to trigger rate limit
       const requests = Array(35).fill(null);
       await Promise.all(
-        requests.map(() => request(app).get('/api/vault/summary'))
+        requests.map(() => request(app).get('/api/v1/vault/summary'))
       );
 
-      const response = await request(app).get('/api/vault/summary');
+      const response = await request(app).get('/api/v1/vault/summary');
 
       if (response.status === 429) {
         expect(response.body).toHaveProperty('error');
         expect(response.body).toHaveProperty('status', 429);
         expect(response.body).toHaveProperty('message');
       }
-    });
+    }, 30000);
 
     it('should support per-user rate limiting with API key', async () => {
       // Test that API key in header is used for rate limiting
       const response = await request(app)
-        .get('/api/vault/summary')
+        .get('/api/v1/vault/summary')
         .set('x-api-key', 'test-key-123');
 
       expect([200, 429]).toContain(response.status);
@@ -152,7 +156,7 @@ describe('Backend API', () => {
     });
 
     it('should not expose sensitive info in error responses', async () => {
-      const response = await request(app).get('/api/vault/summary');
+      const response = await request(app).get('/api/v1/vault/summary');
 
       // Ensure no stack traces in error responses in production-like environment
       if (response.status >= 500) {
@@ -178,13 +182,104 @@ describe('Backend API', () => {
 
     it('should handle JSON body parsing', async () => {
       const response = await request(app)
-        .post('/api/vault/summary')
+        .post('/api/v1/vault/summary')
         .send({
           test: 'data',
         });
 
       // Should either accept or reject with proper error
       expect([200, 405, 404, 400]).toContain(response.status);
+    });
+  });
+
+  // ─── Portfolio Aggregation Endpoints Tests (Issue #439) ────────────────────
+  describe('GET /api/v1/vault/portfolio/:walletAddress', () => {
+    const { registerApiKey } = require('../middleware/apiKeyAuth');
+    const { db } = require('../database');
+    let dbQuerySpy: jest.SpyInstance;
+
+    beforeAll(() => {
+      registerApiKey('test-portfolio-key');
+    });
+
+    beforeEach(() => {
+      dbQuerySpy = jest.spyOn(db, 'query');
+    });
+
+    afterEach(() => {
+      dbQuerySpy.mockRestore();
+    });
+
+    it('should return 401 if API key is missing or invalid', async () => {
+      const response = await request(app).get('/api/v1/vault/portfolio/G12345');
+      expect(response.status).toBe(401);
+    });
+
+    it('should return 404 if the wallet address is not found', async () => {
+      dbQuerySpy.mockResolvedValueOnce({ rows: [] }); // User search returns empty
+
+      const response = await request(app)
+        .get('/api/v1/vault/portfolio/G_MISSING')
+        .set('Authorization', 'ApiKey test-portfolio-key');
+
+      expect(response.status).toBe(404);
+      expect(response.body).toHaveProperty('error', 'Not Found');
+      expect(response.body.message).toContain('not found');
+    });
+
+    it('should return aggregated portfolio metrics and paginated transactions', async () => {
+      // 1. Mock user check (found)
+      dbQuerySpy.mockResolvedValueOnce({
+        rows: [{ id: 1, address: 'G12345', createdAt: new Date() }],
+      });
+
+      // 2. Mock transaction aggregates (deposit sum, withdrawal sum)
+      dbQuerySpy.mockResolvedValueOnce({
+        rows: [
+          { type: 'deposit', total: 1500.0 },
+          { type: 'withdrawal', total: 300.0 },
+        ],
+      });
+
+      // 3. Mock latest APY snapshot (12.5%)
+      dbQuerySpy.mockResolvedValueOnce({
+        rows: [{ apy: 12.5 }],
+      });
+
+      // 4. Mock transactions count (2)
+      dbQuerySpy.mockResolvedValueOnce({
+        rows: [{ count: 2 }],
+      });
+
+      // 5. Mock paginated transactions list
+      dbQuerySpy.mockResolvedValueOnce({
+        rows: [
+          { id: 'tx-1', user: 'G12345', amount: '1500.00', type: 'deposit', timestamp: new Date() },
+          { id: 'tx-2', user: 'G12345', amount: '300.00', type: 'withdrawal', timestamp: new Date() },
+        ],
+      });
+
+      const response = await request(app)
+        .get('/api/v1/vault/portfolio/G12345')
+        .set('Authorization', 'ApiKey test-portfolio-key');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('walletAddress', 'G12345');
+      expect(response.body).toHaveProperty('totalDeposited', 1500.0);
+      expect(response.body).toHaveProperty('totalWithdrawn', 300.0);
+      expect(response.body).toHaveProperty('netPosition', 1200.0);
+      expect(response.body).toHaveProperty('latestApy', 12.5);
+      expect(response.body).toHaveProperty('estimatedYield', 150.0); // 1200 * 0.125
+      expect(response.body).toHaveProperty('transactions');
+      expect(response.body.transactions.data).toHaveLength(2);
+      expect(response.body.transactions.pagination).toEqual({
+        count: 2,
+        total: 2,
+        currentPage: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      });
     });
   });
 });

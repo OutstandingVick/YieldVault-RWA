@@ -1094,3 +1094,74 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.total_shares(), 200);
     assert_eq!(vault.total_assets(), 200);
 }
+
+/// Comprehensive test for versioned events and pauseable entrypoint enforcement
+#[test]
+fn test_versioned_events_and_pause_enforcement() {
+    use soroban_sdk::IntoVal;
+    use soroban_sdk::TryIntoVal;
+    use soroban_sdk::testutils::Events;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1000);
+
+    // 1. Test event emission for deposit
+    vault.deposit(&user, &200);
+
+    // Retrieve and verify deposit event
+    let events = env.events().all();
+    assert!(events.len() > 0);
+    let deposit_event = events.get(events.len() - 1).unwrap();
+    assert_eq!(deposit_event.0, vault.address);
+
+    let expected_deposit_topics = soroban_sdk::Vec::from_array(&env, [
+        symbol_short!("deposit").into_val(&env),
+        symbol_short!("v1").into_val(&env),
+        user.clone().into_val(&env),
+    ]);
+    assert_eq!(deposit_event.1, expected_deposit_topics);
+
+    let actual_deposit_data: (i128, i128) = deposit_event.2.try_into_val(&env).unwrap();
+    assert_eq!(actual_deposit_data, (200i128, 200i128));
+
+    // 2. Test event emission for withdraw
+    vault.withdraw(&user, &50);
+
+    // Retrieve and verify withdraw event
+    let events = env.events().all();
+    assert!(events.len() > 0);
+    let withdraw_event = events.get(events.len() - 1).unwrap();
+    assert_eq!(withdraw_event.0, vault.address);
+
+    let expected_withdraw_topics = soroban_sdk::Vec::from_array(&env, [
+        symbol_short!("withdraw").into_val(&env),
+        symbol_short!("v1").into_val(&env),
+        user.clone().into_val(&env),
+    ]);
+    assert_eq!(withdraw_event.1, expected_withdraw_topics);
+
+    let actual_withdraw_data: (i128, i128) = withdraw_event.2.try_into_val(&env).unwrap();
+    assert_eq!(actual_withdraw_data, (50i128, 50i128));
+
+    // 3. Test pauseable restrictions
+    vault.set_pause(&true);
+    assert!(vault.is_paused());
+
+    // Deposit and withdraw should fail with ContractPaused error when paused
+    let deposit_res = vault.try_deposit(&user, &100);
+    assert!(deposit_res.is_err());
+
+    let withdraw_res = vault.try_withdraw(&user, &50);
+    assert!(withdraw_res.is_err());
+
+    // Resume the contract and check that deposits resume normally
+    vault.set_pause(&false);
+    assert!(!vault.is_paused());
+
+    vault.deposit(&user, &100);
+    assert_eq!(vault.balance(&user), 250); // 200 - 50 + 100 = 250
+}

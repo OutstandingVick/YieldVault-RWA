@@ -587,8 +587,10 @@ impl YieldVault {
             .instance()
             .set(&user_key, &(user_shares + shares_to_mint));
 
-        env.events()
-            .publish((symbol_short!("deposit"),), (amount, shares_to_mint));
+        env.events().publish(
+            (symbol_short!("deposit"), symbol_short!("v1"), user.clone()),
+            (amount, shares_to_mint),
+        );
         Ok(shares_to_mint)
     }
 
@@ -679,7 +681,7 @@ impl YieldVault {
         env.storage().instance().set(&deposit_key, &new_deposit);
 
         env.events().publish(
-            (symbol_short!("withdraw"), user),
+            (symbol_short!("withdraw"), symbol_short!("v1"), user),
             (assets_to_return, shares),
         );
         Ok(assets_to_return)

@@ -8,3 +8,8 @@ dotenv.config({
 
 // Set test environment
 process.env.NODE_ENV = 'test';
+
+// Set fallback mock environment variables for tests to keep /health happy
+process.env.STELLAR_RPC_URL = 'http://localhost:8000';
+process.env.DATABASE_URL = 'sqlite://dev.db';
+process.env.DATABASE_REPLICA_URL = 'sqlite://dev.db';

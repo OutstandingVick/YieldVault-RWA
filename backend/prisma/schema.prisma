@@ -31,3 +31,9 @@ model Transaction {
   type      String
   timestamp DateTime @default(now())
 }
+
+model ApySnapshot {
+  id        String   @id @default(uuid())
+  apy       Float
+  timestamp DateTime @default(now())
+}
