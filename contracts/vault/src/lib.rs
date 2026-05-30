@@ -190,6 +190,8 @@ pub enum VaultError {
     NoPendingWithdrawal = 8,
     /// Strategy allocation would leave idle liquidity below the configured buffer.
     LiquidityBufferNotMet = 9,
+    /// Arithmetic overflow or underflow occurred while calculating fees or accounting values.
+    MathOverflow = 10,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -1019,19 +1021,25 @@ impl YieldVault {
 
     /// Admin function to artificially accrue yield, deducting the protocol fee.
     /// The fee portion is credited to the treasury balance.
-    pub fn accrue_yield(env: Env, amount: i128) {
+    pub fn accrue_yield(env: Env, amount: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        // Goal 1: deduct protocol fee before distributing to depositors.
+        // Calculate before the token transfer so overflow/underflow reverts cleanly.
+        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = Self::calculate_fee_amount(amount, fee_bps)?;
+        let net_yield = amount
+            .checked_sub(fee_amount)
+            .ok_or(VaultError::MathOverflow)?;
+
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
-
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
-
-        // Goal 1: deduct protocol fee before distributing to depositors
-        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = amount.checked_mul(fee_bps).expect("overflow") / 10_000;
-        let net_yield = amount.checked_sub(fee_amount).expect("underflow");
 
         // Accumulate fee in treasury balance
         if fee_amount > 0 {
@@ -1042,7 +1050,9 @@ impl YieldVault {
                 .unwrap_or(0);
             env.storage().instance().set(
                 &DataKey::TreasuryBalance,
-                &treasury_bal.checked_add(fee_amount).expect("overflow"),
+                &treasury_bal
+                    .checked_add(fee_amount)
+                    .ok_or(VaultError::MathOverflow)?,
             );
         }
 
@@ -1053,12 +1063,28 @@ impl YieldVault {
             .unwrap_or(0);
         env.storage().instance().set(
             &DataKey::TotalAssets,
-            &ta.checked_add(net_yield).expect("overflow"),
+            &ta.checked_add(net_yield).ok_or(VaultError::MathOverflow)?,
         );
 
         let mut state = Self::get_state(&env);
-        state.total_assets = state.total_assets.checked_add(net_yield).expect("overflow");
+        state.total_assets = state
+            .total_assets
+            .checked_add(net_yield)
+            .ok_or(VaultError::MathOverflow)?;
         env.storage().instance().set(&DataKey::State, &state);
+        Ok(())
+    }
+
+    fn calculate_fee_amount(amount: i128, fee_bps: i128) -> Result<i128, VaultError> {
+        if amount <= 0 || !(0..=10_000).contains(&fee_bps) {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        amount
+            .checked_mul(fee_bps)
+            .ok_or(VaultError::MathOverflow)?
+            .checked_div(10_000)
+            .ok_or(VaultError::MathOverflow)
     }
 
     // ── Goal 1: Protocol fee ──────────────────────────────────────────────────
