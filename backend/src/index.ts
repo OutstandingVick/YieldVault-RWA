@@ -520,6 +520,10 @@ apiV1.use('/referrals', referralRouter);
 apiV1.use('/transactions', transactionRouter);
 apiV1.use('/', listRouter);
 
+// Backward-compatible list endpoints for legacy clients/tests:
+// /api/transactions, /api/portfolio/holdings, /api/vault/history
+app.use('/api', listRouter);
+
 // ─── Auth Routes (Issue #377) ────────────────────────────────────────────────
 // Canonical versioned auth endpoints
 
