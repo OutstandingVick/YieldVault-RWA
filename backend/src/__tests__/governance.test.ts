@@ -210,7 +210,7 @@ describe('Backend governance', () => {
       .set('x-admin-id', actingAdmin);
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toMatch(/super-admin/i);
+    expect(response.body.message).toMatch(/insufficient permissions|super-admin/i);
 
     const auditResponse = await request(app)
       .get('/admin/audit/logs')

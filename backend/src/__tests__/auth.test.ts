@@ -12,7 +12,7 @@ import {
   InvalidRefreshTokenError,
 } from '../auth';
 
-const TEST_WALLET = 'GTEST_WALLET_ADDRESS_JWT_001';
+const TEST_WALLET = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
 // ─── issueTokenPair unit tests ───────────────────────────────────────────────
 
