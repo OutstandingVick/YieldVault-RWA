@@ -3,18 +3,24 @@ import app from '../index';
 import { idempotencyStore } from '../idempotency';
 import { getJobMetrics, resetJobGovernance, runJobWithRetry } from '../jobGovernance';
 import { clearAdminAuditLogsForTests } from '../adminAudit';
+import { clearImpersonationSessionsForTests } from '../impersonationSessionService';
 import { registerApiKey } from '../middleware/apiKeyAuth';
+import { normalizeWalletAddress } from '../walletUtils';
 
 describe('Backend governance', () => {
   const adminApiKey = 'admin-test-key';
   const superAdminApiKey = 'super-admin-test-key';
-  const targetWallet = 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567';
+  const targetWallet = normalizeWalletAddress(
+    'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+  );
 
   beforeEach(() => {
     idempotencyStore.clear();
     resetJobGovernance();
     clearAdminAuditLogsForTests();
+    clearImpersonationSessionsForTests();
     process.env.ADMIN_AUDIT_LOG_STORAGE = 'memory';
+    process.env.IMPERSONATION_SESSION_STORAGE = 'memory';
     registerApiKey(adminApiKey);
     registerApiKey(superAdminApiKey, { role: 'super-admin' });
   });
@@ -30,7 +36,7 @@ describe('Backend governance', () => {
     const payload = {
       amount: 250,
       asset: 'USDC',
-      walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+      walletAddress: targetWallet,
     };
 
     const first = await request(app)
@@ -56,7 +62,7 @@ describe('Backend governance', () => {
       .send({
         amount: 250,
         asset: 'USDC',
-        walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+        walletAddress: targetWallet,
       });
 
     const second = await request(app)
@@ -65,7 +71,7 @@ describe('Backend governance', () => {
       .send({
         amount: 300,
         asset: 'USDC',
-        walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+        walletAddress: targetWallet,
       });
 
     expect(first.status).toBe(201);
@@ -155,10 +161,19 @@ describe('Backend governance', () => {
       request(app).get(`/api/v1/referrals/code/${targetWallet}`),
     ]);
 
+    const sessionResponse = await request(app)
+      .post('/admin/impersonate/sessions')
+      .set('Authorization', `ApiKey ${superAdminApiKey}`)
+      .set('x-admin-id', 'GADMIN000000000000000000000000000000000000000000000001')
+      .send({ targetWallet, reason: 'governance test impersonation' });
+
+    expect(sessionResponse.status).toBe(201);
+
     const response = await request(app)
       .get(`/admin/impersonate/${targetWallet}`)
       .set('Authorization', `ApiKey ${superAdminApiKey}`)
-      .set('x-admin-id', 'GADMIN000000000000000000000000000000000000000000000001');
+      .set('x-admin-id', 'GADMIN000000000000000000000000000000000000000000000001')
+      .set('x-impersonation-session-id', sessionResponse.body.session.id);
 
     expect(response.status).toBe(200);
     expect(response.body.walletAddress).toBe(targetWallet);
