@@ -149,6 +149,16 @@ pub enum DataKey {
     PriceOracle,
     OracleEnabled,
     OracleHeartbeat,
+    // Treasury withdrawal rate limit (per-epoch cap)
+    TreasuryWithdrawEpochDuration,
+    TreasuryWithdrawEpochCap,
+    TreasuryWithdrawEpochWindow,
+    // Minimum outstanding share supply (dust lockup guard)
+    MinShareSupply,
+    // Loss circuit breaker
+    LossCircuitBreakerThresholdBps,
+    LossCircuitBreakerBaseline,
+    LossCircuitBreakerTripped,
 }
 
 #[contracttype]
@@ -167,6 +177,14 @@ pub struct StrategyProposal {
 pub struct PendingWithdrawal {
     pub shares: i128,
     pub unlock_timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Tracks treasury withdrawals consumed in the current epoch window.
+pub struct TreasuryWithdrawEpochWindow {
+    pub epoch_id: u64,
+    pub withdrawn: i128,
 }
 
 #[contracterror]
@@ -196,6 +214,12 @@ pub enum VaultError {
     ExceedsStrategyCap = 10,
     /// Strategy allocation exceeds configured risk threshold.
     ExceedsRiskThreshold = 11,
+    /// Treasury withdrawal would exceed the per-epoch cap.
+    TreasuryWithdrawEpochCapExceeded = 12,
+    /// Withdrawal would leave total shares below the configured minimum.
+    MinShareSupplyViolated = 13,
+    /// Loss circuit breaker is tripped; sensitive operations are blocked.
+    CircuitBreakerTripped = 14,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -694,6 +718,7 @@ impl YieldVault {
     /// ### Events
     /// Publishes a `(symbol_short!("deposit"),)` event with `(amount, shares_minted)`.
     pub fn deposit(env: Env, user: Address, amount: i128) -> Result<i128, VaultError> {
+        Self::assert_loss_circuit_breaker_ok(&env)?;
         let mut state = Self::get_state(&env);
         if state.is_paused {
             return Err(VaultError::ContractPaused);
@@ -797,6 +822,7 @@ impl YieldVault {
     /// ### Returns
     /// The quantity of underlying tokens returned to the user (0 if timelocked).
     pub fn withdraw(env: Env, user: Address, shares: i128) -> Result<i128, VaultError> {
+        Self::assert_loss_circuit_breaker_ok(&env)?;
         let mut state = Self::get_state(&env);
         if state.is_paused {
             return Err(VaultError::ContractPaused);
@@ -854,6 +880,7 @@ impl YieldVault {
 
     /// Completes a pending large withdrawal after the timelock has expired.
     pub fn execute_withdrawal(env: Env, user: Address) -> Result<i128, VaultError> {
+        Self::assert_loss_circuit_breaker_ok(&env)?;
         user.require_auth();
 
         let pending: PendingWithdrawal = env
@@ -893,6 +920,19 @@ impl YieldVault {
         shares: i128,
         assets_to_return: i128,
     ) -> Result<i128, VaultError> {
+        let min_supply: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinShareSupply)
+            .unwrap_or(0);
+        let remaining_shares = state
+            .total_shares
+            .checked_sub(shares)
+            .expect("underflow");
+        if min_supply > 0 && remaining_shares > 0 && remaining_shares < min_supply {
+            return Err(VaultError::MinShareSupplyViolated);
+        }
+
         let token_addr = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
         let token_client = token::Client::new(env, &token_addr);
 
@@ -962,6 +1002,7 @@ impl YieldVault {
 
     /// Move idle funds to the strategy.
     pub fn invest(env: Env, amount: i128) -> Result<(), VaultError> {
+        Self::assert_loss_circuit_breaker_ok(&env)?;
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         if amount <= 0 {
@@ -1120,6 +1161,234 @@ impl YieldVault {
             .instance()
             .get(&DataKey::TreasuryBalance)
             .unwrap_or(0)
+    }
+
+    /// Configure per-epoch treasury withdrawal cap (0 = unlimited within balance).
+    pub fn set_treasury_withdraw_epoch_cap(env: Env, cap: i128) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if cap < 0 {
+            panic!("epoch cap must be >= 0");
+        }
+        let old_cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochCap)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryWithdrawEpochCap, &cap);
+        env.events()
+            .publish((symbol_short!("trswdcap"),), (old_cap, cap));
+    }
+
+    pub fn treasury_withdraw_epoch_cap(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochCap)
+            .unwrap_or(0)
+    }
+
+    /// Configure treasury withdrawal epoch length in seconds (0 disables epoch windows).
+    pub fn set_trs_wd_epoch_len(env: Env, duration_secs: u64) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let old_duration: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochDuration)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryWithdrawEpochDuration, &duration_secs);
+        env.events()
+            .publish((symbol_short!("trswdep"),), (old_duration, duration_secs));
+    }
+
+    pub fn trs_wd_epoch_len(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochDuration)
+            .unwrap_or(0)
+    }
+
+    /// Withdraw accumulated protocol fees to the treasury address, rate-limited per epoch.
+    pub fn withdraw_treasury(env: Env, amount: i128) -> Result<(), VaultError> {
+        Self::assert_loss_circuit_breaker_ok(&env)?;
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .ok_or(VaultError::InvalidAmount)?;
+        treasury.require_auth();
+
+        let balance: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0);
+        if amount > balance {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        Self::consume_treasury_withdraw_epoch_budget(&env, amount)?;
+
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.transfer(&env.current_contract_address(), &treasury, &amount);
+
+        env.storage().instance().set(
+            &DataKey::TreasuryBalance,
+            &balance.checked_sub(amount).expect("underflow"),
+        );
+
+        let epoch_id = Self::current_treasury_withdraw_epoch(&env);
+        env.events()
+            .publish((symbol_short!("trswd"), treasury), (amount, epoch_id));
+        Ok(())
+    }
+
+    /// Set minimum total share supply; withdrawals cannot leave dust below this floor.
+    pub fn set_min_share_supply(env: Env, min_supply: i128) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if min_supply < 0 {
+            panic!("min_share_supply must be >= 0");
+        }
+        let old_min: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinShareSupply)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::MinShareSupply, &min_supply);
+        env.events()
+            .publish((symbol_short!("minshchg"),), (old_min, min_supply));
+    }
+
+    pub fn min_share_supply(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinShareSupply)
+            .unwrap_or(0)
+    }
+
+    /// Rebalance whitelisted strategies toward target balances in deterministic address order.
+    pub fn rebalance_strategies(
+        env: Env,
+        targets: Vec<(Address, i128)>,
+    ) -> Result<(), VaultError> {
+        Self::assert_loss_circuit_breaker_ok(&env)?;
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let sorted = Self::sort_strategy_targets(&env, targets);
+
+        // Divest phase: process high-to-low address order (reverse of sorted invest order).
+        let mut idx = sorted.len();
+        while idx > 0 {
+            idx -= 1;
+            let (strategy, target) = sorted.get(idx).unwrap();
+            if !Self::is_strategy_whitelisted(env.clone(), strategy.clone()) {
+                panic!("strategy not whitelisted");
+            }
+            let current = StrategyClient::new(&env, &strategy).total_value();
+            if current > target {
+                let delta = current.checked_sub(target).expect("underflow");
+                Self::divest_from_strategy(env.clone(), strategy.clone(), delta);
+            }
+        }
+
+        // Invest phase: ascending address order.
+        let mut invest_idx = 0;
+        while invest_idx < sorted.len() {
+            let (strategy, target) = sorted.get(invest_idx).unwrap();
+            let current = StrategyClient::new(&env, &strategy).total_value();
+            if current < target {
+                let delta = target.checked_sub(current).expect("underflow");
+                Self::invest_to_strategy(env.clone(), strategy.clone(), delta)?;
+            }
+            invest_idx += 1;
+        }
+
+        env.events()
+            .publish((symbol_short!("rebal"),), sorted.len());
+        Ok(())
+    }
+
+    /// Set abnormal-loss circuit breaker threshold in basis points (0 disables).
+    pub fn set_cb_loss_thresh(env: Env, threshold_bps: i128) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if threshold_bps < 0 || threshold_bps > 10_000 {
+            panic!("threshold must be 0-10000");
+        }
+        let old_bps: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerThresholdBps)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::LossCircuitBreakerThresholdBps, &threshold_bps);
+        env.events()
+            .publish((symbol_short!("cb_thr"),), (old_bps, threshold_bps));
+    }
+
+    pub fn cb_loss_thresh_bps(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerThresholdBps)
+            .unwrap_or(0)
+    }
+
+    /// Snapshot current total assets as the circuit-breaker baseline.
+    pub fn set_cb_loss_baseline(env: Env) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let baseline = Self::total_assets(env.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::LossCircuitBreakerBaseline, &baseline);
+        env.storage()
+            .instance()
+            .set(&DataKey::LossCircuitBreakerTripped, &false);
+        env.events()
+            .publish((symbol_short!("cb_base"),), baseline);
+    }
+
+    pub fn cb_loss_baseline(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerBaseline)
+            .unwrap_or(0)
+    }
+
+    pub fn is_cb_loss_tripped(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerTripped)
+            .unwrap_or(false)
+    }
+
+    /// Admin reset after investigating an abnormal loss trip.
+    pub fn reset_cb_loss(env: Env) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::LossCircuitBreakerTripped, &false);
+        env.events().publish((symbol_short!("cb_rst"),), ());
+    }
+
+    /// Evaluate total assets against baseline; trip breaker when loss exceeds threshold.
+    pub fn eval_cb_loss(env: Env) -> Result<(), VaultError> {
+        Self::evaluate_loss_circuit_breaker_internal(&env)
     }
 
     // ── Goal 2: Large-withdrawal timelock ────────────────────────────────────
@@ -1297,6 +1566,230 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
         state.total_assets = state.total_assets.checked_add(amount).expect("overflow");
         env.storage().instance().set(&DataKey::State, &state);
+    }
+
+    fn current_treasury_withdraw_epoch(env: &Env) -> u64 {
+        let duration: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochDuration)
+            .unwrap_or(0);
+        if duration == 0 {
+            return 0;
+        }
+        env.ledger().timestamp() / duration
+    }
+
+    fn consume_treasury_withdraw_epoch_budget(env: &Env, amount: i128) -> Result<(), VaultError> {
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochCap)
+            .unwrap_or(0);
+        let duration: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochDuration)
+            .unwrap_or(0);
+        if cap == 0 || duration == 0 {
+            return Ok(());
+        }
+
+        let epoch_id = Self::current_treasury_withdraw_epoch(env);
+        let mut window: TreasuryWithdrawEpochWindow = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryWithdrawEpochWindow)
+            .unwrap_or(TreasuryWithdrawEpochWindow {
+                epoch_id,
+                withdrawn: 0,
+            });
+
+        if window.epoch_id != epoch_id {
+            window = TreasuryWithdrawEpochWindow {
+                epoch_id,
+                withdrawn: 0,
+            };
+        }
+
+        let new_withdrawn = window
+            .withdrawn
+            .checked_add(amount)
+            .expect("overflow");
+        if new_withdrawn > cap {
+            return Err(VaultError::TreasuryWithdrawEpochCapExceeded);
+        }
+
+        window.withdrawn = new_withdrawn;
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryWithdrawEpochWindow, &window);
+        Ok(())
+    }
+
+    fn assert_loss_circuit_breaker_ok(env: &Env) -> Result<(), VaultError> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerTripped)
+            .unwrap_or(false)
+        {
+            return Err(VaultError::CircuitBreakerTripped);
+        }
+        Self::evaluate_loss_circuit_breaker_internal(env)
+    }
+
+    fn evaluate_loss_circuit_breaker_internal(env: &Env) -> Result<(), VaultError> {
+        let threshold_bps: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerThresholdBps)
+            .unwrap_or(0);
+        if threshold_bps == 0 {
+            return Ok(());
+        }
+
+        let baseline: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LossCircuitBreakerBaseline)
+            .unwrap_or(0);
+        if baseline <= 0 {
+            return Ok(());
+        }
+
+        let current = Self::total_assets(env.clone());
+        if current >= baseline {
+            return Ok(());
+        }
+
+        let loss = baseline.checked_sub(current).expect("underflow");
+        let loss_bps = loss
+            .checked_mul(10_000)
+            .expect("overflow")
+            .checked_div(baseline)
+            .expect("division by zero");
+        if loss_bps >= threshold_bps {
+            env.storage()
+                .instance()
+                .set(&DataKey::LossCircuitBreakerTripped, &true);
+            env.events()
+                .publish((symbol_short!("cb_trip"),), (baseline, current, loss_bps));
+            return Err(VaultError::CircuitBreakerTripped);
+        }
+
+        Ok(())
+    }
+
+    fn strategy_address_lt(a: &Address, b: &Address) -> bool {
+        a < b
+    }
+
+    fn sort_strategy_targets(env: &Env, targets: Vec<(Address, i128)>) -> Vec<(Address, i128)> {
+        let mut sorted = Vec::new(env);
+        let mut i = 0;
+        while i < targets.len() {
+            sorted.push_back(targets.get(i).unwrap());
+            i += 1;
+        }
+
+        let len = sorted.len();
+        if len < 2 {
+            return sorted;
+        }
+
+        let mut outer = 0;
+        while outer < len {
+            let mut inner = outer + 1;
+            while inner < len {
+                let left = sorted.get(outer).unwrap();
+                let right = sorted.get(inner).unwrap();
+                if Self::strategy_address_lt(&right.0, &left.0) {
+                    sorted.set(outer, right.clone());
+                    sorted.set(inner, left);
+                }
+                inner += 1;
+            }
+            outer += 1;
+        }
+
+        sorted
+    }
+
+    fn invest_to_strategy(env: Env, strategy_addr: Address, amount: i128) -> Result<(), VaultError> {
+        if amount <= 0 {
+            return Ok(());
+        }
+
+        let strategy_client = StrategyClient::new(&env, &strategy_addr);
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StrategyCap(strategy_addr.clone()))
+            .unwrap_or(i128::MAX);
+        let total_invested = strategy_client.total_value();
+        if total_invested.checked_add(amount).expect("overflow") > cap {
+            return Err(VaultError::ExceedsStrategyCap);
+        }
+
+        let threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StrategyRiskThreshold(strategy_addr.clone()))
+            .unwrap_or(10_000);
+        let total_assets = Self::total_assets(env.clone());
+        let new_total_invested = total_invested.checked_add(amount).expect("overflow");
+        if total_assets > 0
+            && (new_total_invested.checked_mul(10_000).expect("overflow") / total_assets) > threshold
+        {
+            return Err(VaultError::ExceedsRiskThreshold);
+        }
+
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        if idle_ta < amount {
+            panic!("insufficient idle assets");
+        }
+        let remaining_idle = idle_ta.checked_sub(amount).expect("underflow");
+        if remaining_idle < Self::min_liquidity_buffer(env.clone()) {
+            return Err(VaultError::LiquidityBufferNotMet);
+        }
+
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
+        token_client.approve(
+            &env.current_contract_address(),
+            &strategy_addr,
+            &amount,
+            &env.ledger().sequence(),
+        );
+
+        strategy_client.deposit(&amount);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalAssets, &remaining_idle);
+        Ok(())
+    }
+
+    fn divest_from_strategy(env: Env, strategy_addr: Address, amount: i128) {
+        if amount <= 0 {
+            return;
+        }
+        let strategy_client = StrategyClient::new(&env, &strategy_addr);
+        strategy_client.withdraw(&amount);
+
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &DataKey::TotalAssets,
+            &idle_ta.checked_add(amount).expect("overflow"),
+        );
     }
 
     fn insert_sorted_unique(env: &Env, ids: Vec<u64>, shipment_id: u64) -> Vec<u64> {
