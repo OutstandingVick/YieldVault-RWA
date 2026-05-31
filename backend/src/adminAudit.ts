@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { prisma } from './prisma';
 import { resetAuditLogs } from './auditLog';
+import { redactSensitiveLogAttributes } from './auditRedaction';
 
 type AuditStorageMode = 'memory' | 'prisma' | 'hybrid';
 
@@ -41,6 +42,7 @@ export async function recordAdminAuditLog(
   metadata: Record<string, unknown> = {},
 ): Promise<void> {
   const storageMode = normalizeStorageMode(process.env.ADMIN_AUDIT_LOG_STORAGE);
+  const safeMetadata = redactSensitiveLogAttributes(metadata);
   const entry: AdminAuditLogRecord = {
     id: createLogId(),
     action,
@@ -51,7 +53,7 @@ export async function recordAdminAuditLog(
     apiKeyHash: req.authApiKeyHash || 'unknown',
     ipAddress: req.ip || 'unknown',
     userAgent: req.get('user-agent') || 'unknown',
-    metadata,
+    metadata: safeMetadata,
     createdAt: new Date().toISOString(),
   };
 
