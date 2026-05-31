@@ -9,6 +9,7 @@ import {
   DEFAULT_PAGINATION_CONFIG,
   encodeCursor,
   decodeCursor,
+  createPaginationEnvelope,
 } from './pagination';
 import { parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
 
@@ -181,13 +182,14 @@ router.get('/', async (req: Request, res: Response) => {
       const data = hasMore ? transactions.slice(0, limit) : transactions;
 
       // Build pagination metadata
-      const pagination = {
+      const pagination = createPaginationEnvelope({
         count: data.length,
+        limit,
         total,
         hasNextPage: hasMore,
         hasPrevPage: skip > 0,
-        ...(hasMore && data.length > 0 ? { nextCursor: encodeCursor(data[data.length - 1].id) } : {}),
-      };
+        nextCursor: hasMore && data.length > 0 ? encodeCursor(data[data.length - 1].id) : null,
+      });
 
       span.setAttributes({
         'transaction.count': data.length,
