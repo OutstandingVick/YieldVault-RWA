@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 5fb6e9c997750435f990105f21d40fa1e16d428d3130a6b68acf02703a302c11 # shrinks to deposit_amount = 1
+cc 76bcf8ca3dcb1b07962c6d984fe8ba32d6fe23c613492f646a7b084a726e9656 # shrinks to deposit_amount = 6384692
