@@ -161,6 +161,7 @@ fn test_invest_respects_min_liquidity_buffer() {
     vault.invest(&60);
     assert_eq!(usdc.balance(&vault_id), 40);
     assert_eq!(usdc.balance(&strategy_id), 60);
+    assert_eq!(vault.strategy_watermark(&strategy_id), 60);
 }
 
 #[test]
@@ -312,6 +313,32 @@ fn test_benji_connector_reports_yield() {
 
     vault.report_benji_yield(&benji_strategy, &40);
     assert_eq!(vault.total_assets(), 540);
+    assert_eq!(vault.strategy_watermark(&benji_strategy), 40);
+}
+
+#[test]
+fn test_benji_yield_uses_watermark_fee_accounting() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    let benji_strategy = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+    usdc_sa.mint(&benji_strategy, &100);
+
+    vault.deposit(&user, &500);
+    vault.set_fee_bps(&1_000);
+
+    let proposal_id = vault.create_strategy_proposal(&admin, &benji_strategy);
+    vault.vote_on_proposal(&admin, &proposal_id, &true, &1);
+    vault.execute_strategy_proposal(&proposal_id);
+
+    vault.report_benji_yield(&benji_strategy, &100);
+
+    assert_eq!(vault.total_assets(), 590);
+    assert_eq!(vault.treasury_balance(), 10);
+    assert_eq!(vault.strategy_watermark(&benji_strategy), 100);
 }
 
 #[test]
@@ -411,7 +438,7 @@ fn test_checkpoint() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (vault, usdc, usdc_sa, _admin) = setup_vault(&env);
+    let (vault, _usdc, usdc_sa, _admin) = setup_vault(&env);
     let user = Address::generate(&env);
     usdc_sa.mint(&user, &100);
 

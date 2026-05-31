@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
 import { allowlistMiddleware } from './middleware/allowlist';
@@ -12,12 +12,18 @@ import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
 import { validate, VaultOperationSchema } from './middleware/validate';
+import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import crypto from 'crypto';
 import { tryAcquireWalletLock } from './walletLock';
 import { normalizeWalletAddress } from './walletUtils';
 
 const router = Router();
+
+function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
+  invalidateCache();
+  next();
+}
 
 function generateFingerprint(body: any): string {
   return crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
@@ -238,6 +244,7 @@ async function handleVaultOperation(
 router.post(
   '/deposits',
   writesLimiter,
+  invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   allowlistMiddleware,
   validate({ body: VaultOperationSchema }),
@@ -252,9 +259,11 @@ router.post(
 router.post(
   '/withdrawals',
   writesLimiter,
+  invalidateReadCaches,
   requireSignedWalletAction('withdrawal'),
   allowlistMiddleware,
   validate({ body: VaultOperationSchema }),
+  withdrawalDailyLimitMiddleware(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
 );
 
@@ -268,6 +277,7 @@ router.post(
 router.post(
   '/deposits/v2',
   writesLimiter,
+  invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   requireFlag('deposit-v2'),
   validate({ body: VaultOperationSchema }),

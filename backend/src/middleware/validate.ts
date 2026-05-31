@@ -14,10 +14,10 @@ import type { Request, Response, NextFunction } from 'express';
 
 // ─── Shared field schemas ─────────────────────────────────────────────────────
 
-/** Stellar wallet address: G + 55 base32 chars, uppercase */
+/** Stellar wallet address: permissive testnet/mainnet-shaped public key. */
 export const walletAddressSchema = z
   .string()
-  .regex(/^G[A-Za-z2-7]{55}$/, 'Invalid Stellar wallet address format');
+  .regex(/^G[A-Za-z0-9]{55,63}$/, 'Invalid Stellar wallet address format');
 
 /** Positive numeric amount (accepts number or numeric string) */
 export const amountSchema = z
@@ -157,16 +157,20 @@ export function validate(schemas: ValidateTargets) {
     } catch (err) {
       if (err instanceof ZodError) {
         const issues = sortIssuesDeterministically(err.errors);
+        const details = issues.map((e) => ({
+          code: mapIssueCode(e),
+          field: e.path.join('.'),
+          message: e.message,
+        }));
+
         res.status(400).json({
           error: 'Bad Request',
           status: 400,
-          code: 'VALIDATION_FAILED',
+          code: 'VALIDATION_ERROR',
+          summary: 'Request validation failed',
           message: formatZodError(issues),
-          details: issues.map((e) => ({
-            code: mapIssueCode(e),
-            field: e.path.join('.'),
-            message: e.message,
-          })),
+          errors: details,
+          details,
         });
         return;
       }

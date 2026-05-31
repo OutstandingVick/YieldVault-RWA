@@ -1,42 +1,42 @@
-/// Vault share conversion math with deterministic rounding policy.
-///
-/// # Rounding Policy
-///
-/// This module enforces a **round-down** (truncation) policy for all share conversions:
-///
-/// 1. **Assets → Shares (Minting)**: Always rounds DOWN
-///    - Formula: `shares = (assets × total_shares) / total_assets`
-///    - Rationale: Prevents over-minting shares, protecting existing shareholders
-///    - Effect: User may receive slightly fewer shares than the exact fractional amount
-///
-/// 2. **Shares → Assets (Burning)**: Always rounds DOWN
-///    - Formula: `assets = (shares × total_assets) / total_shares`
-///    - Rationale: Prevents over-withdrawal of assets, protecting vault solvency
-///    - Effect: User may receive slightly fewer assets than the exact fractional amount
-///
-/// # Safety Guarantees
-///
-/// The round-down policy ensures:
-/// - No user can mint more shares than their assets entitle them to
-/// - No user can redeem more assets than their shares entitle them to
-/// - Total supply and vault accounting remain internally consistent
-/// - Round-trip conversions (assets → shares → assets) never increase value
-/// - The vault is always solvent (total_assets ≥ sum of all redemption claims)
-///
-/// # Edge Cases
-///
-/// - **Zero supply**: First depositor receives shares equal to assets (1:1 ratio)
-/// - **Tiny deposits**: May round to zero shares; caller must check and reject
-/// - **Tiny withdrawals**: May round to zero assets; generally acceptable
-/// - **Maximum values**: All operations use checked arithmetic to prevent overflow
-///
-/// # Determinism
-///
-/// All conversions are deterministic and platform-independent:
-/// - Uses only integer arithmetic (no floating point)
-/// - Division always truncates toward zero (Rust's default for positive integers)
-/// - No platform-specific rounding modes or precision issues
-/// - Identical results across all nodes, environments, and execution contexts
+//! Vault share conversion math with deterministic rounding policy.
+//!
+//! # Rounding Policy
+//!
+//! This module enforces a **round-down** (truncation) policy for all share conversions:
+//!
+//! 1. **Assets → Shares (Minting)**: Always rounds DOWN
+//!    - Formula: `shares = (assets × total_shares) / total_assets`
+//!    - Rationale: Prevents over-minting shares, protecting existing shareholders
+//!    - Effect: User may receive slightly fewer shares than the exact fractional amount
+//!
+//! 2. **Shares → Assets (Burning)**: Always rounds DOWN
+//!    - Formula: `assets = (shares × total_assets) / total_shares`
+//!    - Rationale: Prevents over-withdrawal of assets, protecting vault solvency
+//!    - Effect: User may receive slightly fewer assets than the exact fractional amount
+//!
+//! # Safety Guarantees
+//!
+//! The round-down policy ensures:
+//! - No user can mint more shares than their assets entitle them to
+//! - No user can redeem more assets than their shares entitle them to
+//! - Total supply and vault accounting remain internally consistent
+//! - Round-trip conversions (assets → shares → assets) never increase value
+//! - The vault is always solvent (total_assets ≥ sum of all redemption claims)
+//!
+//! # Edge Cases
+//!
+//! - **Zero supply**: First depositor receives shares equal to assets (1:1 ratio)
+//! - **Tiny deposits**: May round to zero shares; caller must check and reject
+//! - **Tiny withdrawals**: May round to zero assets; generally acceptable
+//! - **Maximum values**: All operations use checked arithmetic to prevent overflow
+//!
+//! # Determinism
+//!
+//! All conversions are deterministic and platform-independent:
+//! - Uses only integer arithmetic (no floating point)
+//! - Division always truncates toward zero (Rust's default for positive integers)
+//! - No platform-specific rounding modes or precision issues
+//! - Identical results across all nodes, environments, and execution contexts
 
 /// Converts assets to shares using the current vault state.
 ///

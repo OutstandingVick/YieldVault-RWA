@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use crate::upgrade::{get_admin, is_initialized};
 use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
@@ -46,6 +44,73 @@ fn test_proxy_upgrade_authorization() {
     let new_wasm_hash = env.deployer().upload_contract_wasm(wasm_bytes);
 
     vault.upgrade(&new_wasm_hash);
+}
+
+#[test]
+fn test_storage_migration_version_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    assert_eq!(vault.storage_version(), 2);
+    vault.migrate_storage(&2);
+
+    let result = vault.try_migrate_storage(&1);
+    assert!(matches!(
+        result,
+        Err(Ok(VaultError::InvalidMigrationTarget))
+    ));
+}
+
+#[test]
+fn test_admin_rotation_handover_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let next_admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    assert_eq!(vault.admin(), Some(admin.clone()));
+    assert_eq!(vault.pending_admin(), None);
+
+    vault.propose_admin(&next_admin);
+    assert_eq!(vault.pending_admin(), Some(next_admin.clone()));
+
+    vault.accept_admin();
+    assert_eq!(vault.admin(), Some(next_admin));
+    assert_eq!(vault.pending_admin(), None);
+}
+
+#[test]
+fn test_admin_rotation_can_be_cancelled() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let next_admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    vault.propose_admin(&next_admin);
+    assert_eq!(vault.pending_admin(), Some(next_admin));
+
+    vault.cancel_admin_rotation();
+    assert_eq!(vault.admin(), Some(admin));
+    assert_eq!(vault.pending_admin(), None);
 }
 
 #[test]

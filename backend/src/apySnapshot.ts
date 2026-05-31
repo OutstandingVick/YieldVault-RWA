@@ -204,6 +204,11 @@ export async function backfillApySnapshots(
     [startDate, endDate],
   );
   const existing = new Set(rows.map((r) => r.date));
+  for (const date of snapshotStore.keys()) {
+    if (date >= startDate && date <= endDate) {
+      existing.add(date);
+    }
+  }
 
   let cursor = startDate;
   while (cursor <= endDate) {

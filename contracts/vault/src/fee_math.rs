@@ -11,16 +11,16 @@ pub const BPS_DENOMINATOR: i128 = 10_000;
 /// Returns `(fee_amount, net_amount)` where `fee_amount + net_amount == amount`.
 pub fn calculate_protocol_fee(amount: i128, fee_bps: i128) -> (i128, i128) {
     assert!(amount >= 0, "amount must be non-negative");
-    assert!(fee_bps >= 0 && fee_bps <= BPS_DENOMINATOR, "fee_bps out of range");
+    assert!(
+        (0..=BPS_DENOMINATOR).contains(&fee_bps),
+        "fee_bps out of range"
+    );
 
     if amount == 0 || fee_bps == 0 {
         return (0, amount);
     }
 
-    let fee_amount = amount
-        .checked_mul(fee_bps)
-        .expect("fee overflow")
-        / BPS_DENOMINATOR;
+    let fee_amount = amount.checked_mul(fee_bps).expect("fee overflow") / BPS_DENOMINATOR;
     let net_amount = amount - fee_amount;
     (fee_amount, net_amount)
 }
@@ -88,11 +88,11 @@ mod tests {
     #[test]
     fn test_common_fee_rates_deterministic() {
         let cases: &[(i128, i128, i128)] = &[
-            (100, 250, 2),       // 2.5% of 100
-            (100, 500, 5),       // 5%
-            (100, 1000, 10),     // 10%
-            (1, 5000, 0),        // 50% of 1 truncates to 0
-            (3, 5000, 1),        // 50% of 3 = 1
+            (100, 250, 2),   // 2.5% of 100
+            (100, 500, 5),   // 5%
+            (100, 1000, 10), // 10%
+            (1, 5000, 0),    // 50% of 1 truncates to 0
+            (3, 5000, 1),    // 50% of 3 = 1
             (10_000_000_000, 25, 25_000_000),
         ];
         for &(amount, bps, expected_fee) in cases {
