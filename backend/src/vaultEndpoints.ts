@@ -12,7 +12,10 @@ import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
 import { validate, VaultOperationSchema } from './middleware/validate';
+import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import crypto from 'crypto';
+import { tryAcquireWalletLock } from './walletLock';
+import { normalizeWalletAddress } from './walletUtils';
 
 const router = Router();
 
@@ -47,6 +50,18 @@ async function handleVaultOperation(
     (req.headers['x-idempotency-key'] as string | undefined);
 
   const { amount, asset, walletAddress, email, referralCode } = req.body;
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const walletLock = tryAcquireWalletLock(normalizedWallet);
+
+  if (!walletLock.acquired) {
+    return res.status(409).json({
+      error: 'Conflict',
+      status: 409,
+      code: 'WALLET_OPERATION_IN_PROGRESS',
+      message: 'Another operation is already in progress for this wallet',
+      walletAddress: normalizedWallet,
+    });
+  }
 
   const operation = async () => {
     return withSpan(`vault.${type}`, async (span) => {
@@ -210,6 +225,8 @@ async function handleVaultOperation(
       status: 500,
       message: `Failed to process ${type}`,
     });
+  } finally {
+    walletLock.release();
   }
 }
 
@@ -218,8 +235,13 @@ async function handleVaultOperation(
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/deposits', writesLimiter, allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
-  handleVaultOperation(req, res, 'deposit'),
+router.post(
+  '/deposits',
+  writesLimiter,
+  requireSignedWalletAction('deposit'),
+  allowlistMiddleware,
+  validate({ body: VaultOperationSchema }),
+  (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 
 /**
@@ -227,8 +249,13 @@ router.post('/deposits', writesLimiter, allowlistMiddleware, validate({ body: Va
  * Accepts optional Idempotency-Key header for deduplication.
  * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/withdrawals', writesLimiter, allowlistMiddleware, validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
-  handleVaultOperation(req, res, 'withdrawal'),
+router.post(
+  '/withdrawals',
+  writesLimiter,
+  requireSignedWalletAction('withdrawal'),
+  allowlistMiddleware,
+  validate({ body: VaultOperationSchema }),
+  (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
 );
 
 // ─── Feature-flagged v2 endpoints ────────────────────────────────────────────
@@ -238,8 +265,13 @@ router.post('/withdrawals', writesLimiter, allowlistMiddleware, validate({ body:
  * Gated behind the "deposit-v2" feature flag.
  * Supports per-wallet targeting via x-wallet-address header or body.walletAddress.
  */
-router.post('/deposits/v2', writesLimiter, requireFlag('deposit-v2'), validate({ body: VaultOperationSchema }), (req: Request, res: Response) =>
-  handleVaultOperation(req, res, 'deposit'),
+router.post(
+  '/deposits/v2',
+  writesLimiter,
+  requireSignedWalletAction('deposit'),
+  requireFlag('deposit-v2'),
+  validate({ body: VaultOperationSchema }),
+  (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 
 /**
