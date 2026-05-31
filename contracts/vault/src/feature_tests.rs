@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use crate::emergency::EmergencyActionKind;
 use soroban_sdk::testutils::Address as _;

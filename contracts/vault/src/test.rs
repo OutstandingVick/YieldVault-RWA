@@ -438,7 +438,7 @@ fn test_checkpoint() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (vault, usdc, usdc_sa, _admin) = setup_vault(&env);
+    let (vault, _usdc, usdc_sa, _admin) = setup_vault(&env);
     let user = Address::generate(&env);
     usdc_sa.mint(&user, &100);
 

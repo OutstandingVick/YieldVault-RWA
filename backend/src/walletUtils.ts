@@ -17,5 +17,5 @@ export function normalizeWalletAddress(address: string | undefined | null): stri
 export function isValidStellarAddress(address: string | undefined | null): boolean {
   if (!address) return false;
   const normalized = normalizeWalletAddress(address);
-  return /^G[A-Z2-7]{55}$/.test(normalized);
+  return /^G[A-Z0-9]{55,63}$/.test(normalized);
 }

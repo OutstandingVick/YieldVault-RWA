@@ -187,6 +187,11 @@ pub enum DataKey {
     // Withdrawal cooldown
     WithdrawalCooldown,
     LastDepositTime(Address),
+    CheckpointNonce,
+    CheckpointTotalShares(u32),
+    CheckpointTotalAssets(u32),
+    UserCheckpoint(Address),
+    UserBalanceAt(Address, u32),
 }
 
 #[contracttype]
@@ -238,6 +243,8 @@ pub enum VaultError {
     WithdrawalCooldownActive = 12,
     /// Requested storage migration target is older than the current stored version.
     InvalidMigrationTarget = 13,
+    /// Arithmetic overflow was detected before mutating state.
+    MathOverflow = 14,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -619,6 +626,72 @@ impl YieldVault {
         env.storage()
             .instance()
             .get(&DataKey::ShareBalance(user))
+            .unwrap_or(0)
+    }
+
+    pub fn create_checkpoint(env: Env) -> u32 {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let next_checkpoint = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::CheckpointNonce)
+            .unwrap_or(0)
+            .checked_add(1)
+            .expect("overflow");
+        let state = Self::get_state(&env);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointNonce, &next_checkpoint);
+        env.storage().instance().set(
+            &DataKey::CheckpointTotalShares(next_checkpoint),
+            &state.total_shares,
+        );
+        env.storage().instance().set(
+            &DataKey::CheckpointTotalAssets(next_checkpoint),
+            &state.total_assets,
+        );
+        env.events()
+            .publish((symbol_short!("chkpoint"),), (next_checkpoint,));
+        next_checkpoint
+    }
+
+    pub fn total_shares_at(env: Env, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointTotalShares(checkpoint_id))
+            .unwrap_or(0)
+    }
+
+    pub fn total_assets_at(env: Env, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointTotalAssets(checkpoint_id))
+            .unwrap_or(0)
+    }
+
+    pub fn snapshot_user_balance(env: Env, user: Address) {
+        user.require_auth();
+        let checkpoint_id = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::CheckpointNonce)
+            .expect("no checkpoint");
+        let balance = Self::balance(env.clone(), user.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::UserCheckpoint(user.clone()), &checkpoint_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::UserBalanceAt(user, checkpoint_id), &balance);
+    }
+
+    pub fn balance_at(env: Env, user: Address, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::UserBalanceAt(user, checkpoint_id))
             .unwrap_or(0)
     }
 
@@ -1329,18 +1402,27 @@ impl YieldVault {
 
     /// Admin function to artificially accrue yield, deducting the protocol fee.
     /// The fee portion is credited to the treasury balance.
-    pub fn accrue_yield(env: Env, amount: i128) {
+    pub fn accrue_yield(env: Env, amount: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = amount
+            .checked_mul(fee_bps)
+            .ok_or(VaultError::MathOverflow)?
+            / fee_math::BPS_DENOMINATOR;
+        let net_yield = amount
+            .checked_sub(fee_amount)
+            .ok_or(VaultError::MathOverflow)?;
 
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
-
-        // Goal 1: deduct protocol fee (floor rounding — see fee_math.rs)
-        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let (fee_amount, net_yield) = fee_math::calculate_protocol_fee(amount, fee_bps);
 
         // Accumulate fee in treasury balance
         if fee_amount > 0 {
@@ -1368,6 +1450,7 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
         state.total_assets = state.total_assets.checked_add(net_yield).expect("overflow");
         env.storage().instance().set(&DataKey::State, &state);
+        Ok(())
     }
 
     // ── Goal 1: Protocol fee ──────────────────────────────────────────────────
@@ -1376,7 +1459,7 @@ impl YieldVault {
     pub fn set_fee_bps(env: Env, new_bps: i128) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        if new_bps < 0 || new_bps > 10_000 {
+        if !(0..=10_000).contains(&new_bps) {
             panic!("fee_bps must be 0-10000");
         }
         let old_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
@@ -1575,7 +1658,7 @@ impl YieldVault {
     pub fn set_strategy_risk_threshold(env: Env, strategy: Address, threshold: i128) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        if threshold < 0 || threshold > 10_000 {
+        if !(0..=10_000).contains(&threshold) {
             panic!("threshold must be 0-10000");
         }
         env.storage()

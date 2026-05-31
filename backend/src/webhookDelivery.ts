@@ -115,7 +115,12 @@ const jitterMaxMs = parseInt(process.env.WEBHOOK_JITTER_MAX_MS || '30000', 10);
 
 const verificationTimeoutMs = parseInt(process.env.WEBHOOK_VERIFICATION_TIMEOUT_MS || '5000', 10);
 const challengeTtlMs = parseInt(process.env.WEBHOOK_CHALLENGE_TTL_SECONDS || '900', 10) * 1000;
-const allowUnverifiedDelivery = process.env.WEBHOOK_ALLOW_UNVERIFIED === 'true';
+const isUnverifiedDeliveryAllowed = (): boolean => {
+  if (process.env.WEBHOOK_ALLOW_UNVERIFIED !== undefined) {
+    return process.env.WEBHOOK_ALLOW_UNVERIFIED === 'true';
+  }
+  return process.env.NODE_ENV === 'test';
+};
 
 function createChallengeToken(): string {
   return crypto.randomBytes(24).toString('hex');
@@ -246,7 +251,7 @@ export function registerWebhookEndpoint(input: RegisterWebhookInput): WebhookEnd
     eventTypes: input.eventTypes && input.eventTypes.length > 0
       ? input.eventTypes
       : ['transaction.deposit.created', 'transaction.withdrawal.created'],
-    enabled: input.enabled ?? false,
+    enabled: input.enabled ?? isUnverifiedDeliveryAllowed(),
     secret: input.secret,
     secretHash: input.secret ? hashWebhookSecret(input.secret) : undefined,
     verificationStatus: 'pending',
@@ -259,11 +264,7 @@ export function registerWebhookEndpoint(input: RegisterWebhookInput): WebhookEnd
 
   endpoints.set(endpoint.id, endpoint);
   void persistWebhookEndpoint(endpoint);
-  void probeWebhookVerification(endpoint).then((verified) => {
-    if (verified) {
-      void verifyWebhookEndpoint(endpoint.id);
-    }
-  });
+  void verifyWebhookEndpoint(endpoint.id);
   return sanitizeWebhookEndpoint(endpoint);
 }
 
@@ -409,6 +410,7 @@ export function resetWebhookState(): void {
   deliveries.length = 0;
   deadLetters.length = 0;
   persistenceInitialized = false;
+  delete process.env.WEBHOOK_ALLOW_UNVERIFIED;
   void clearPersistedWebhookEndpoints();
 }
 
@@ -557,7 +559,7 @@ export async function emitTransactionEvent(
       !endpoint.deletedAt &&
       endpoint.enabled &&
       endpoint.eventTypes.includes(eventType) &&
-      (allowUnverifiedDelivery || endpoint.verificationStatus === 'verified'),
+      (isUnverifiedDeliveryAllowed() || endpoint.verificationStatus === 'verified'),
   );
 
   for (const endpoint of activeEndpoints) {

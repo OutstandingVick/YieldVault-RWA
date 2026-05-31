@@ -10,7 +10,7 @@ initTracing();
 
 import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import NodeCache from 'node-cache';
-import { loginHandler, refreshHandler, requireAuth, verifyJwt } from './auth';
+import { loginHandler, nonceHandler, refreshHandler, requireAuth, verifyJwt } from './auth';
 import {
   authLimiter,
   writesLimiter,
@@ -26,6 +26,7 @@ import {
   validateImpersonationSession,
   listImpersonationSessions,
   resolveImpersonationSessionContext,
+  type ImpersonationSessionRecord,
 } from './impersonationSessionService';
 import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
@@ -35,7 +36,9 @@ import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/stru
 import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
-import { validate, LoginSchema, RefreshSchema } from './middleware/validate';
+import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
+import { tieredJsonBodyParser } from './middleware/payloadLimit';
+import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import {
   setWithdrawalLimitOverride,
   listWithdrawalLimitAuditEntries,
@@ -66,6 +69,7 @@ import {
   listAddresses,
   allowlistSize,
 } from './middleware/allowlist';
+import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/rbac';
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
@@ -76,7 +80,7 @@ import {
   buildTransactionsResponse,
   buildVaultHistoryResponse,
 } from './listEndpoints';
-import { createPaginatedResponse } from './pagination';
+import { createPaginatedResponse, createPaginationEnvelope, encodeCursor } from './pagination';
 import listRouter from './listEndpoints';
 import referralRouter from './referralEndpoints';
 import { referralService } from './referralService';
@@ -129,6 +133,7 @@ import {
   getBulkExportArtifact,
 } from './bulkExportJobs';
 import { normalizeWalletAddress } from './walletUtils';
+import { emailQueueService } from './emailQueue';
 
 declare global {
   namespace Express {
@@ -184,9 +189,9 @@ function isDryRunRequest(req: Request): boolean {
 }
 
 function countInclusiveDays(start: string, end: string): number {
-  const startMs = Date.parse(`${start}T00:00:00.000Z`);
-  const endMs = Date.parse(`${end}T00:00:00.000Z`);
-  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+  const startMs = Date.parse(start + 'T00:00:00.000Z');
+  const endMs = Date.parse(end + 'T00:00:00.000Z');
+  return Math.floor((endMs - startMs) / 86400000) + 1;
 }
 
 function paginateByLimit<T>(rows: T[], limit: number): { data: T[]; hasNextPage: boolean } {
@@ -213,9 +218,12 @@ function sendStandardListEnvelope<T>(
   const payload = createPaginatedResponse(input.data, {
     count: input.data.length,
     total: input.total ?? input.data.length,
+    nextCursor: input.nextCursor ?? null,
+    prevCursor: null,
+    currentPage: null,
+    totalPages: null,
     hasNextPage: input.hasNextPage ?? false,
     hasPrevPage: input.hasPrevPage ?? false,
-    ...(input.nextCursor ? { nextCursor: input.nextCursor } : {}),
     limit: input.limit,
   });
 
@@ -245,12 +253,41 @@ async function buildReferralStatsSnapshot(wallet: string) {
   };
 }
 
+async function buildWalletTransactionsSnapshot(wallet: string) {
+  const normalizedWallet = normalizeWalletAddress(wallet);
+  const prisma = getPrismaClient();
+  const limit = 20;
+  const where = { user: normalizedWallet };
+  const [total, transactions] = await Promise.all([
+    prisma.transaction.count({ where }),
+    prisma.transaction.findMany({
+      where,
+      orderBy: { timestamp: 'desc' },
+      take: limit + 1,
+    }),
+  ]);
+  const hasNextPage = transactions.length > limit;
+  const data = hasNextPage ? transactions.slice(0, limit) : transactions;
+
+  return createPaginatedResponse(
+    data,
+    createPaginationEnvelope({
+      count: data.length,
+      limit,
+      total,
+      hasNextPage,
+      hasPrevPage: false,
+      nextCursor: hasNextPage && data.length > 0 ? encodeCursor(data[data.length - 1].id) : null,
+    }),
+  );
+}
+
 async function buildImpersonatedVaultState(wallet: string) {
   const normalizedWallet = normalizeWalletAddress(wallet);
   return {
     walletAddress: normalizedWallet,
     summary: buildVaultSummaryResponse(),
-    transactions: buildTransactionsResponse({ walletAddress: normalizedWallet }),
+    transactions: await buildWalletTransactionsSnapshot(normalizedWallet),
     portfolioHoldings: buildPortfolioHoldingsResponse({ walletAddress: normalizedWallet }),
     vaultHistory: buildVaultHistoryResponse({}),
     referralStats: await buildReferralStatsSnapshot(normalizedWallet),
@@ -419,7 +456,7 @@ async function handleTransactionExport(req: Request, res: Response): Promise<voi
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
-app.use(express.json());
+app.use(tieredJsonBodyParser());
 
 // CORS configuration (restricted origins)
 app.use(corsMiddleware);
@@ -597,13 +634,17 @@ app.use('/api', listRouter);
  * POST /api/v1/auth/login
  * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
  */
-apiV1.post('/auth/login', authLimiter, validate({ body: LoginSchema }), loginHandler);
+apiV1.post('/auth/nonce', authLimiter, validate({ body: NonceRequestSchema }), nonceHandler);
+apiV1.post('/auth/login', authLimiter, validate({ body: LoginSchema }), requireSignedWalletAction('login'), loginHandler);
 
 /**
  * POST /api/v1/auth/refresh
  * Rotate the refresh token and issue a new access JWT.
  */
 apiV1.post('/auth/refresh', authLimiter, validate({ body: RefreshSchema }), refreshHandler);
+
+// Admin routes share API-key authentication and role-based authorization.
+app.use('/admin', validateApiKey, adminRbacMiddleware);
 
 /**
  * POST /api/v1/auth/logout
@@ -1209,6 +1250,40 @@ app.get('/admin/withdrawal-limits/audit', validateApiKey, (req: Request, res: Re
   });
 });
 
+/**
+ * GET /admin/emails/queue
+ * Lists queued outbound emails, optionally filtered by status.
+ */
+app.get('/admin/emails/queue', validateApiKey, async (req: Request, res: Response) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  const emails = await emailQueueService.getEmailQueue(status);
+
+  res.status(200).json({
+    emails,
+    count: emails.length,
+  });
+});
+
+/**
+ * POST /admin/emails/replay/:id
+ * Requeues a failed/dead-letter email for another send attempt.
+ */
+app.post('/admin/emails/replay/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const email = await emailQueueService.replayEmail(req.params.id);
+    res.status(200).json({
+      message: 'Email requeued successfully',
+      email,
+    });
+  } catch {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Email queue item not found',
+    });
+  }
+});
+
 // ─── Allowlist Admin Endpoints (Issue #375) ──────────────────────────────────
 
 /**
@@ -1543,7 +1618,7 @@ app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: 
     return;
   }
 
-  if (!sessionId && process.env.NODE_ENV !== 'test') {
+  if (!sessionId && process.env.IMPERSONATION_SESSION_STORAGE) {
     req.adminAuditAction = 'admin.impersonate.session.required';
     res.status(400).json({
       error: 'Bad Request',
@@ -1553,57 +1628,60 @@ app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: 
     return;
   }
 
-  const validation = await validateImpersonationSession(sessionId, wallet, actingAdminAddress);
-  if (!validation.ok) {
-    const statusCode = validation.reason === 'not_found' ? 404 : 403;
-    try {
-      if (sessionId) {
-        const validation = await validateImpersonationSession(sessionId, wallet, actingAdminAddress);
-        if (!validation.ok) {
-          const statusCode = validation.reason === 'not_found' ? 404 : 403;
-          req.adminAuditAction =
+  try {
+    let activeSession: ImpersonationSessionRecord | undefined;
+
+    if (sessionId) {
+      const validation = await validateImpersonationSession(sessionId, wallet, actingAdminAddress);
+      if (!validation.ok) {
+        const statusCode = validation.reason === 'not_found' ? 404 : 403;
+        req.adminAuditAction =
+          validation.reason === 'expired'
+            ? 'admin.impersonate.session.expired'
+            : validation.reason === 'ended'
+              ? 'admin.impersonate.session.ended'
+              : validation.reason === 'wallet_mismatch'
+                ? 'admin.impersonate.session.wallet_mismatch'
+                : validation.reason === 'actor_mismatch'
+                  ? 'admin.impersonate.session.actor_mismatch'
+                  : 'admin.impersonate.session.invalid';
+        req.adminAuditMetadata = {
+          ...req.adminAuditMetadata,
+          validationReason: validation.reason,
+        };
+        res.status(statusCode).json({
+          error: statusCode === 404 ? 'Not Found' : 'Forbidden',
+          status: statusCode,
+          message:
             validation.reason === 'expired'
-              ? 'admin.impersonate.session.expired'
+              ? 'Impersonation session has expired'
               : validation.reason === 'ended'
-                ? 'admin.impersonate.session.ended'
+                ? 'Impersonation session has ended'
                 : validation.reason === 'wallet_mismatch'
-                  ? 'admin.impersonate.session.wallet_mismatch'
+                  ? 'Session wallet does not match target wallet'
                   : validation.reason === 'actor_mismatch'
-                    ? 'admin.impersonate.session.actor_mismatch'
-                    : 'admin.impersonate.session.invalid';
-          req.adminAuditMetadata = {
-            ...req.adminAuditMetadata,
-            validationReason: validation.reason,
-          };
-          res.status(statusCode).json({
-            error: statusCode === 404 ? 'Not Found' : 'Forbidden',
-            status: statusCode,
-            message:
-              validation.reason === 'expired'
-                ? 'Impersonation session has expired'
-                : validation.reason === 'ended'
-                  ? 'Impersonation session has ended'
-                  : validation.reason === 'wallet_mismatch'
-                    ? 'Session wallet does not match target wallet'
-                    : validation.reason === 'actor_mismatch'
-                      ? 'Session actor does not match requesting admin'
-                      : 'Impersonation session is invalid',
-          });
-          return;
-        }
+                    ? 'Session actor does not match requesting admin'
+                    : 'Impersonation session is invalid',
+        });
+        return;
       }
+      activeSession = validation.session;
+    }
 
-      req.adminAuditAction = 'admin.impersonate';
+    req.adminAuditAction = 'admin.impersonate';
 
-      const vaultState = await buildImpersonatedVaultState(wallet);
-      res.status(200).json({
-        ...vaultState,
-        impersonationSession: sessionId
-          ? {
-              id: sessionId,
-            }
-          : undefined,
-      });
+    const vaultState = await buildImpersonatedVaultState(wallet);
+    res.status(200).json({
+      ...vaultState,
+      impersonationSession: activeSession
+        ? {
+            id: activeSession.id,
+            reason: activeSession.reason,
+            startedAt: activeSession.startedAt,
+            expiresAt: activeSession.expiresAt,
+          }
+        : undefined,
+    });
     } catch (error) {
       req.adminAuditAction = 'admin.impersonate.failed';
       req.adminAuditMetadata = {
@@ -1615,7 +1693,9 @@ app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: 
         status: 500,
         message: 'Failed to build impersonated vault state',
       });
-    }
+  }
+});
+
 app.get('/admin/receipts', validateApiKey, async (req: Request, res: Response) => {
   const action = typeof req.query.action === 'string' ? req.query.action : undefined;
   const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
@@ -1952,7 +2032,7 @@ app.post('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
     const endpoint = registerWebhookEndpoint({
       url,
       eventTypes,
-      enabled,
+      enabled: enabled ?? true,
       secret,
     });
 
@@ -2010,6 +2090,10 @@ app.post('/admin/webhooks/:id/verify', validateApiKey, async (req: Request, res:
  * PATCH /admin/webhooks/:id - update webhook endpoint
  */
 app.patch('/admin/webhooks/:id', validateApiKey, (req: Request, res: Response) => {
+  if (!assertWebhookParameterUpdate(req, res)) {
+    return;
+  }
+
   try {
     const endpoint = updateWebhookEndpoint(req.params.id, req.body || {});
     if (!endpoint) {
@@ -2920,21 +3004,16 @@ if (process.env.NODE_ENV !== 'test') {
   const shutdownHandler = new GracefulShutdownHandler(drainTimeout);
   shutdownHandler.register(server);
 
-// ─── APY Snapshot Scheduler (Issue #374) ────────────────────────────────────
-const stopApyScheduler = startApySnapshotScheduler();
-shutdownHandler.onShutdown(async () => {
-  stopApyScheduler();
-});
+  // ─── APY Snapshot Scheduler (Issue #374) ────────────────────────────────────
+  const stopApyScheduler = startApySnapshotScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopApyScheduler();
+  });
 
-// Register event polling service shutdown
-shutdownHandler.onShutdown(async () => {
-  stopEventPollingService();
-});
-
-// Register database shutdown task
-shutdownHandler.onShutdown(async () => {
-  await db.shutdown();
-});
+  // Register event polling service shutdown
+  shutdownHandler.onShutdown(async () => {
+    stopEventPollingService();
+  });
 
   // Register database shutdown task
   shutdownHandler.onShutdown(async () => {

@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use crate::upgrade::{get_admin, is_initialized};
 use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};

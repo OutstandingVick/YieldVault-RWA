@@ -12,7 +12,7 @@ pub const BPS_DENOMINATOR: i128 = 10_000;
 pub fn calculate_protocol_fee(amount: i128, fee_bps: i128) -> (i128, i128) {
     assert!(amount >= 0, "amount must be non-negative");
     assert!(
-        fee_bps >= 0 && fee_bps <= BPS_DENOMINATOR,
+        (0..=BPS_DENOMINATOR).contains(&fee_bps),
         "fee_bps out of range"
     );
 
