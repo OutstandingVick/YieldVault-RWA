@@ -406,6 +406,31 @@ fn test_accrue_yield_increases_total_assets() {
     assert_eq!(vault.total_shares(), 0); // shares unchanged.
 }
 
+#[test]
+fn test_checkpoint() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc, usdc_sa, _admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100);
+
+    // User deposits 100
+    vault.deposit(&user, &100);
+
+    // Create a checkpoint (admin-auth in production; tests mock auth)
+    let cp = vault.create_checkpoint();
+    assert_eq!(cp, 1);
+
+    // Global totals should be recorded
+    assert_eq!(vault.total_shares_at(&cp), 100);
+    assert_eq!(vault.total_assets_at(&cp), 100);
+
+    // User snapshots their balance for the checkpoint
+    vault.snapshot_user_balance(&user);
+    assert_eq!(vault.balance_at(&user, &cp), 100);
+}
+
 // ─── 5. report_benji_yield ───────────────────────────────────────────────────
 
 #[test]
