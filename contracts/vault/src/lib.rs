@@ -180,6 +180,9 @@ pub enum DataKey {
     PriceOracle,
     OracleEnabled,
     OracleHeartbeat,
+    // Withdrawal cooldown
+    WithdrawalCooldown,
+    LastDepositTime(Address),
 }
 
 #[contracttype]
@@ -227,6 +230,8 @@ pub enum VaultError {
     ExceedsStrategyCap = 10,
     /// Strategy allocation exceeds configured risk threshold.
     ExceedsRiskThreshold = 11,
+    /// Withdrawal blocked due to active deposit cooldown.
+    WithdrawalCooldownActive = 12,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -948,6 +953,12 @@ impl YieldVault {
             &user_shares.checked_add(shares_to_mint).expect("overflow"),
         );
 
+        // Track last deposit time for withdrawal cooldown
+        env.storage().instance().set(
+            &DataKey::LastDepositTime(user.clone()),
+            &env.ledger().timestamp(),
+        );
+
         env.events()
             .publish((symbol_short!("deposit"),), (amount, shares_to_mint));
         Ok(shares_to_mint)
@@ -974,6 +985,16 @@ impl YieldVault {
         user.require_auth();
         if shares <= 0 {
             return Err(VaultError::InvalidAmount);
+        }
+
+        // Check withdrawal cooldown
+        let cooldown: u64 = env.storage().instance().get(&DataKey::WithdrawalCooldown).unwrap_or(0);
+        if cooldown > 0 {
+            let last_deposit: u64 = env.storage().instance().get(&DataKey::LastDepositTime(user.clone())).unwrap_or(0);
+            let earliest_withdrawal = last_deposit.checked_add(cooldown).expect("overflow");
+            if env.ledger().timestamp() < earliest_withdrawal {
+                return Err(VaultError::WithdrawalCooldownActive);
+            }
         }
 
         let user_key = DataKey::ShareBalance(user.clone());
@@ -1359,6 +1380,28 @@ impl YieldVault {
         env.storage()
             .instance()
             .get(&DataKey::MinLiquidityBuffer)
+            .unwrap_or(0)
+    }
+
+    // ── Withdrawal cooldown ────────────────────────────────────────────────────
+
+    /// Set the withdrawal cooldown duration in seconds.
+    /// When non-zero, users must wait this long after depositing before they can withdraw.
+    /// Only the Admin can call this.
+    pub fn set_withdrawal_cooldown(env: Env, seconds: u64) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let old: u64 = env.storage().instance().get(&DataKey::WithdrawalCooldown).unwrap_or(0);
+        env.storage().instance().set(&DataKey::WithdrawalCooldown, &seconds);
+        env.events()
+            .publish((symbol_short!("wdrwcd"),), (old, seconds));
+    }
+
+    /// Returns the current withdrawal cooldown in seconds (0 = no cooldown).
+    pub fn withdrawal_cooldown(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalCooldown)
             .unwrap_or(0)
     }
 
