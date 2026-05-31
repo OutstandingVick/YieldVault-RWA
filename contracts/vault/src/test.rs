@@ -409,6 +409,47 @@ fn test_accrue_yield_increases_total_assets() {
 // ─── 5. report_benji_yield ───────────────────────────────────────────────────
 
 #[test]
+fn test_accrue_yield_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let result = vault.try_accrue_yield(&0);
+    assert!(matches!(result, Err(Ok(VaultError::InvalidAmount))));
+}
+
+#[test]
+fn test_accrue_yield_fee_math_overflow_reverts_before_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc, _, admin) = setup_vault(&env);
+    vault.set_fee_bps(&10_000);
+
+    let result = vault.try_accrue_yield(&i128::MAX);
+    assert!(matches!(result, Err(Ok(VaultError::MathOverflow))));
+    assert_eq!(usdc.balance(&admin), 0);
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 0);
+}
+
+#[test]
+fn test_accrue_yield_full_fee_accumulates_to_treasury_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    usdc_sa.mint(&admin, &250);
+
+    vault.set_fee_bps(&10_000);
+    vault.accrue_yield(&250);
+
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 250);
+}
+
+#[test]
 #[should_panic]
 fn test_report_benji_yield_wrong_strategy_panics() {
     let env = Env::default();
