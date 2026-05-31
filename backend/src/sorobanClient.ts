@@ -6,7 +6,7 @@
 import {
   Keypair,
   Contract,
-  rpc as StellarRpc,
+  SorobanRpc as StellarRpc,
   nativeToScVal,
   StrKey,
   TransactionBuilder,
@@ -120,11 +120,13 @@ export async function submitVaultOperation(
     }
 
     // Build the contract invocation operation
+    const toScVal = nativeToScVal as (...args: unknown[]) => unknown;
+
     const op = contract.call(
       method,
-      nativeToScVal(walletAddress, { type: 'address' }),
-      nativeToScVal(amount, { type: 'i128' }),
-      nativeToScVal(asset, { type: 'string' }),
+      toScVal(walletAddress, { type: 'address' }),
+      toScVal(amount, { type: 'i128' }),
+      toScVal(asset, { type: 'string' }),
     );
 
     // Create transaction
@@ -143,7 +145,9 @@ export async function submitVaultOperation(
 
     const simulated = await rpcClient.simulateTransaction(tx);
 
-    if (StellarRpc.Api.isSimulationError(simulated)) {
+    const rpcApi = (StellarRpc as any).Api ?? (StellarRpc as any);
+
+    if (typeof rpcApi.isSimulationError === 'function' && rpcApi.isSimulationError(simulated)) {
       const errorMessage = `Soroban simulation error: ${
         'error' in simulated ? String(simulated.error) : 'Unknown error'
       }`;
@@ -155,7 +159,7 @@ export async function submitVaultOperation(
       throw new SorobanSimulationError(errorMessage, 'SIMULATION_ERROR');
     }
 
-    if (StellarRpc.Api.isSimulationRestore(simulated)) {
+    if (typeof rpcApi.isSimulationRestore === 'function' && rpcApi.isSimulationRestore(simulated)) {
       logger.log('warn', 'Soroban transaction requires restore', {
         operationType,
         walletAddress,

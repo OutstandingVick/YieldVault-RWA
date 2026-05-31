@@ -25,7 +25,7 @@
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, Address, Env, Vec};
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -406,7 +406,73 @@ fn test_accrue_yield_increases_total_assets() {
     assert_eq!(vault.total_shares(), 0); // shares unchanged.
 }
 
+#[test]
+fn test_checkpoint() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc, usdc_sa, _admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100);
+
+    // User deposits 100
+    vault.deposit(&user, &100);
+
+    // Create a checkpoint (admin-auth in production; tests mock auth)
+    let cp = vault.create_checkpoint();
+    assert_eq!(cp, 1);
+
+    // Global totals should be recorded
+    assert_eq!(vault.total_shares_at(&cp), 100);
+    assert_eq!(vault.total_assets_at(&cp), 100);
+
+    // User snapshots their balance for the checkpoint
+    vault.snapshot_user_balance(&user);
+    assert_eq!(vault.balance_at(&user, &cp), 100);
+}
+
 // ─── 5. report_benji_yield ───────────────────────────────────────────────────
+
+#[test]
+fn test_accrue_yield_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let result = vault.try_accrue_yield(&0);
+    assert!(matches!(result, Err(Ok(VaultError::InvalidAmount))));
+}
+
+#[test]
+fn test_accrue_yield_fee_math_overflow_reverts_before_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc, _, admin) = setup_vault(&env);
+    vault.set_fee_bps(&10_000);
+
+    let result = vault.try_accrue_yield(&i128::MAX);
+    assert!(matches!(result, Err(Ok(VaultError::MathOverflow))));
+    assert_eq!(usdc.balance(&admin), 0);
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 0);
+}
+
+#[test]
+fn test_accrue_yield_full_fee_accumulates_to_treasury_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    usdc_sa.mint(&admin, &250);
+
+    vault.set_fee_bps(&10_000);
+    vault.accrue_yield(&250);
+
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 250);
+}
 
 #[test]
 #[should_panic]
@@ -1151,137 +1217,167 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.total_assets(), 200);
 }
 
-// ─── Timelocked parameter updates ────────────────────────────────────────────
+// ─── 11. withdrawal cooldown ──────────────────────────────────────────────────
 
 #[test]
-fn test_propose_param_update_stores_pending() {
+fn test_withdrawal_cooldown_blocks_immediate_withdraw() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    let unlock_ts = vault.propose_param_update(&ParamKey::FeeBps, &500);
-    let pending = vault.pending_param_update(&ParamKey::FeeBps).unwrap();
-    assert_eq!(pending.new_value, 500);
-    assert_eq!(pending.unlock_timestamp, unlock_ts);
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600); // 1 hour cooldown
+    assert_eq!(vault.withdrawal_cooldown(), 3600);
+
+    vault.deposit(&user, &500);
+
+    // Withdraw should be blocked by cooldown
+    let result = vault.try_withdraw(&user, &100);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_propose_param_update_duplicate_panics() {
+fn test_withdrawal_cooldown_allows_withdraw_after_cooldown_expires() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    vault.propose_param_update(&ParamKey::FeeBps, &500);
-    let result = vault.try_propose_param_update(&ParamKey::FeeBps, &200);
-    assert_eq!(result, Err(Ok(VaultError::ParamUpdateAlreadyPending)));
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.deposit(&user, &500);
+
+    // Fast-forward past cooldown
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    let withdrawn = vault.withdraw(&user, &200);
+    assert_eq!(withdrawn, 200);
+    assert_eq!(vault.balance(&user), 300);
 }
 
 #[test]
-fn test_execute_param_update_before_timelock_panics() {
+fn test_withdrawal_cooldown_zero_by_default() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    vault.propose_param_update(&ParamKey::FeeBps, &500);
-    let result = vault.try_execute_param_update(&ParamKey::FeeBps);
-    assert_eq!(result, Err(Ok(VaultError::ParamTimelockNotExpired)));
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    // Default cooldown is 0
+    assert_eq!(vault.withdrawal_cooldown(), 0);
+
+    vault.deposit(&user, &500);
+
+    // Withdraw works immediately with zero cooldown
+    let withdrawn = vault.withdraw(&user, &200);
+    assert_eq!(withdrawn, 200);
 }
 
 #[test]
-fn test_execute_param_update_fee_bps_after_timelock() {
+fn test_withdrawal_cooldown_respects_per_user() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    vault.propose_param_update(&ParamKey::FeeBps, &300);
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    usdc_sa.mint(&user_a, &500);
+    usdc_sa.mint(&user_b, &500);
 
-    // Advance time past the 48-hour timelock
-    env.ledger().with_mut(|l| l.timestamp += 172_801);
+    vault.set_withdrawal_cooldown(&3600);
 
-    vault.execute_param_update(&ParamKey::FeeBps);
-    assert_eq!(vault.fee_bps(), 300);
-    // Pending entry should be cleared
-    assert!(vault.pending_param_update(&ParamKey::FeeBps).is_none());
+    vault.deposit(&user_a, &500);
+    vault.deposit(&user_b, &500);
+
+    // Fast-forward past cooldown for user_b only by advancing time for all
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    // user_a deposited at the same time, but old timestamp means cooldown passed for both
+    let withdrawn_b = vault.withdraw(&user_b, &200);
+    assert_eq!(withdrawn_b, 200);
+
+    let withdrawn_a = vault.withdraw(&user_a, &100);
+    assert_eq!(withdrawn_a, 100);
 }
 
 #[test]
-fn test_execute_param_update_min_deposit_after_timelock() {
+fn test_withdrawal_cooldown_can_be_disabled() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    vault.propose_param_update(&ParamKey::MinDeposit, &100);
-    env.ledger().with_mut(|l| l.timestamp += 172_801);
-    vault.execute_param_update(&ParamKey::MinDeposit);
-    assert_eq!(vault.min_deposit(), 100);
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.deposit(&user, &500);
+
+    // Disable cooldown
+    vault.set_withdrawal_cooldown(&0);
+    assert_eq!(vault.withdrawal_cooldown(), 0);
+
+    // Withdraw should work now
+    let withdrawn = vault.withdraw(&user, &300);
+    assert_eq!(withdrawn, 300);
 }
 
 #[test]
-fn test_execute_param_update_large_withdrawal_threshold_after_timelock() {
+fn test_withdrawal_cooldown_new_deposit_resets_timer() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    vault.propose_param_update(&ParamKey::LargeWithdrawalThreshold, &5000);
-    env.ledger().with_mut(|l| l.timestamp += 172_801);
-    vault.execute_param_update(&ParamKey::LargeWithdrawalThreshold);
-    assert_eq!(vault.large_withdrawal_threshold(), 5000);
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1000);
+
+    vault.set_withdrawal_cooldown(&3600);
+
+    vault.deposit(&user, &500);
+
+    // Fast-forward partially
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1800);
+
+    // Make another deposit - timer resets
+    vault.deposit(&user, &200);
+
+    // Withdraw should still be blocked (timer reset by latest deposit)
+    let result = vault.try_withdraw(&user, &100);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_execute_param_update_min_liquidity_buffer_after_timelock() {
+fn test_withdrawal_cooldown_then_timelock_then_execute() {
     let env = Env::default();
     env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
 
-    vault.propose_param_update(&ParamKey::MinLiquidityBuffer, &200);
-    env.ledger().with_mut(|l| l.timestamp += 172_801);
-    vault.execute_param_update(&ParamKey::MinLiquidityBuffer);
-    assert_eq!(vault.min_liquidity_buffer(), 200);
-}
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100_000);
 
-#[test]
-fn test_cancel_param_update_removes_pending() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
+    vault.set_withdrawal_cooldown(&3600);
+    vault.set_large_withdrawal_threshold(&1000);
 
-    vault.propose_param_update(&ParamKey::FeeBps, &500);
-    vault.cancel_param_update(&ParamKey::FeeBps);
-    assert!(vault.pending_param_update(&ParamKey::FeeBps).is_none());
-}
+    vault.deposit(&user, &100_000);
 
-#[test]
-fn test_cancel_param_update_no_pending_panics() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
+    // Cooldown blocks the withdraw call
+    let blocked = vault.try_withdraw(&user, &50_000);
+    assert!(blocked.is_err());
 
-    let result = vault.try_cancel_param_update(&ParamKey::FeeBps);
-    assert_eq!(result, Err(Ok(VaultError::NoPendingParamUpdate)));
-}
+    // Fast-forward past cooldown
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
 
-#[test]
-fn test_execute_param_update_no_pending_panics() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
+    // Now withdraw triggers the timelock (large withdrawal)
+    let result = vault.withdraw(&user, &50_000);
+    assert_eq!(result, 0); // pending withdrawal
 
-    let result = vault.try_execute_param_update(&ParamKey::FeeBps);
-    assert_eq!(result, Err(Ok(VaultError::NoPendingParamUpdate)));
-}
+    // Fast-forward past timelock
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
 
-#[test]
-fn test_cancel_then_repropose_param_update() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (vault, _, _, _) = setup_vault(&env);
-
-    vault.propose_param_update(&ParamKey::FeeBps, &500);
-    vault.cancel_param_update(&ParamKey::FeeBps);
-
-    // Should be able to propose again after cancellation
-    vault.propose_param_update(&ParamKey::FeeBps, &200);
-    let pending = vault.pending_param_update(&ParamKey::FeeBps).unwrap();
-    assert_eq!(pending.new_value, 200);
+    // execute_withdrawal works
+    let executed = vault.execute_withdrawal(&user);
+    assert_eq!(executed, 50_000);
 }

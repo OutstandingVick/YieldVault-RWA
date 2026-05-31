@@ -65,10 +65,12 @@ fn test_pause_unpause_works() {
     let vault = YieldVaultClient::new(&env, &vault_id);
     vault.initialize(&admin, &usdc.address);
 
-    vault.pause();
+    vault.pause(&PauseReason::Maintenance);
     assert!(vault.is_paused());
+    assert_eq!(vault.pause_reason(), Some(PauseReason::Maintenance));
     vault.unpause();
     assert!(!vault.is_paused());
+    assert_eq!(vault.pause_reason(), None);
 }
 
 #[test]
