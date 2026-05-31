@@ -242,14 +242,18 @@
                     "storage": [
                       {
                         "key": {
-                          "vec": [
-                            {
-                              "symbol": "Admin"
-                            }
-                          ]
+                          "u32": 0
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 2
+                        },
+                        "val": {
+                          "bool": true
                         }
                       },
                       {
