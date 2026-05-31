@@ -1,6 +1,6 @@
 import type { Response, NextFunction, RequestHandler } from 'express';
 import type { CorrelationIdRequest } from './correlationId';
-import { redactSensitiveLogAttributes } from '../auditRedaction';
+import { redactSensitiveAttributes } from '../redaction';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -45,7 +45,8 @@ class Logger {
       message,
       ...fields,
     };
-    const safeEntry = redactSensitiveLogAttributes(entry);
+
+    const safeEntry = redactSensitiveAttributes(entry);
 
     /* eslint-disable-next-line no-console */
     console.log(JSON.stringify(safeEntry));

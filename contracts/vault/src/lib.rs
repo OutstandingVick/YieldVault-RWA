@@ -55,15 +55,20 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub mod benji_strategy;
 #[cfg(test)]
+mod feature_tests;
+#[cfg(test)]
 mod event_tests;
 pub mod external_calls;
 #[cfg(test)]
 mod fuzz_math;
 #[cfg(test)]
 mod oracle_tests;
+pub mod emergency;
+pub mod fee_math;
 pub mod permissions;
 #[cfg(test)]
 pub mod proxy_tests;
+pub mod storage_registry;
 pub mod strategy;
 mod test;
 pub mod upgrade;
@@ -102,6 +107,27 @@ pub struct ShipmentPage {
 }
 
 #[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+/// Explicit reason code recorded when the vault is paused.
+pub enum PauseReason {
+    /// No pause active (stored only while paused).
+    None = 0,
+    /// Suspected exploit or unauthorized activity.
+    SecurityIncident = 1,
+    /// Oracle feed stale, invalid, or manipulated.
+    OracleFailure = 2,
+    /// Insufficient liquidity or bank-run conditions.
+    LiquidityCrisis = 3,
+    /// DAO or governance-directed halt.
+    Governance = 4,
+    /// Planned maintenance or upgrade window.
+    Maintenance = 5,
+    /// Operator-defined catch-all.
+    Other = 6,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 /// Current vault state: total shares, total assets, and pause status.
 pub struct VaultState {
@@ -124,6 +150,11 @@ pub enum DataKey {
     BenjiStrategy,
     KoreanDebtStrategy,
     IsPaused,
+    PauseReason,
+    EmergencyApproverPrimary,
+    EmergencyApproverSecondary,
+    EmergencyProposalNonce,
+    EmergencyProposal(u32),
     Proposal(u32),
     Vote(u32, Address),
     ShareBalance(Address),
@@ -149,6 +180,9 @@ pub enum DataKey {
     PriceOracle,
     OracleEnabled,
     OracleHeartbeat,
+    // Withdrawal cooldown
+    WithdrawalCooldown,
+    LastDepositTime(Address),
 }
 
 #[contracttype]
@@ -196,6 +230,8 @@ pub enum VaultError {
     ExceedsStrategyCap = 10,
     /// Strategy allocation exceeds configured risk threshold.
     ExceedsRiskThreshold = 11,
+    /// Withdrawal blocked due to active deposit cooldown.
+    WithdrawalCooldownActive = 12,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -296,13 +332,16 @@ impl YieldVault {
         env.storage().instance().get(&DataKey::Strategy)
     }
 
-    pub fn pause(env: Env) {
+    pub fn pause(env: Env, reason: PauseReason) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
         let mut state = Self::get_state(&env);
         state.is_paused = true;
         env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+        env.events()
+            .publish((symbol_short!("paused"),), (reason as u32,));
     }
 
     pub fn unpause(env: Env) {
@@ -312,10 +351,145 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
         state.is_paused = false;
         env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().remove(&DataKey::PauseReason);
+        env.events().publish((symbol_short!("unpaused"),), ());
     }
 
     pub fn is_paused(env: Env) -> bool {
         Self::get_state(&env).is_paused
+    }
+
+    /// Returns the stored pause reason while paused; `None` when active.
+    pub fn pause_reason(env: Env) -> Option<PauseReason> {
+        if !Self::is_paused(env.clone()) {
+            return None;
+        }
+        env.storage().instance().get(&DataKey::PauseReason)
+    }
+
+    /// Configure the two distinct approvers required for emergency actions.
+    pub fn set_emergency_approvers(env: Env, primary: Address, secondary: Address) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        emergency::require_distinct_approvers(&primary, &secondary);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyApproverPrimary, &primary);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyApproverSecondary, &secondary);
+    }
+
+    pub fn emergency_approver_primary(env: Env) -> Option<Address> {
+        emergency::primary_approver(&env)
+    }
+
+    pub fn emergency_approver_secondary(env: Env) -> Option<Address> {
+        emergency::secondary_approver(&env)
+    }
+
+    /// Primary approver initiates a dual-approval emergency action.
+    pub fn propose_emergency_action(
+        env: Env,
+        initiator: Address,
+        kind: emergency::EmergencyActionKind,
+        pause_reason_code: u32,
+        divest_amount: Option<i128>,
+        wasm_hash: Option<BytesN<32>>,
+    ) -> u32 {
+        initiator.require_auth();
+        let primary = emergency::primary_approver(&env).expect("primary approver not set");
+        assert!(initiator == primary, "only primary approver can initiate");
+
+        let proposal_id = emergency::next_proposal_id(&env);
+        let proposal = emergency::EmergencyProposal {
+            kind,
+            pause_reason_code,
+            divest_amount,
+            wasm_hash,
+            initiator: initiator.clone(),
+            confirmed: false,
+            executed: false,
+        };
+        emergency::write_proposal(&env, proposal_id, &proposal);
+        env.events()
+            .publish((symbol_short!("emrgprop"),), (proposal_id, kind as u32));
+        proposal_id
+    }
+
+    /// Secondary approver confirms and executes a pending emergency action.
+    pub fn confirm_emergency_action(env: Env, confirmer: Address, proposal_id: u32) {
+        confirmer.require_auth();
+        let secondary = emergency::secondary_approver(&env).expect("secondary approver not set");
+        assert!(confirmer == secondary, "only secondary approver can confirm");
+
+        let mut proposal = emergency::read_proposal(&env, proposal_id).expect("proposal not found");
+        assert!(!proposal.executed, "proposal already executed");
+        assert!(!proposal.confirmed, "proposal already confirmed");
+        assert!(
+            proposal.initiator != confirmer,
+            "confirmer must differ from initiator"
+        );
+
+        proposal.confirmed = true;
+        emergency::write_proposal(&env, proposal_id, &proposal);
+
+        match proposal.kind {
+            emergency::EmergencyActionKind::Pause => {
+                let reason = Self::pause_reason_from_code(proposal.pause_reason_code);
+                Self::apply_emergency_pause(&env, reason);
+            }
+            emergency::EmergencyActionKind::Unpause => {
+                Self::apply_emergency_unpause(&env);
+            }
+            emergency::EmergencyActionKind::EmergencyDivest => {
+                let amount = proposal.divest_amount.expect("divest amount required");
+                Self::divest(env.clone(), amount);
+            }
+            emergency::EmergencyActionKind::ForceUpgrade => {
+                let hash = proposal
+                    .wasm_hash
+                    .clone()
+                    .expect("wasm hash required");
+                env.deployer().update_current_contract_wasm(hash);
+            }
+        }
+
+        proposal.executed = true;
+        emergency::write_proposal(&env, proposal_id, &proposal);
+        env.events()
+            .publish((symbol_short!("emrgexec"),), (proposal_id, proposal.kind as u32));
+    }
+
+    pub fn emergency_proposal(env: Env, proposal_id: u32) -> Option<emergency::EmergencyProposal> {
+        emergency::read_proposal(&env, proposal_id)
+    }
+
+    fn apply_emergency_pause(env: &Env, reason: PauseReason) {
+        let mut state = Self::get_state(env);
+        state.is_paused = true;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+    }
+
+    fn apply_emergency_unpause(env: &Env) {
+        let mut state = Self::get_state(env);
+        state.is_paused = false;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().remove(&DataKey::PauseReason);
+    }
+
+    fn pause_reason_from_code(code: u32) -> PauseReason {
+        match code {
+            0 => PauseReason::None,
+            1 => PauseReason::SecurityIncident,
+            2 => PauseReason::OracleFailure,
+            3 => PauseReason::LiquidityCrisis,
+            4 => PauseReason::Governance,
+            5 => PauseReason::Maintenance,
+            6 => PauseReason::Other,
+            _ => PauseReason::SecurityIncident,
+        }
     }
 
     pub fn set_per_user_cap(env: Env, cap: i128) {
@@ -779,6 +953,12 @@ impl YieldVault {
             &user_shares.checked_add(shares_to_mint).expect("overflow"),
         );
 
+        // Track last deposit time for withdrawal cooldown
+        env.storage().instance().set(
+            &DataKey::LastDepositTime(user.clone()),
+            &env.ledger().timestamp(),
+        );
+
         env.events()
             .publish((symbol_short!("deposit"),), (amount, shares_to_mint));
         Ok(shares_to_mint)
@@ -805,6 +985,16 @@ impl YieldVault {
         user.require_auth();
         if shares <= 0 {
             return Err(VaultError::InvalidAmount);
+        }
+
+        // Check withdrawal cooldown
+        let cooldown: u64 = env.storage().instance().get(&DataKey::WithdrawalCooldown).unwrap_or(0);
+        if cooldown > 0 {
+            let last_deposit: u64 = env.storage().instance().get(&DataKey::LastDepositTime(user.clone())).unwrap_or(0);
+            let earliest_withdrawal = last_deposit.checked_add(cooldown).expect("overflow");
+            if env.ledger().timestamp() < earliest_withdrawal {
+                return Err(VaultError::WithdrawalCooldownActive);
+            }
         }
 
         let user_key = DataKey::ShareBalance(user.clone());
@@ -1060,10 +1250,9 @@ impl YieldVault {
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
 
-        // Goal 1: deduct protocol fee before distributing to depositors
+        // Goal 1: deduct protocol fee (floor rounding — see fee_math.rs)
         let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let fee_amount = amount.checked_mul(fee_bps).expect("overflow") / 10_000;
-        let net_yield = amount.checked_sub(fee_amount).expect("underflow");
+        let (fee_amount, net_yield) = fee_math::calculate_protocol_fee(amount, fee_bps);
 
         // Accumulate fee in treasury balance
         if fee_amount > 0 {
@@ -1202,6 +1391,28 @@ impl YieldVault {
         env.storage()
             .instance()
             .get(&DataKey::MinLiquidityBuffer)
+            .unwrap_or(0)
+    }
+
+    // ── Withdrawal cooldown ────────────────────────────────────────────────────
+
+    /// Set the withdrawal cooldown duration in seconds.
+    /// When non-zero, users must wait this long after depositing before they can withdraw.
+    /// Only the Admin can call this.
+    pub fn set_withdrawal_cooldown(env: Env, seconds: u64) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let old: u64 = env.storage().instance().get(&DataKey::WithdrawalCooldown).unwrap_or(0);
+        env.storage().instance().set(&DataKey::WithdrawalCooldown, &seconds);
+        env.events()
+            .publish((symbol_short!("wdrwcd"),), (old, seconds));
+    }
+
+    /// Returns the current withdrawal cooldown in seconds (0 = no cooldown).
+    pub fn withdrawal_cooldown(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::WithdrawalCooldown)
             .unwrap_or(0)
     }
 
@@ -1367,6 +1578,21 @@ impl YieldVault {
             }
         }
     }
+    /// Returns the registered storage key namespace catalog for operator audit.
+    pub fn storage_key_registry(env: Env) -> storage_registry::ValidateRegistryResult {
+        let keys = storage_registry::registered_vault_keys(&env);
+        match storage_registry::validate_registry_no_collisions(&keys) {
+            Ok(()) => storage_registry::ValidateRegistryResult {
+                keys,
+                valid: true,
+            },
+            Err(_) => storage_registry::ValidateRegistryResult {
+                keys,
+                valid: false,
+            },
+        }
+    }
+
     /// Read-only: returns contract metadata such as version and simple config flags.
     pub fn metadata(env: Env) -> ContractMetadata {
         let state = Self::get_state(&env);
