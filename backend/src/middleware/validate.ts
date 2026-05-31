@@ -9,15 +9,15 @@
  * Returns a uniform 400 response on failure.
  */
 
-import { z, ZodError, ZodTypeAny } from 'zod';
+import { z, ZodError, ZodIssue, ZodTypeAny } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
 
 // ─── Shared field schemas ─────────────────────────────────────────────────────
 
-/** Stellar wallet address: G + 55 base32 chars, uppercase */
+/** Stellar wallet address: permissive testnet/mainnet-shaped public key. */
 export const walletAddressSchema = z
   .string()
-  .regex(/^G[A-Z2-7]{55}$/, 'Invalid Stellar wallet address format');
+  .regex(/^G[A-Za-z0-9]{55,63}$/, 'Invalid Stellar wallet address format');
 
 /** Positive numeric amount (accepts number or numeric string) */
 export const amountSchema = z
@@ -28,6 +28,11 @@ export const amountSchema = z
 
 // ─── Body schemas ─────────────────────────────────────────────────────────────
 
+const signedActionFields = {
+  nonce: z.string().min(16).max(128),
+  signature: z.string().min(32).max(512),
+};
+
 /** POST /api/v1/vault/deposits  and  POST /api/v1/vault/withdrawals */
 export const VaultOperationSchema = z
   .object({
@@ -36,6 +41,28 @@ export const VaultOperationSchema = z
     walletAddress: walletAddressSchema,
     email: z.string().email().optional(),
     referralCode: z.string().max(64).optional(),
+    nonce: z.string().min(16).max(128).optional(),
+    signature: z.string().min(32).max(512).optional(),
+  })
+  .strict();
+
+/** Vault write body when wallet nonce enforcement is strict */
+export const SignedVaultOperationSchema = z
+  .object({
+    amount: amountSchema,
+    asset: z.string().min(1).max(12),
+    walletAddress: walletAddressSchema,
+    email: z.string().email().optional(),
+    referralCode: z.string().max(64).optional(),
+    ...signedActionFields,
+  })
+  .strict();
+
+/** POST /api/v1/auth/nonce */
+export const NonceRequestSchema = z
+  .object({
+    walletAddress: walletAddressSchema,
+    action: z.enum(['login', 'deposit', 'withdrawal']),
   })
   .strict();
 
@@ -43,6 +70,16 @@ export const VaultOperationSchema = z
 export const LoginSchema = z
   .object({
     walletAddress: walletAddressSchema,
+    nonce: z.string().min(16).max(128).optional(),
+    signature: z.string().min(32).max(512).optional(),
+  })
+  .strict();
+
+/** POST /api/v1/auth/login when wallet nonce enforcement is strict */
+export const SignedLoginSchema = z
+  .object({
+    walletAddress: walletAddressSchema,
+    ...signedActionFields,
   })
   .strict();
 
@@ -61,8 +98,45 @@ interface ValidateTargets {
   params?: ZodTypeAny;
 }
 
-function formatZodError(err: ZodError): string {
-  return err.errors
+function sortIssuesDeterministically(issues: ZodIssue[]): ZodIssue[] {
+  return [...issues].sort((a, b) => {
+    const pathA = a.path.join('.');
+    const pathB = b.path.join('.');
+    if (pathA !== pathB) {
+      return pathA.localeCompare(pathB);
+    }
+    if (a.code !== b.code) {
+      return a.code.localeCompare(b.code);
+    }
+    return a.message.localeCompare(b.message);
+  });
+}
+
+function mapIssueCode(issue: ZodIssue): string {
+  switch (issue.code) {
+    case 'invalid_type':
+      return 'INVALID_TYPE';
+    case 'invalid_string':
+      return 'INVALID_STRING';
+    case 'too_small':
+      return 'VALUE_TOO_SMALL';
+    case 'too_big':
+      return 'VALUE_TOO_BIG';
+    case 'invalid_enum_value':
+      return 'INVALID_ENUM_VALUE';
+    case 'unrecognized_keys':
+      return 'UNRECOGNIZED_KEYS';
+    case 'invalid_union':
+      return 'INVALID_UNION';
+    case 'custom':
+      return 'CUSTOM_VALIDATION_FAILED';
+    default:
+      return 'INVALID_VALUE';
+  }
+}
+
+function formatZodError(issues: ZodIssue[]): string {
+  return issues
     .map((e) => `${e.path.length ? e.path.join('.') + ': ' : ''}${e.message}`)
     .join('; ');
 }
@@ -82,11 +156,21 @@ export function validate(schemas: ValidateTargets) {
       next();
     } catch (err) {
       if (err instanceof ZodError) {
+        const issues = sortIssuesDeterministically(err.errors);
+        const details = issues.map((e) => ({
+          code: mapIssueCode(e),
+          field: e.path.join('.'),
+          message: e.message,
+        }));
+
         res.status(400).json({
           error: 'Bad Request',
           status: 400,
-          message: formatZodError(err),
-          details: err.errors.map((e) => ({ field: e.path.join('.'), message: e.message })),
+          code: 'VALIDATION_ERROR',
+          summary: 'Request validation failed',
+          message: formatZodError(issues),
+          errors: details,
+          details,
         });
         return;
       }

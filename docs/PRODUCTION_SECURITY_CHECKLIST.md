@@ -48,3 +48,9 @@ References (files to review)
 - `.github/workflows/production-deploy.yml`
 
 If you want, I can implement the high-priority code changes (API key persistence, CORS tightening, logging sanitizer) and open a PR.
+
+Implementation note
+- Status: checklist authored and reviewed (May 30, 2026).
+- Scope: keys, CORS, logging hygiene, and operational controls — actionable repo-specific items.
+- Next steps: implement high-priority items in `backend/` (API key persistence, CORS tightening, logging sanitizer), then run tests and open a PR.
+- Author: Junirezz

@@ -1,8 +1,6 @@
-#![cfg(test)]
-
 use super::*;
+use crate::upgrade::{get_admin, is_initialized};
 use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
-use crate::upgrade::{is_initialized, get_admin};
 
 #[test]
 fn test_proxy_initialization_guard() {
@@ -49,6 +47,73 @@ fn test_proxy_upgrade_authorization() {
 }
 
 #[test]
+fn test_storage_migration_version_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    assert_eq!(vault.storage_version(), 2);
+    vault.migrate_storage(&2);
+
+    let result = vault.try_migrate_storage(&1);
+    assert!(matches!(
+        result,
+        Err(Ok(VaultError::InvalidMigrationTarget))
+    ));
+}
+
+#[test]
+fn test_admin_rotation_handover_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let next_admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    assert_eq!(vault.admin(), Some(admin.clone()));
+    assert_eq!(vault.pending_admin(), None);
+
+    vault.propose_admin(&next_admin);
+    assert_eq!(vault.pending_admin(), Some(next_admin.clone()));
+
+    vault.accept_admin();
+    assert_eq!(vault.admin(), Some(next_admin));
+    assert_eq!(vault.pending_admin(), None);
+}
+
+#[test]
+fn test_admin_rotation_can_be_cancelled() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let next_admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    vault.propose_admin(&next_admin);
+    assert_eq!(vault.pending_admin(), Some(next_admin));
+
+    vault.cancel_admin_rotation();
+    assert_eq!(vault.admin(), Some(admin));
+    assert_eq!(vault.pending_admin(), None);
+}
+
+#[test]
 fn test_storage_layout_integrity() {
     let env = Env::default();
     env.mock_all_auths();
@@ -90,10 +155,14 @@ fn generate_storage_fingerprint(env: &Env) -> &str {
     // In a real script, this would iterate over storage or check specific critical keys
     // For the unit test, we just verify the ones we care about.
     let mut keys = Vec::new(env);
-    if is_initialized(env) { keys.push_back(SorobanString::from_str(env, "Initialized")); }
-    if get_admin(env).is_some() { keys.push_back(SorobanString::from_str(env, "Admin")); }
+    if is_initialized(env) {
+        keys.push_back(SorobanString::from_str(env, "Initialized"));
+    }
+    if get_admin(env).is_some() {
+        keys.push_back(SorobanString::from_str(env, "Admin"));
+    }
     // ... add more
-    
+
     // Return a simple list of present keys as a simulated fingerprint
     // (Rust Vec of strings is hard to return here, so we just use it for internal assertion)
     "Admin TokenAsset Initialized"
