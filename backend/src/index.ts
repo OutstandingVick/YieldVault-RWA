@@ -178,6 +178,17 @@ function parseLimited(v: unknown, fallback: number, min: number, max: number): n
   return Number.isNaN(n) ? fallback : Math.min(Math.max(n, min), max);
 }
 
+function isDryRunRequest(req: Request): boolean {
+  const value = req.body?.dryRun ?? req.query.dryRun;
+  return value === true || value === 'true' || value === '1';
+}
+
+function countInclusiveDays(start: string, end: string): number {
+  const startMs = Date.parse(`${start}T00:00:00.000Z`);
+  const endMs = Date.parse(`${end}T00:00:00.000Z`);
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+}
+
 function paginateByLimit<T>(rows: T[], limit: number): { data: T[]; hasNextPage: boolean } {
   const hasNextPage = rows.length > limit;
   return {
@@ -812,6 +823,26 @@ app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Respon
   const jobStart = Date.now();
 
   try {
+    if (isDryRunRequest(req)) {
+      void recordAdminAuditLog(req, 'apy.backfill.dry_run', 200, {
+        start,
+        end,
+        actor,
+        estimatedDates: countInclusiveDays(start, end),
+      });
+
+      res.status(200).json({
+        dryRun: true,
+        message: 'APY backfill dry-run preview',
+        start,
+        end,
+        estimatedDates: countInclusiveDays(start, end),
+        wouldCreateSnapshots: true,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     const result = await backfillApySnapshots(start, end);
     const durationMs = Date.now() - jobStart;
 
@@ -885,6 +916,38 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
 
   const actor = resolveActingAdminAddress(req);
   const previous = getMaintenanceModeState();
+  const dryRun = isDryRunRequest(req);
+  const preview = {
+    enabled: enabled ?? previous.enabled,
+    reason:
+      reason === undefined
+        ? previous.reason
+        : typeof reason === 'string'
+          ? reason.trim() || undefined
+          : undefined,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+    retryAfterSeconds: retryAfterSeconds ?? previous.retryAfterSeconds,
+  };
+
+  if (dryRun) {
+    void recordAdminAuditLog(req, 'maintenance.toggle.dry_run', 200, {
+      enabled: preview.enabled,
+      previousEnabled: previous.enabled,
+      reason: preview.reason,
+      actor,
+    });
+
+    res.status(200).json({
+      dryRun: true,
+      message: `Maintenance mode would be ${preview.enabled ? 'enabled' : 'disabled'}`,
+      previous,
+      maintenance: preview,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
 
   const receipt = await generateAdminReceipt({
@@ -929,6 +992,18 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
  */
 app.post('/admin/cache/invalidate', validateApiKey, (req: Request, res: Response) => {
   const { pattern } = req.body;
+  if (isDryRunRequest(req)) {
+    res.json({
+      dryRun: true,
+      message: 'Cache invalidation dry-run preview',
+      pattern,
+      wouldInvalidate: true,
+      stats: getCacheStats(),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   invalidateCache(pattern);
   res.json({
     message: 'Cache invalidated',
@@ -994,6 +1069,28 @@ app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Respo
       });
       return;
     }
+
+    const actor = resolveActingAdminAddress(req);
+    if (isDryRunRequest(req)) {
+      void recordAdminAuditLog(req, 'events.replay.manual.dry_run', 200, {
+        fromLedger,
+        toLedger,
+        ledgerCount: toLedger - fromLedger + 1,
+        actor,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.status(200).json({
+        dryRun: true,
+        message: 'Event replay dry-run preview',
+        fromLedger,
+        toLedger,
+        ledgerCount: toLedger - fromLedger + 1,
+        wouldReplay: true,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
     
     // Import the replay function
     const { replayEventsForRange } = await import('./eventPollingService');
@@ -1001,7 +1098,6 @@ app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Respo
     const startTime = Date.now();
     const result = await replayEventsForRange(fromLedger, toLedger);
     const duration = Date.now() - startTime;
-    const actor = resolveActingAdminAddress(req);
 
     const receipt = await generateAdminReceipt({
       action: 'events.replay.manual',
@@ -2571,6 +2667,21 @@ app.get('/admin/idempotency/keys', validateApiKey, (req: Request, res: Response)
  */
 app.delete('/admin/idempotency/keys/:key', validateApiKey, (req: Request, res: Response) => {
   const key = decodeURIComponent(req.params.key);
+  if (isDryRunRequest(req)) {
+    const exists = idempotencyStore.inspectKeys().some((entry) => entry.key === key);
+    res.status(exists ? 200 : 404).json({
+      dryRun: true,
+      message: exists
+        ? `Idempotency key '${key}' would be deleted`
+        : `Idempotency key '${key}' not found`,
+      key,
+      wouldDelete: exists,
+      metrics: idempotencyStore.getMetrics(),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   const deleted = idempotencyStore.deleteKey(key);
   if (!deleted) {
     res.status(404).json({
@@ -2601,6 +2712,19 @@ app.delete('/admin/idempotency/keys', validateApiKey, (req: Request, res: Respon
     });
     return;
   }
+  if (isDryRunRequest(req)) {
+    const keys = idempotencyStore.inspectKeys();
+    res.status(200).json({
+      dryRun: true,
+      message: 'Idempotency store flush dry-run preview',
+      wouldFlush: true,
+      keyCount: keys.length,
+      metrics: idempotencyStore.getMetrics(),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   idempotencyStore.clear();
   res.status(200).json({
     message: 'Idempotency store flushed',

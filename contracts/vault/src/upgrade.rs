@@ -15,6 +15,8 @@ pub enum ProxyDataKey {
     Initialized = 2,
     /// keccak256("contract.proxy.pending_admin") - 1
     PendingAdmin = 3,
+    /// Monotonic storage schema version used by migration hooks.
+    StorageVersion = 4,
 }
 
 /// Constant for the implementation slot using a non-overlapping hash.
@@ -74,4 +76,17 @@ pub fn set_initialized(env: &Env) {
     env.storage()
         .instance()
         .set(&ProxyDataKey::Initialized, &true);
+}
+
+pub fn get_storage_version(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&ProxyDataKey::StorageVersion)
+        .unwrap_or(0)
+}
+
+pub fn set_storage_version(env: &Env, version: u32) {
+    env.storage()
+        .instance()
+        .set(&ProxyDataKey::StorageVersion, &version);
 }
