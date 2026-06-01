@@ -11,6 +11,7 @@ This directory contains operational runbooks for disaster recovery and incident 
 | [RTO/RPO Targets](./RTO_RPO_TARGETS.md) | N/A | N/A | Understanding recovery objectives |
 | [Database Restore](./DATABASE_RESTORE.md) | 1 hour | 15 min | Database corruption or failure |
 | [Backend Redeploy](./BACKEND_REDEPLOY.md) | 30 min | N/A | Backend service issues |
+| [Contract Upgrade & Migration](./CONTRACT_UPGRADE_PLAYBOOK.md) | 30 min | N/A | Contract code upgrade or migration |
 | [RPC Failover](./RPC_FAILOVER.md) | 5 min | N/A | Stellar RPC node failure |
 | [Full DR Procedure](./FULL_DR_PROCEDURE.md) | 4 hours | 15 min | Complete infrastructure failure |
 
@@ -119,7 +120,37 @@ Runbooks are step-by-step operational guides that enable any engineer to execute
 
 ---
 
-### 4. RPC Failover
+### 4. Contract Upgrade & Migration
+
+**File:** [CONTRACT_UPGRADE_PLAYBOOK.md](./CONTRACT_UPGRADE_PLAYBOOK.md)
+
+**Purpose:** Safely upgrade Soroban contract code and migrate contract state when required.
+
+**RTO:** 30 minutes  
+**RPO:** N/A (on-chain data preserved by contract upgrade)
+
+**Use Cases:**
+- Contract code upgrade for YieldVault vault logic
+- State migration during contract version change
+- Vault pause and resume for safe upgrade
+- Rollback after failed upgrade
+
+**Prerequisites:**
+- Admin access to the deployed Stellar contract
+- Existing WASM hash and rollback artifact
+- Verified testnet/staging upgrade run
+- Monitoring and webhook validation
+
+**Key Steps:**
+1. Check current contract state and pause eligibility
+2. Install new WASM and record hash
+3. Pause vault and execute upgrade
+4. Validate contract behaviour post-upgrade
+5. Resume operations or rollback if required
+
+---
+
+### 5. RPC Failover
 
 **File:** [RPC_FAILOVER.md](./RPC_FAILOVER.md)
 
