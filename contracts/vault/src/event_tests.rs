@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{token, Address, Env};
@@ -108,4 +106,118 @@ fn test_distribute_yield_works() {
 
     vault.accrue_yield(&100);
     assert_eq!(vault.total_assets(), 100);
+}
+
+#[test]
+fn test_fee_accrual_event_emitted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin.mint(&admin, &1000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    // 500 bps = 5% fee
+    vault.set_fee_bps(&500);
+    vault.accrue_yield(&1000);
+
+    // fee = 1000 * 500 / 10000 = 50; net yield = 950
+    assert_eq!(vault.treasury_balance(), 50);
+    assert_eq!(vault.total_assets(), 950);
+}
+
+#[test]
+fn test_fee_accrual_no_event_when_zero_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin.mint(&admin, &500);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    // fee_bps defaults to 0 — no fee should accrue
+    vault.accrue_yield(&500);
+    assert_eq!(vault.treasury_balance(), 0);
+    assert_eq!(vault.total_assets(), 500);
+}
+
+#[test]
+fn test_claim_fees_transfers_to_treasury() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin.mint(&admin, &1000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.set_fee_bps(&1000); // 10%
+    vault.set_treasury(&treasury);
+    vault.accrue_yield(&1000); // fee = 100
+
+    assert_eq!(vault.treasury_balance(), 100);
+    vault.claim_fees();
+
+    // Balance zeroed after claim
+    assert_eq!(vault.treasury_balance(), 0);
+    // Treasury address received the tokens
+    assert_eq!(usdc.balance(&treasury), 100);
+}
+
+#[test]
+#[should_panic(expected = "no fees to claim")]
+fn test_claim_fees_panics_when_balance_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+    vault.set_treasury(&treasury);
+
+    vault.claim_fees(); // should panic
+}
+
+#[test]
+#[should_panic(expected = "treasury not set")]
+fn test_claim_fees_panics_when_no_treasury() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let usdc_admin = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin.mint(&admin, &1000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+    vault.set_fee_bps(&500);
+    vault.accrue_yield(&1000); // accrues 50 in treasury balance
+
+    vault.claim_fees(); // should panic — no treasury set
 }

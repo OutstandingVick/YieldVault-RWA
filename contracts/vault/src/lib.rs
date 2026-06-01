@@ -54,18 +54,18 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod benji_strategy;
-#[cfg(test)]
-mod feature_tests;
+pub mod emergency;
 #[cfg(test)]
 mod event_tests;
 pub mod external_calls;
+#[cfg(test)]
+mod feature_tests;
+pub mod fee_math;
 #[cfg(test)]
 mod fuzz_math;
 pub mod math;
 #[cfg(test)]
 mod oracle_tests;
-pub mod emergency;
-pub mod fee_math;
 pub mod permissions;
 #[cfg(test)]
 pub mod proxy_tests;
@@ -78,7 +78,8 @@ pub mod oracle;
 
 use crate::strategy::StrategyClient;
 use crate::upgrade::{
-    get_admin, get_pending_admin, is_initialized, set_admin, set_initialized, set_pending_admin,
+    get_admin, get_pending_admin, get_storage_version, is_initialized, set_admin, set_initialized,
+    set_pending_admin, set_storage_version,
 };
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
@@ -87,6 +88,7 @@ use soroban_sdk::{
 
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const STORAGE_VERSION: u32 = 2;
 const MAX_PAGE_SIZE: u32 = 50;
 
 #[contracttype]
@@ -166,6 +168,7 @@ pub enum DataKey {
     StrategyWhitelist(Address),
     StrategyCap(Address),
     StrategyRiskThreshold(Address),
+    StrategyWatermark(Address),
     // Goal 1: protocol fee
     FeeBps,
     Treasury,
@@ -184,16 +187,11 @@ pub enum DataKey {
     // Withdrawal cooldown
     WithdrawalCooldown,
     LastDepositTime(Address),
-    // Treasury withdrawal rate limit (per-epoch cap)
-    TreasuryWithdrawEpochDuration,
-    TreasuryWithdrawEpochCap,
-    TreasuryWithdrawEpochWindow,
-    // Minimum outstanding share supply (dust lockup guard)
-    MinShareSupply,
-    // Loss circuit breaker
-    LossCircuitBreakerThresholdBps,
-    LossCircuitBreakerBaseline,
-    LossCircuitBreakerTripped,
+    CheckpointNonce,
+    CheckpointTotalShares(u32),
+    CheckpointTotalAssets(u32),
+    UserCheckpoint(Address),
+    UserBalanceAt(Address, u32),
 }
 
 #[contracttype]
@@ -212,14 +210,6 @@ pub struct StrategyProposal {
 pub struct PendingWithdrawal {
     pub shares: i128,
     pub unlock_timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-/// Tracks treasury withdrawals consumed in the current epoch window.
-pub struct TreasuryWithdrawEpochWindow {
-    pub epoch_id: u64,
-    pub withdrawn: i128,
 }
 
 #[contracterror]
@@ -251,12 +241,12 @@ pub enum VaultError {
     ExceedsRiskThreshold = 11,
     /// Withdrawal blocked due to active deposit cooldown.
     WithdrawalCooldownActive = 12,
-    /// Treasury withdrawal would exceed the per-epoch cap.
-    TreasuryWithdrawEpochCapExceeded = 13,
-    /// Withdrawal would leave total shares below the configured minimum.
-    MinShareSupplyViolated = 14,
-    /// Loss circuit breaker is tripped; sensitive operations are blocked.
-    CircuitBreakerTripped = 15,
+    /// Requested storage migration target is older than the current stored version.
+    InvalidMigrationTarget = 13,
+    /// Arithmetic overflow was detected before mutating state.
+    MathOverflow = 14,
+    /// Strategy operation exceeded maximum allowed slippage.
+    SlippageExceeded = 15,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -287,9 +277,19 @@ impl YieldVault {
 
         set_admin(&env, &admin);
         set_initialized(&env);
+        set_storage_version(&env, STORAGE_VERSION);
 
         env.storage().instance().set(&DataKey::TokenAsset, &token);
         env.storage().instance().set(&DataKey::TotalAssets, &0i128);
+        env.storage().instance().set(&DataKey::TotalShares, &0i128);
+        env.storage().instance().set(
+            &DataKey::State,
+            &VaultState {
+                total_shares: 0,
+                total_assets: 0,
+                is_paused: false,
+            },
+        );
         env.storage().instance().set(&DataKey::DaoThreshold, &1i128);
         env.storage().instance().set(&DataKey::ProposalNonce, &0u32);
         Ok(())
@@ -301,7 +301,25 @@ impl YieldVault {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
+        Self::run_storage_migration(&env, STORAGE_VERSION).expect("storage migration failed");
         env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Runs storage schema migrations up to the requested target version.
+    /// This can be called before or during an upgrade flow to backfill versioned state.
+    pub fn migrate_storage(env: Env, target_version: u32) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        Self::run_storage_migration(&env, target_version)
+    }
+
+    pub fn storage_version(env: Env) -> u32 {
+        get_storage_version(&env)
+    }
+
+    pub fn contract_version(env: Env) -> String {
+        String::from_str(&env, CONTRACT_VERSION)
     }
 
     /// Propose a new admin.
@@ -310,7 +328,12 @@ impl YieldVault {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
+        let previous_pending = get_pending_admin(&env);
         set_pending_admin(&env, &Some(new_admin));
+        env.events().publish(
+            (symbol_short!("adminprop"),),
+            (admin, previous_pending, get_pending_admin(&env).unwrap()),
+        );
     }
 
     /// Accept the admin role.
@@ -319,8 +342,33 @@ impl YieldVault {
         let pending_admin = get_pending_admin(&env).expect("No pending admin");
         pending_admin.require_auth();
 
+        let previous_admin = get_admin(&env).expect("Admin not set");
         set_admin(&env, &pending_admin);
         set_pending_admin(&env, &None);
+        env.events().publish(
+            (symbol_short!("adminxfer"),),
+            (previous_admin, pending_admin),
+        );
+    }
+
+    /// Cancel an in-flight admin rotation.
+    /// Only the current Admin can call this.
+    pub fn cancel_admin_rotation(env: Env) {
+        let admin = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let previous_pending = get_pending_admin(&env);
+        set_pending_admin(&env, &None);
+        env.events()
+            .publish((symbol_short!("admincncl"),), (admin, previous_pending));
+    }
+
+    pub fn admin(env: Env) -> Option<Address> {
+        get_admin(&env)
+    }
+
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        get_pending_admin(&env)
     }
 
     /// Set or update the active strategy connector.
@@ -446,7 +494,10 @@ impl YieldVault {
     pub fn confirm_emergency_action(env: Env, confirmer: Address, proposal_id: u32) {
         confirmer.require_auth();
         let secondary = emergency::secondary_approver(&env).expect("secondary approver not set");
-        assert!(confirmer == secondary, "only secondary approver can confirm");
+        assert!(
+            confirmer == secondary,
+            "only secondary approver can confirm"
+        );
 
         let mut proposal = emergency::read_proposal(&env, proposal_id).expect("proposal not found");
         assert!(!proposal.executed, "proposal already executed");
@@ -472,18 +523,17 @@ impl YieldVault {
                 Self::divest(env.clone(), amount);
             }
             emergency::EmergencyActionKind::ForceUpgrade => {
-                let hash = proposal
-                    .wasm_hash
-                    .clone()
-                    .expect("wasm hash required");
+                let hash = proposal.wasm_hash.clone().expect("wasm hash required");
                 env.deployer().update_current_contract_wasm(hash);
             }
         }
 
         proposal.executed = true;
         emergency::write_proposal(&env, proposal_id, &proposal);
-        env.events()
-            .publish((symbol_short!("emrgexec"),), (proposal_id, proposal.kind as u32));
+        env.events().publish(
+            (symbol_short!("emrgexec"),),
+            (proposal_id, proposal.kind as u32),
+        );
     }
 
     pub fn emergency_proposal(env: Env, proposal_id: u32) -> Option<emergency::EmergencyProposal> {
@@ -578,6 +628,72 @@ impl YieldVault {
         env.storage()
             .instance()
             .get(&DataKey::ShareBalance(user))
+            .unwrap_or(0)
+    }
+
+    pub fn create_checkpoint(env: Env) -> u32 {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let next_checkpoint = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::CheckpointNonce)
+            .unwrap_or(0)
+            .checked_add(1)
+            .expect("overflow");
+        let state = Self::get_state(&env);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::CheckpointNonce, &next_checkpoint);
+        env.storage().instance().set(
+            &DataKey::CheckpointTotalShares(next_checkpoint),
+            &state.total_shares,
+        );
+        env.storage().instance().set(
+            &DataKey::CheckpointTotalAssets(next_checkpoint),
+            &state.total_assets,
+        );
+        env.events()
+            .publish((symbol_short!("chkpoint"),), (next_checkpoint,));
+        next_checkpoint
+    }
+
+    pub fn total_shares_at(env: Env, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointTotalShares(checkpoint_id))
+            .unwrap_or(0)
+    }
+
+    pub fn total_assets_at(env: Env, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CheckpointTotalAssets(checkpoint_id))
+            .unwrap_or(0)
+    }
+
+    pub fn snapshot_user_balance(env: Env, user: Address) {
+        user.require_auth();
+        let checkpoint_id = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::CheckpointNonce)
+            .expect("no checkpoint");
+        let balance = Self::balance(env.clone(), user.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::UserCheckpoint(user.clone()), &checkpoint_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::UserBalanceAt(user, checkpoint_id), &balance);
+    }
+
+    pub fn balance_at(env: Env, user: Address, checkpoint_id: u32) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::UserBalanceAt(user, checkpoint_id))
             .unwrap_or(0)
     }
 
@@ -907,7 +1023,6 @@ impl YieldVault {
     /// ### Events
     /// Publishes a `(symbol_short!("deposit"),)` event with `(amount, shares_minted)`.
     pub fn deposit(env: Env, user: Address, amount: i128) -> Result<i128, VaultError> {
-        Self::assert_loss_circuit_breaker_ok(&env)?;
         let mut state = Self::get_state(&env);
         if state.is_paused {
             return Err(VaultError::ContractPaused);
@@ -1014,7 +1129,6 @@ impl YieldVault {
     /// ### Rounding
     /// Uses round-down conversion (see [`math::shares_to_assets`]).
     pub fn withdraw(env: Env, user: Address, shares: i128) -> Result<i128, VaultError> {
-        Self::assert_loss_circuit_breaker_ok(&env)?;
         let mut state = Self::get_state(&env);
         if state.is_paused {
             return Err(VaultError::ContractPaused);
@@ -1026,9 +1140,17 @@ impl YieldVault {
         }
 
         // Check withdrawal cooldown
-        let cooldown: u64 = env.storage().instance().get(&DataKey::WithdrawalCooldown).unwrap_or(0);
+        let cooldown: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalCooldown)
+            .unwrap_or(0);
         if cooldown > 0 {
-            let last_deposit: u64 = env.storage().instance().get(&DataKey::LastDepositTime(user.clone())).unwrap_or(0);
+            let last_deposit: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::LastDepositTime(user.clone()))
+                .unwrap_or(0);
             let earliest_withdrawal = last_deposit.checked_add(cooldown).expect("overflow");
             if env.ledger().timestamp() < earliest_withdrawal {
                 return Err(VaultError::WithdrawalCooldownActive);
@@ -1079,7 +1201,6 @@ impl YieldVault {
     /// ### Rounding
     /// Uses round-down conversion (see [`math::shares_to_assets`]).
     pub fn execute_withdrawal(env: Env, user: Address) -> Result<i128, VaultError> {
-        Self::assert_loss_circuit_breaker_ok(&env)?;
         user.require_auth();
 
         let pending: PendingWithdrawal = env
@@ -1099,11 +1220,8 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
 
         // Use centralized conversion with deterministic round-down policy
-        let assets_to_return = crate::math::shares_to_assets(
-            pending.shares,
-            state.total_shares,
-            state.total_assets,
-        );
+        let assets_to_return =
+            crate::math::shares_to_assets(pending.shares, state.total_shares, state.total_assets);
 
         Self::do_withdraw(&env, &mut state, user, pending.shares, assets_to_return)
     }
@@ -1116,19 +1234,6 @@ impl YieldVault {
         shares: i128,
         assets_to_return: i128,
     ) -> Result<i128, VaultError> {
-        let min_supply: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinShareSupply)
-            .unwrap_or(0);
-        let remaining_shares = state
-            .total_shares
-            .checked_sub(shares)
-            .expect("underflow");
-        if min_supply > 0 && remaining_shares > 0 && remaining_shares < min_supply {
-            return Err(VaultError::MinShareSupplyViolated);
-        }
-
         let token_addr = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
         let token_client = token::Client::new(env, &token_addr);
 
@@ -1198,7 +1303,6 @@ impl YieldVault {
 
     /// Move idle funds to the strategy.
     pub fn invest(env: Env, amount: i128) -> Result<(), VaultError> {
-        Self::assert_loss_circuit_breaker_ok(&env)?;
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         if amount <= 0 {
@@ -1258,6 +1362,7 @@ impl YieldVault {
         );
 
         strategy_client.deposit(&amount);
+        Self::raise_strategy_watermark(&env, &strategy_addr, new_total_invested);
 
         // Update idle assets
         env.storage()
@@ -1273,6 +1378,17 @@ impl YieldVault {
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         strategy_client.withdraw(&amount);
+        let current_watermark = Self::strategy_watermark(env.clone(), strategy_addr.clone());
+        if current_watermark > amount {
+            env.storage().instance().set(
+                &DataKey::StrategyWatermark(strategy_addr.clone()),
+                &current_watermark.checked_sub(amount).expect("underflow"),
+            );
+        } else {
+            env.storage()
+                .instance()
+                .set(&DataKey::StrategyWatermark(strategy_addr.clone()), &0i128);
+        }
 
         // The strategy contract should have transferred funds back to the vault
         let idle_ta = env
@@ -1286,20 +1402,114 @@ impl YieldVault {
         );
     }
 
-    /// Admin function to artificially accrue yield, deducting the protocol fee.
-    /// The fee portion is credited to the treasury balance.
-    pub fn accrue_yield(env: Env, amount: i128) {
+    /// Rebalance funds between strategies with max slippage protection.
+    /// Admin function to safely migrate assets from one strategy to another.
+    pub fn rebalance(
+        env: Env,
+        from_strategy: Address,
+        to_strategy: Address,
+        amount: i128,
+        min_divest_value: i128,
+        min_invest_value: i128,
+    ) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        let from_client = StrategyClient::new(&env, &from_strategy);
+        let to_client = StrategyClient::new(&env, &to_strategy);
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
+
+        // Measure actual token balance before divest
+        let vault_bal_before = token_client.balance(&env.current_contract_address());
+
+        // Divest from old strategy
+        from_client.withdraw(&amount);
+
+        // Verify divest slippage by measuring actual token balance
+        let vault_bal_after_divest = token_client.balance(&env.current_contract_address());
+        let withdrawn_assets = vault_bal_after_divest
+            .checked_sub(vault_bal_before)
+            .unwrap_or(0);
+
+        if withdrawn_assets < min_divest_value {
+            return Err(VaultError::SlippageExceeded);
+        }
+
+        // Adjust watermark for from_strategy
+        let current_watermark = Self::strategy_watermark(env.clone(), from_strategy.clone());
+        if current_watermark > withdrawn_assets {
+            env.storage().instance().set(
+                &DataKey::StrategyWatermark(from_strategy.clone()),
+                &current_watermark.checked_sub(withdrawn_assets).expect("underflow"),
+            );
+        } else {
+            env.storage()
+                .instance()
+                .set(&DataKey::StrategyWatermark(from_strategy.clone()), &0i128);
+        }
+
+        // Record strategy state before invest
+        let to_strategy_val_before = to_client.total_value();
+
+        // Invest into new strategy
+        token_client.approve(
+            &env.current_contract_address(),
+            &to_strategy,
+            &withdrawn_assets,
+            &env.ledger().sequence(),
+        );
+
+        to_client.deposit(&withdrawn_assets);
+
+        // Verify invest slippage
+        let to_strategy_val_after = to_client.total_value();
+        let invested_value = to_strategy_val_after
+            .checked_sub(to_strategy_val_before)
+            .unwrap_or(0);
+
+        if invested_value < min_invest_value {
+            return Err(VaultError::SlippageExceeded);
+        }
+
+        // Adjust watermark for to_strategy
+        Self::raise_strategy_watermark(&env, &to_strategy, to_strategy_val_after);
+
+        // We moved withdrawn_assets into the new strategy, so idle TotalAssets hasn't changed.
+        // We only moved funds from one strategy to another.
+        // Note: The total_assets of the vault might have changed slightly due to slippage,
+        // but idle assets remain the same because we sent exactly `withdrawn_assets` back out.
+        
+        Ok(())
+    }
+
+    /// Admin function to artificially accrue yield, deducting the protocol fee.
+    /// The fee portion is credited to the treasury balance.
+    pub fn accrue_yield(env: Env, amount: i128) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let fee_amount = amount
+            .checked_mul(fee_bps)
+            .ok_or(VaultError::MathOverflow)?
+            / fee_math::BPS_DENOMINATOR;
+        let net_yield = amount
+            .checked_sub(fee_amount)
+            .ok_or(VaultError::MathOverflow)?;
 
         let token_addr = Self::token(env.clone());
         let token_client = token::Client::new(&env, &token_addr);
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
-
-        // Goal 1: deduct protocol fee (floor rounding — see fee_math.rs)
-        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        let (fee_amount, net_yield) = fee_math::calculate_protocol_fee(amount, fee_bps);
 
         // Accumulate fee in treasury balance
         if fee_amount > 0 {
@@ -1308,10 +1518,12 @@ impl YieldVault {
                 .instance()
                 .get(&DataKey::TreasuryBalance)
                 .unwrap_or(0);
-            env.storage().instance().set(
-                &DataKey::TreasuryBalance,
-                &treasury_bal.checked_add(fee_amount).expect("overflow"),
-            );
+            let new_treasury_bal = treasury_bal.checked_add(fee_amount).expect("overflow");
+            env.storage()
+                .instance()
+                .set(&DataKey::TreasuryBalance, &new_treasury_bal);
+            env.events()
+                .publish((symbol_short!("feeacc"),), (fee_amount, new_treasury_bal));
         }
 
         let ta = env
@@ -1327,6 +1539,7 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
         state.total_assets = state.total_assets.checked_add(net_yield).expect("overflow");
         env.storage().instance().set(&DataKey::State, &state);
+        Ok(())
     }
 
     // ── Goal 1: Protocol fee ──────────────────────────────────────────────────
@@ -1335,7 +1548,7 @@ impl YieldVault {
     pub fn set_fee_bps(env: Env, new_bps: i128) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        if new_bps < 0 || new_bps > 10_000 {
+        if !(0..=10_000).contains(&new_bps) {
             panic!("fee_bps must be 0-10000");
         }
         let old_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
@@ -1369,232 +1582,40 @@ impl YieldVault {
             .unwrap_or(0)
     }
 
-    /// Configure per-epoch treasury withdrawal cap (0 = unlimited within balance).
-    pub fn set_treasury_withdraw_epoch_cap(env: Env, cap: i128) {
+    /// Transfers the entire accumulated treasury balance to the treasury address.
+    /// Only the Admin can call this. Emits a `feeclm` event.
+    ///
+    /// ### Errors
+    /// Panics if no treasury address is configured or the balance is zero.
+    pub fn claim_fees(env: Env) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        if cap < 0 {
-            panic!("epoch cap must be >= 0");
-        }
-        let old_cap: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochCap)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::TreasuryWithdrawEpochCap, &cap);
-        env.events()
-            .publish((symbol_short!("trswdcap"),), (old_cap, cap));
-    }
-
-    pub fn treasury_withdraw_epoch_cap(env: Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochCap)
-            .unwrap_or(0)
-    }
-
-    /// Configure treasury withdrawal epoch length in seconds (0 disables epoch windows).
-    pub fn set_trs_wd_epoch_len(env: Env, duration_secs: u64) {
-        let admin: Address = get_admin(&env).expect("Admin not set");
-        admin.require_auth();
-        let old_duration: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochDuration)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::TreasuryWithdrawEpochDuration, &duration_secs);
-        env.events()
-            .publish((symbol_short!("trswdep"),), (old_duration, duration_secs));
-    }
-
-    pub fn trs_wd_epoch_len(env: Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochDuration)
-            .unwrap_or(0)
-    }
-
-    /// Withdraw accumulated protocol fees to the treasury address, rate-limited per epoch.
-    pub fn withdraw_treasury(env: Env, amount: i128) -> Result<(), VaultError> {
-        Self::assert_loss_circuit_breaker_ok(&env)?;
-        if amount <= 0 {
-            return Err(VaultError::InvalidAmount);
-        }
 
         let treasury: Address = env
             .storage()
             .instance()
             .get(&DataKey::Treasury)
-            .ok_or(VaultError::InvalidAmount)?;
-        treasury.require_auth();
+            .expect("treasury not set");
 
         let balance: i128 = env
             .storage()
             .instance()
             .get(&DataKey::TreasuryBalance)
             .unwrap_or(0);
-        if amount > balance {
-            return Err(VaultError::InvalidAmount);
+        if balance == 0 {
+            panic!("no fees to claim");
         }
 
-        Self::consume_treasury_withdraw_epoch_budget(&env, amount)?;
-
-        let token_addr = Self::token(env.clone());
-        let token_client = token::Client::new(&env, &token_addr);
-        token_client.transfer(&env.current_contract_address(), &treasury, &amount);
-
-        env.storage().instance().set(
-            &DataKey::TreasuryBalance,
-            &balance.checked_sub(amount).expect("underflow"),
-        );
-
-        let epoch_id = Self::current_treasury_withdraw_epoch(&env);
-        env.events()
-            .publish((symbol_short!("trswd"), treasury), (amount, epoch_id));
-        Ok(())
-    }
-
-    /// Set minimum total share supply; withdrawals cannot leave dust below this floor.
-    pub fn set_min_share_supply(env: Env, min_supply: i128) {
-        let admin: Address = get_admin(&env).expect("Admin not set");
-        admin.require_auth();
-        if min_supply < 0 {
-            panic!("min_share_supply must be >= 0");
-        }
-        let old_min: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinShareSupply)
-            .unwrap_or(0);
         env.storage()
             .instance()
-            .set(&DataKey::MinShareSupply, &min_supply);
-        env.events()
-            .publish((symbol_short!("minshchg"),), (old_min, min_supply));
-    }
+            .set(&DataKey::TreasuryBalance, &0i128);
 
-    pub fn min_share_supply(env: Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::MinShareSupply)
-            .unwrap_or(0)
-    }
-
-    /// Rebalance whitelisted strategies toward target balances in deterministic address order.
-    pub fn rebalance_strategies(
-        env: Env,
-        targets: Vec<(Address, i128)>,
-    ) -> Result<(), VaultError> {
-        Self::assert_loss_circuit_breaker_ok(&env)?;
-        let admin: Address = get_admin(&env).expect("Admin not set");
-        admin.require_auth();
-
-        let sorted = Self::sort_strategy_targets(&env, targets);
-
-        // Divest phase: process high-to-low address order (reverse of sorted invest order).
-        let mut idx = sorted.len();
-        while idx > 0 {
-            idx -= 1;
-            let (strategy, target) = sorted.get(idx).unwrap();
-            if !Self::is_strategy_whitelisted(env.clone(), strategy.clone()) {
-                panic!("strategy not whitelisted");
-            }
-            let current = StrategyClient::new(&env, &strategy).total_value();
-            if current > target {
-                let delta = current.checked_sub(target).expect("underflow");
-                Self::divest_from_strategy(env.clone(), strategy.clone(), delta);
-            }
-        }
-
-        // Invest phase: ascending address order.
-        let mut invest_idx = 0;
-        while invest_idx < sorted.len() {
-            let (strategy, target) = sorted.get(invest_idx).unwrap();
-            let current = StrategyClient::new(&env, &strategy).total_value();
-            if current < target {
-                let delta = target.checked_sub(current).expect("underflow");
-                Self::invest_to_strategy(env.clone(), strategy.clone(), delta)?;
-            }
-            invest_idx += 1;
-        }
+        let token_addr: Address = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
+        token::Client::new(&env, &token_addr)
+            .transfer(&env.current_contract_address(), &treasury, &balance);
 
         env.events()
-            .publish((symbol_short!("rebal"),), sorted.len());
-        Ok(())
-    }
-
-    /// Set abnormal-loss circuit breaker threshold in basis points (0 disables).
-    pub fn set_cb_loss_thresh(env: Env, threshold_bps: i128) {
-        let admin: Address = get_admin(&env).expect("Admin not set");
-        admin.require_auth();
-        if threshold_bps < 0 || threshold_bps > 10_000 {
-            panic!("threshold must be 0-10000");
-        }
-        let old_bps: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerThresholdBps)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::LossCircuitBreakerThresholdBps, &threshold_bps);
-        env.events()
-            .publish((symbol_short!("cb_thr"),), (old_bps, threshold_bps));
-    }
-
-    pub fn cb_loss_thresh_bps(env: Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerThresholdBps)
-            .unwrap_or(0)
-    }
-
-    /// Snapshot current total assets as the circuit-breaker baseline.
-    pub fn set_cb_loss_baseline(env: Env) {
-        let admin: Address = get_admin(&env).expect("Admin not set");
-        admin.require_auth();
-        let baseline = Self::total_assets(env.clone());
-        env.storage()
-            .instance()
-            .set(&DataKey::LossCircuitBreakerBaseline, &baseline);
-        env.storage()
-            .instance()
-            .set(&DataKey::LossCircuitBreakerTripped, &false);
-        env.events()
-            .publish((symbol_short!("cb_base"),), baseline);
-    }
-
-    pub fn cb_loss_baseline(env: Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerBaseline)
-            .unwrap_or(0)
-    }
-
-    pub fn is_cb_loss_tripped(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerTripped)
-            .unwrap_or(false)
-    }
-
-    /// Admin reset after investigating an abnormal loss trip.
-    pub fn reset_cb_loss(env: Env) {
-        let admin: Address = get_admin(&env).expect("Admin not set");
-        admin.require_auth();
-        env.storage()
-            .instance()
-            .set(&DataKey::LossCircuitBreakerTripped, &false);
-        env.events().publish((symbol_short!("cb_rst"),), ());
-    }
-
-    /// Evaluate total assets against baseline; trip breaker when loss exceeds threshold.
-    pub fn eval_cb_loss(env: Env) -> Result<(), VaultError> {
-        Self::evaluate_loss_circuit_breaker_internal(&env)
+            .publish((symbol_short!("feeclm"),), (treasury, balance));
     }
 
     // ── Goal 2: Large-withdrawal timelock ────────────────────────────────────
@@ -1677,8 +1698,14 @@ impl YieldVault {
     pub fn set_withdrawal_cooldown(env: Env, seconds: u64) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        let old: u64 = env.storage().instance().get(&DataKey::WithdrawalCooldown).unwrap_or(0);
-        env.storage().instance().set(&DataKey::WithdrawalCooldown, &seconds);
+        let old: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::WithdrawalCooldown)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalCooldown, &seconds);
         env.events()
             .publish((symbol_short!("wdrwcd"),), (old, seconds));
     }
@@ -1756,12 +1783,20 @@ impl YieldVault {
     pub fn set_strategy_risk_threshold(env: Env, strategy: Address, threshold: i128) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        if threshold < 0 || threshold > 10_000 {
+        if !(0..=10_000).contains(&threshold) {
             panic!("threshold must be 0-10000");
         }
         env.storage()
             .instance()
             .set(&DataKey::StrategyRiskThreshold(strategy), &threshold);
+    }
+
+    /// Returns the per-strategy high-watermark used for performance-fee accounting.
+    pub fn strategy_watermark(env: Env, strategy: Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::StrategyWatermark(strategy))
+            .unwrap_or(0)
     }
 
     pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
@@ -1783,6 +1818,24 @@ impl YieldVault {
         let token_client = token::Client::new(&env, &token_addr);
         token_client.transfer(&strategy, &env.current_contract_address(), &amount);
 
+        let fee_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        let (fee_amount, net_yield) = fee_math::calculate_protocol_fee(amount, fee_bps);
+        if fee_amount > 0 {
+            let treasury_bal: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TreasuryBalance)
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &DataKey::TreasuryBalance,
+                &treasury_bal.checked_add(fee_amount).expect("overflow"),
+            );
+        }
+        let next_watermark = Self::strategy_watermark(env.clone(), strategy.clone())
+            .checked_add(amount)
+            .expect("overflow");
+        Self::raise_strategy_watermark(&env, &strategy, next_watermark);
+
         let ta = env
             .storage()
             .instance()
@@ -1790,236 +1843,60 @@ impl YieldVault {
             .unwrap_or(0);
         env.storage().instance().set(
             &DataKey::TotalAssets,
-            &ta.checked_add(amount).expect("overflow"),
+            &ta.checked_add(net_yield).expect("overflow"),
         );
 
         let mut state = Self::get_state(&env);
-        state.total_assets = state.total_assets.checked_add(amount).expect("overflow");
+        state.total_assets = state.total_assets.checked_add(net_yield).expect("overflow");
         env.storage().instance().set(&DataKey::State, &state);
     }
 
-    fn current_treasury_withdraw_epoch(env: &Env) -> u64 {
-        let duration: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochDuration)
-            .unwrap_or(0);
-        if duration == 0 {
-            return 0;
-        }
-        env.ledger().timestamp() / duration
-    }
-
-    fn consume_treasury_withdraw_epoch_budget(env: &Env, amount: i128) -> Result<(), VaultError> {
-        let cap: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochCap)
-            .unwrap_or(0);
-        let duration: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochDuration)
-            .unwrap_or(0);
-        if cap == 0 || duration == 0 {
-            return Ok(());
+    fn run_storage_migration(env: &Env, target_version: u32) -> Result<(), VaultError> {
+        let current_version = get_storage_version(env);
+        if target_version < current_version || target_version > STORAGE_VERSION {
+            return Err(VaultError::InvalidMigrationTarget);
         }
 
-        let epoch_id = Self::current_treasury_withdraw_epoch(env);
-        let mut window: TreasuryWithdrawEpochWindow = env
-            .storage()
-            .instance()
-            .get(&DataKey::TreasuryWithdrawEpochWindow)
-            .unwrap_or(TreasuryWithdrawEpochWindow {
-                epoch_id,
-                withdrawn: 0,
-            });
-
-        if window.epoch_id != epoch_id {
-            window = TreasuryWithdrawEpochWindow {
-                epoch_id,
-                withdrawn: 0,
-            };
+        if current_version < 1 && !env.storage().instance().has(&DataKey::State) {
+            let total_assets = env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalAssets)
+                .unwrap_or(0);
+            let total_shares = env
+                .storage()
+                .instance()
+                .get(&DataKey::TotalShares)
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &DataKey::State,
+                &VaultState {
+                    total_shares,
+                    total_assets,
+                    is_paused: false,
+                },
+            );
         }
 
-        let new_withdrawn = window
-            .withdrawn
-            .checked_add(amount)
-            .expect("overflow");
-        if new_withdrawn > cap {
-            return Err(VaultError::TreasuryWithdrawEpochCapExceeded);
-        }
-
-        window.withdrawn = new_withdrawn;
-        env.storage()
-            .instance()
-            .set(&DataKey::TreasuryWithdrawEpochWindow, &window);
+        set_storage_version(env, target_version);
+        env.events().publish(
+            (symbol_short!("migrate"),),
+            (current_version, target_version),
+        );
         Ok(())
     }
 
-    fn assert_loss_circuit_breaker_ok(env: &Env) -> Result<(), VaultError> {
-        if env
-            .storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerTripped)
-            .unwrap_or(false)
-        {
-            return Err(VaultError::CircuitBreakerTripped);
-        }
-        Self::evaluate_loss_circuit_breaker_internal(env)
-    }
-
-    fn evaluate_loss_circuit_breaker_internal(env: &Env) -> Result<(), VaultError> {
-        let threshold_bps: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerThresholdBps)
-            .unwrap_or(0);
-        if threshold_bps == 0 {
-            return Ok(());
-        }
-
-        let baseline: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::LossCircuitBreakerBaseline)
-            .unwrap_or(0);
-        if baseline <= 0 {
-            return Ok(());
-        }
-
-        let current = Self::total_assets(env.clone());
-        if current >= baseline {
-            return Ok(());
-        }
-
-        let loss = baseline.checked_sub(current).expect("underflow");
-        let loss_bps = loss
-            .checked_mul(10_000)
-            .expect("overflow")
-            .checked_div(baseline)
-            .expect("division by zero");
-        if loss_bps >= threshold_bps {
+    fn raise_strategy_watermark(env: &Env, strategy: &Address, candidate: i128) {
+        let current = Self::strategy_watermark(env.clone(), strategy.clone());
+        if candidate > current {
             env.storage()
                 .instance()
-                .set(&DataKey::LossCircuitBreakerTripped, &true);
-            env.events()
-                .publish((symbol_short!("cb_trip"),), (baseline, current, loss_bps));
-            return Err(VaultError::CircuitBreakerTripped);
+                .set(&DataKey::StrategyWatermark(strategy.clone()), &candidate);
+            env.events().publish(
+                (symbol_short!("strathwm"), strategy.clone()),
+                (current, candidate),
+            );
         }
-
-        Ok(())
-    }
-
-    fn strategy_address_lt(a: &Address, b: &Address) -> bool {
-        a < b
-    }
-
-    fn sort_strategy_targets(env: &Env, targets: Vec<(Address, i128)>) -> Vec<(Address, i128)> {
-        let mut sorted = Vec::new(env);
-        let mut i = 0;
-        while i < targets.len() {
-            sorted.push_back(targets.get(i).unwrap());
-            i += 1;
-        }
-
-        let len = sorted.len();
-        if len < 2 {
-            return sorted;
-        }
-
-        let mut outer = 0;
-        while outer < len {
-            let mut inner = outer + 1;
-            while inner < len {
-                let left = sorted.get(outer).unwrap();
-                let right = sorted.get(inner).unwrap();
-                if Self::strategy_address_lt(&right.0, &left.0) {
-                    sorted.set(outer, right.clone());
-                    sorted.set(inner, left);
-                }
-                inner += 1;
-            }
-            outer += 1;
-        }
-
-        sorted
-    }
-
-    fn invest_to_strategy(env: Env, strategy_addr: Address, amount: i128) -> Result<(), VaultError> {
-        if amount <= 0 {
-            return Ok(());
-        }
-
-        let strategy_client = StrategyClient::new(&env, &strategy_addr);
-        let cap: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::StrategyCap(strategy_addr.clone()))
-            .unwrap_or(i128::MAX);
-        let total_invested = strategy_client.total_value();
-        if total_invested.checked_add(amount).expect("overflow") > cap {
-            return Err(VaultError::ExceedsStrategyCap);
-        }
-
-        let threshold: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::StrategyRiskThreshold(strategy_addr.clone()))
-            .unwrap_or(10_000);
-        let total_assets = Self::total_assets(env.clone());
-        let new_total_invested = total_invested.checked_add(amount).expect("overflow");
-        if total_assets > 0
-            && (new_total_invested.checked_mul(10_000).expect("overflow") / total_assets) > threshold
-        {
-            return Err(VaultError::ExceedsRiskThreshold);
-        }
-
-        let idle_ta = env
-            .storage()
-            .instance()
-            .get::<_, i128>(&DataKey::TotalAssets)
-            .unwrap_or(0);
-        if idle_ta < amount {
-            panic!("insufficient idle assets");
-        }
-        let remaining_idle = idle_ta.checked_sub(amount).expect("underflow");
-        if remaining_idle < Self::min_liquidity_buffer(env.clone()) {
-            return Err(VaultError::LiquidityBufferNotMet);
-        }
-
-        let token_addr = Self::token(env.clone());
-        let token_client = token::Client::new(&env, &token_addr);
-        token_client.approve(
-            &env.current_contract_address(),
-            &strategy_addr,
-            &amount,
-            &env.ledger().sequence(),
-        );
-
-        strategy_client.deposit(&amount);
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalAssets, &remaining_idle);
-        Ok(())
-    }
-
-    fn divest_from_strategy(env: Env, strategy_addr: Address, amount: i128) {
-        if amount <= 0 {
-            return;
-        }
-        let strategy_client = StrategyClient::new(&env, &strategy_addr);
-        strategy_client.withdraw(&amount);
-
-        let idle_ta = env
-            .storage()
-            .instance()
-            .get::<_, i128>(&DataKey::TotalAssets)
-            .unwrap_or(0);
-        env.storage().instance().set(
-            &DataKey::TotalAssets,
-            &idle_ta.checked_add(amount).expect("overflow"),
-        );
     }
 
     fn insert_sorted_unique(env: &Env, ids: Vec<u64>, shipment_id: u64) -> Vec<u64> {
@@ -2081,14 +1958,8 @@ impl YieldVault {
     pub fn storage_key_registry(env: Env) -> storage_registry::ValidateRegistryResult {
         let keys = storage_registry::registered_vault_keys(&env);
         match storage_registry::validate_registry_no_collisions(&keys) {
-            Ok(()) => storage_registry::ValidateRegistryResult {
-                keys,
-                valid: true,
-            },
-            Err(_) => storage_registry::ValidateRegistryResult {
-                keys,
-                valid: false,
-            },
+            Ok(()) => storage_registry::ValidateRegistryResult { keys, valid: true },
+            Err(_) => storage_registry::ValidateRegistryResult { keys, valid: false },
         }
     }
 

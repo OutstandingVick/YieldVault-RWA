@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
+import TransactionTimeline from "../components/TransactionTimeline";
 import EmptyState from "../components/ui/EmptyState";
 import { Activity, Loader2 } from "../components/icons";
+import { useTransactionTimeline } from "../hooks/useTransactionTimeline";
 import {
   normalizeApiError,
   isValidationError,
@@ -94,76 +96,141 @@ const STATUS_COLOR_MAP: Record<Transaction["status"], "success" | "warning" | "e
   failed: "error",
 };
 
-const columns: DataTableColumn<Transaction>[] = [
-  {
-    id: "type",
-    header: "Type",
-    sortable: true,
-    cell: (row) => (
-      <Badge variant="status" color={row.type === "deposit" ? "cyan" : "error"}>
-        {row.type}
-      </Badge>
-    ),
-  },
-  {
-    id: "status",
-    header: "Status",
-    sortable: true,
-    cell: (row) => (
-      <Badge 
-        variant="status" 
-        color={STATUS_COLOR_MAP[row.status]}
-        icon={row.status === "pending" ? <Loader2 size={12} className="animate-spin" /> : undefined}
-      >
-        {row.status}
-      </Badge>
-    ),
-  },
-  {
-    id: "amount",
-    header: "Amount",
-    sortable: true,
-    cell: (row) => <span>{formatAmount(row.amount, row.asset)}</span>,
-  },
-  {
-    id: "asset",
-    header: "Asset",
-    sortable: false,
-    cell: (row) => <span>{row.asset ?? "—"}</span>,
-  },
-  {
-    id: "date",
-    header: "Date",
-    sortable: true,
-    cell: (row) => <span>{formatTimestamp(row.timestamp)}</span>,
-  },
-  {
-    id: "hash",
-    header: "Transaction Hash",
-    sortable: false,
-    cell: (row) => (
-      <a
-        href={getStellarExplorerUrl(
-          row.transactionHash,
-          networkConfig.isTestnet ? "testnet" : "mainnet",
-        )}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{ color: "var(--accent-cyan)", textDecoration: "none" }}
-        title={row.transactionHash}
-      >
-        {truncateHash(row.transactionHash)}
-      </a>
-    ),
-  },
-];
+/** Inline panel shown below a pending transaction row to track its live state. */
+const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> = ({
+  txHash,
+  onDismiss,
+}) => {
+  const { status, elapsedSeconds, errorMessage } = useTransactionTimeline({ txHash });
+
+  return (
+    <div
+      className="glass-panel"
+      style={{
+        padding: "16px 20px",
+        margin: "8px 0",
+        border: "1px solid var(--border-glass-glow)",
+        borderRadius: "var(--radius-md)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-secondary)" }}>
+          Live Status
+        </span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss timeline"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-tertiary)",
+            fontSize: "var(--text-sm)",
+            padding: "2px 6px",
+          }}
+        >
+          ✕
+        </button>
+      </div>
+      <TransactionTimeline
+        status={status}
+        txHash={txHash}
+        elapsedSeconds={elapsedSeconds}
+        errorMessage={errorMessage}
+      />
+    </div>
+  );
+};
 
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
+  const navigate = useNavigate();
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
   const transactions = queryTransactions ?? [];
+
+  const [selectedPendingHash, setSelectedPendingHash] = useState<string | null>(null);
+
+  const columns: DataTableColumn<Transaction>[] = React.useMemo(() => [
+    {
+      id: "type",
+      header: "Type",
+      sortable: true,
+      cell: (row) => (
+        <Badge variant="status" color={row.type === "deposit" ? "cyan" : "error"}>
+          {row.type}
+        </Badge>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortable: true,
+      cell: (row) => (
+        <button
+          type="button"
+          onClick={row.status === "pending" ? () => setSelectedPendingHash(
+            selectedPendingHash === row.transactionHash ? null : row.transactionHash
+          ) : undefined}
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: row.status === "pending" ? "pointer" : "default",
+          }}
+          title={row.status === "pending" ? "Click to track live status" : undefined}
+          aria-expanded={row.status === "pending" ? selectedPendingHash === row.transactionHash : undefined}
+        >
+          <Badge
+            variant="status"
+            color={STATUS_COLOR_MAP[row.status]}
+            icon={row.status === "pending" ? <Loader2 size={12} className="animate-spin" /> : undefined}
+          >
+            {row.status}
+          </Badge>
+        </button>
+      ),
+    },
+    {
+      id: "amount",
+      header: "Amount",
+      sortable: true,
+      cell: (row) => <span>{formatAmount(row.amount, row.asset)}</span>,
+    },
+    {
+      id: "asset",
+      header: "Asset",
+      sortable: false,
+      cell: (row) => <span>{row.asset ?? "—"}</span>,
+    },
+    {
+      id: "date",
+      header: "Date",
+      sortable: true,
+      cell: (row) => <span>{formatTimestamp(row.timestamp)}</span>,
+    },
+    {
+      id: "hash",
+      header: "Transaction Hash",
+      sortable: false,
+      cell: (row) => (
+        <a
+          href={getStellarExplorerUrl(
+            row.transactionHash,
+            networkConfig.isTestnet ? "testnet" : "mainnet",
+          )}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "var(--accent-cyan)", textDecoration: "none" }}
+          title={row.transactionHash}
+        >
+          {truncateHash(row.transactionHash)}
+        </a>
+      ),
+    },
+  ], [selectedPendingHash]);
 
   const error = queryError 
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
@@ -392,7 +459,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   // ── Empty state ─────────────────────────────────────────────────────────
   const emptyMessage = (
     <EmptyState
-      variant="minimal"
+      kind={hasActiveFilters ? "no-results" : "no-data"}
       title={hasActiveFilters ? "No transactions found" : "No transactions yet"}
       description={
         hasActiveFilters
@@ -402,7 +469,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       icon={<Activity size={24} />}
       {...(hasActiveFilters
         ? { actionLabel: "Reset filters", onAction: clearAll }
-        : {})}
+        : {
+            actionLabel: "Deposit Now",
+            onAction: () => navigate("/"),
+          })}
     />
   );
 
@@ -640,6 +710,14 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                   totalPages,
                 }}
                 onPageChange={setPage}
+              />
+            )}
+
+            {/* Live timeline for selected pending transaction */}
+            {selectedPendingHash && (
+              <PendingTimelinePanel
+                txHash={selectedPendingHash}
+                onDismiss={() => setSelectedPendingHash(null)}
               />
             )}
           </section>

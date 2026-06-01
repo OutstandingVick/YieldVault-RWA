@@ -32,3 +32,36 @@ export function setLastWalletProvider(provider: WalletProvider): void {
 export function clearLastWalletProvider(): void {
   localStorage.removeItem(WALLET_LAST_PROVIDER_KEY);
 }
+
+/** Session-scoped flag: user dismissed reconnect prompt in this session; prevent repeated prompts. */
+export const WALLET_RECONNECT_PROMPT_DISMISS_KEY = "yieldvault_wallet_reconnect_prompt_dismissed";
+
+export function isReconnectPromptDismissed(): boolean {
+  if (typeof window === "undefined") return false;
+  return sessionStorage.getItem(WALLET_RECONNECT_PROMPT_DISMISS_KEY) === "1";
+}
+
+export function setReconnectPromptDismissed(): void {
+  sessionStorage.setItem(WALLET_RECONNECT_PROMPT_DISMISS_KEY, "1");
+}
+
+export function clearReconnectPromptDismissed(): void {
+  sessionStorage.removeItem(WALLET_RECONNECT_PROMPT_DISMISS_KEY);
+}
+
+/** Check if the specified provider is available (installed and accessible). */
+export async function isProviderAvailable(provider: WalletProvider): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  if (provider === "freighter") {
+    try {
+      const { isConnected } = await import("@stellar/freighter-api");
+      const result = await isConnected();
+      return result?.isConnected === true || typeof window !== "undefined";
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}

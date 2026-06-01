@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { EmptyState } from "./EmptyState";
-import { Briefcase } from "../icons";
+import { Briefcase, AlertCircle } from "../icons";
 
 const defaultProps = {
   title: "Your portfolio is empty.",
@@ -24,7 +24,6 @@ describe("EmptyState", () => {
   it("renders the icon wrapper", () => {
     render(<EmptyState {...defaultProps} />);
 
-    // The icon wrapper is aria-hidden; verify it exists via its class
     const wrapper = document.querySelector(".empty-state-icon-wrapper");
     expect(wrapper).toBeInTheDocument();
   });
@@ -69,18 +68,41 @@ describe("EmptyState", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("applies the default variant class", () => {
+  it("applies the no-data kind class by default", () => {
     const { container } = render(<EmptyState {...defaultProps} />);
 
-    expect(container.firstChild).toHaveClass("empty-state-default");
+    expect(container.firstChild).toHaveClass("empty-state-no-data");
   });
 
-  it("applies the minimal variant class", () => {
+  it("applies the no-results kind class", () => {
+    const { container } = render(
+      <EmptyState {...defaultProps} kind="no-results" />,
+    );
+
+    expect(container.firstChild).toHaveClass("empty-state-no-results");
+  });
+
+  it("maps variant minimal to no-results", () => {
     const { container } = render(
       <EmptyState {...defaultProps} variant="minimal" />,
     );
 
-    expect(container.firstChild).toHaveClass("empty-state-minimal");
+    expect(container.firstChild).toHaveClass("empty-state-no-results");
+  });
+
+  it("applies the error kind class and alert role", () => {
+    render(
+      <EmptyState
+        kind="error"
+        title="Unable to load data"
+        description="Please try again."
+        icon={<AlertCircle />}
+        actionLabel="Try again"
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveClass("empty-state-error");
   });
 
   it("forwards extra className to the root element", () => {
@@ -91,7 +113,7 @@ describe("EmptyState", () => {
     expect(container.firstChild).toHaveClass("my-custom-class");
   });
 
-  it("has role=status for screen reader accessibility", () => {
+  it("has role=status for non-error kinds", () => {
     render(<EmptyState {...defaultProps} />);
 
     expect(screen.getByRole("status")).toBeInTheDocument();

@@ -135,6 +135,11 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
         name: symbol_short!("StratRisk"),
         parameterized: true,
     });
+    keys.push_back(StorageKeyDescriptor {
+        namespace: StorageNamespace::Strategy,
+        name: symbol_short!("StratHwm"),
+        parameterized: true,
+    });
 
     keys.push_back(scalar(
         StorageNamespace::Emergency,
@@ -144,7 +149,10 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
         StorageNamespace::Emergency,
         "EmergencyApproverSecondary",
     ));
-    keys.push_back(scalar(StorageNamespace::Emergency, "EmergencyProposalNonce"));
+    keys.push_back(scalar(
+        StorageNamespace::Emergency,
+        "EmergencyProposalNonce",
+    ));
     keys.push_back(StorageKeyDescriptor {
         namespace: StorageNamespace::Emergency,
         name: symbol_short!("EmrgProp"),
@@ -215,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_proxy_keys_separate_from_vault() {
-        // ProxyDataKey uses explicit numeric discriminators 0–3; vault DataKey
+        // ProxyDataKey uses explicit numeric discriminators 0–4; vault DataKey
         // is a separate contracttype enum and cannot collide at the type level.
         use crate::upgrade::ProxyDataKey;
         assert_ne!(

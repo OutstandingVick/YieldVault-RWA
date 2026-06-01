@@ -609,7 +609,7 @@ The guide includes:
 
 ### Upgrade Procedures
 
-See `contracts/vault/DEPLOYMENT.md` for detailed upgrade runbook including:
+See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK.md` for detailed upgrade runbook including:
 1. Build and optimize new WASM
 2. Pause vault (safety check)
 3. Install new WASM and get hash

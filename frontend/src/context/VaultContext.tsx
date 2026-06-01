@@ -2,6 +2,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
 } from "react";
 import { subscribeToApiTelemetry, normalizeApiError } from "../lib/api";
 import type { ApiError } from "../lib/api";
@@ -75,7 +76,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   // Normalize any query error so consumers can render an API status banner.
   const error: ApiError | null = queryError ? normalizeApiError(queryError) : null;
 
-  const lastUpdate = new Date(summary.updatedAt);
+  const lastUpdate = useMemo(() => new Date(summary.updatedAt), [summary.updatedAt]);
 
   const utilization = summary.depositCap > 0 ? summary.tvl / summary.depositCap : 0;
   const isCapWarning = utilization > 0.9 && utilization < 1.0;

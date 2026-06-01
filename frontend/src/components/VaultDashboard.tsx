@@ -34,6 +34,9 @@ import { TransactionConfirmationModal } from "./TransactionConfirmationModal";
 import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
 import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
+import RefreshControl from "./RefreshControl";
+import { usePolling } from "../hooks/usePolling";
+import { useStaleIndicator } from "../hooks/useStaleIndicator";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -191,9 +194,18 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     utilization,
     isCapWarning,
     isCapReached,
+    lastUpdate,
+    refresh,
   } = useVault();
   const toast = useToast();
   const delayedLoading = useDelayedLoading(isLoading);
+
+  const statsPolling = usePolling(refresh, {
+    interval: 30000,
+    pauseOnHidden: true,
+    pauseOnOffline: true,
+  });
+  const { isStale: statsIsStale, ageText: statsAgeText } = useStaleIndicator(lastUpdate);
 
   const availableBalance = walletAddress ? usdcBalance : 0;
 
@@ -508,6 +520,37 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             }}
           />
 
+          {/* Per-widget refresh control + stale indicator for stats panel */}
+          <div style={{ marginBottom: "16px" }}>
+            <RefreshControl
+              isPolling={statsPolling.isPolling}
+              isPaused={statsPolling.isPaused}
+              pauseReason={statsPolling.pauseReason}
+              onPause={statsPolling.pause}
+              onResume={statsPolling.resume}
+              onRefresh={statsPolling.forceRefresh}
+              isRefetching={isLoading}
+              lastUpdated={lastUpdate}
+            />
+            {statsIsStale && statsAgeText && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  marginTop: "6px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "0.75rem",
+                  color: "var(--text-warning, #f59e0b)",
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-warning, #f59e0b)", flexShrink: 0 }} />
+                Data may be stale · {statsAgeText}
+              </div>
+            )}
+          </div>
+
           <div className="vault-stats-meta flex gap-xl" style={{ marginBottom: "32px" }}>
             <div>
               <div
@@ -659,6 +702,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           {/* Empty state: wallet connected, loading done, no USDC balance */}
           {!isLoading && walletAddress && usdcBalance === 0 && (
             <EmptyState
+              kind="no-data"
               title="No deposits yet."
               description="Start earning yield by depositing USDC into our high-efficiency vaults."
               icon={<TrendingUp />}

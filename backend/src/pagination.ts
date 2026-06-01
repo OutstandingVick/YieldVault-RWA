@@ -34,8 +34,6 @@ export interface PaginationQuery {
  * Pagination metadata included in list responses.
  */
 export interface PaginationMeta {
-  /** Requested page size cap. */
-  limit?: number;
   /** Number of items returned in this response. */
   count: number;
   /** Effective request limit used for this page. */
@@ -324,8 +322,8 @@ export function sortItems<T extends Record<string, unknown>>(
  */
 export function createPaginatedResponse<T>(
   data: T[],
-  pagination: PaginationMeta
-  , extras: Pick<PaginatedResponse<T>, 'normalizedDateRange'> = {}
+  pagination: PaginationMeta,
+  extras: Pick<PaginatedResponse<T>, 'normalizedDateRange'> = {}
 ): PaginatedResponse<T> {
   return {
     data,

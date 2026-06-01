@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   LineChart,
   Line,
@@ -13,6 +13,9 @@ import { TrendingUp } from "./icons";
 import { usePreferencesContext } from "../context/PreferencesContext";
 import { formatDate } from "../lib/formatters";
 import { type TimeRange, getCutoffDate, getNow } from "../lib/dateUtils";
+import RefreshControl from "./RefreshControl";
+import { usePolling } from "../hooks/usePolling";
+import { useStaleIndicator } from "../hooks/useStaleIndicator";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,8 +113,25 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
   const [activeRange, setActiveRange] = useState<TimeRange>("1M");
   /** Which comparison windows are overlaid */
   const [comparedRanges, setComparedRanges] = useState<Set<TimeRange>>(new Set(["7D"]));
+  const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
+  const [isRefetching, setIsRefetching] = useState(false);
 
   const isTest = process.env.NODE_ENV === "test";
+
+  const refreshFn = useCallback(async () => {
+    setIsRefetching(true);
+    // APY data is static/mock; just update the timestamp to reflect a manual refresh
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    setLastUpdated(new Date());
+    setIsRefetching(false);
+  }, []);
+
+  const polling = usePolling(refreshFn, {
+    interval: 60000,
+    pauseOnHidden: true,
+    pauseOnOffline: true,
+  });
+  const { isStale, ageText } = useStaleIndicator(lastUpdated);
 
   /** Slice data to the active range */
   const baseData = useMemo(() => {
@@ -284,6 +304,37 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
             </button>
           );
         })}
+      </div>
+
+      {/* Per-widget refresh control + stale indicator */}
+      <div style={{ marginBottom: "16px" }}>
+        <RefreshControl
+          isPolling={polling.isPolling}
+          isPaused={polling.isPaused}
+          pauseReason={polling.pauseReason}
+          onPause={polling.pause}
+          onResume={polling.resume}
+          onRefresh={polling.forceRefresh}
+          isRefetching={isRefetching}
+          lastUpdated={lastUpdated}
+        />
+        {isStale && ageText && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              marginTop: "6px",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "0.75rem",
+              color: "var(--text-warning, #f59e0b)",
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-warning, #f59e0b)", flexShrink: 0 }} />
+            Data may be stale · {ageText}
+          </div>
+        )}
       </div>
 
       {/* Chart */}

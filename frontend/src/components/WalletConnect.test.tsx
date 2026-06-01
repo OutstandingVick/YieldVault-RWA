@@ -320,4 +320,96 @@ describe('WalletConnect', () => {
 
         localStorage.clear();
     });
+
+    it('does not show reconnect prompt when prompt is dismissed in current session', async () => {
+        localStorage.setItem('yieldvault_last_wallet_provider', 'freighter');
+        sessionStorage.removeItem('yieldvault_wallet_manual_disconnect');
+        sessionStorage.setItem('yieldvault_wallet_reconnect_prompt_dismissed', '1');
+        mockedFreighter.isConnected.mockResolvedValue({ isConnected: true });
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        await waitFor(() => {
+            expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        });
+
+        localStorage.clear();
+        sessionStorage.clear();
+    });
+
+    it('clears reconnect prompt dismissed state on successful connection', async () => {
+        mockedFreighter.isAllowed
+            .mockResolvedValueOnce({ isAllowed: false })
+            .mockResolvedValueOnce({ isAllowed: true });
+        mockedFreighter.setAllowed.mockResolvedValue({ isAllowed: true });
+        mockedFreighter.getAddress.mockResolvedValue({ address: 'GABC123' });
+        sessionStorage.setItem('yieldvault_wallet_reconnect_prompt_dismissed', '1');
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        const button = screen.getByText(/Connect Freighter/i);
+        fireEvent.click(button);
+
+        await waitFor(() => {
+            expect(mockOnConnect).toHaveBeenCalledWith('GABC123');
+            expect(sessionStorage.getItem('yieldvault_wallet_reconnect_prompt_dismissed')).toBeNull();
+        });
+
+        sessionStorage.clear();
+    });
+
+    it('dismisses reconnect prompt sets the session dismiss flag', async () => {
+        localStorage.setItem('yieldvault_last_wallet_provider', 'freighter');
+        sessionStorage.removeItem('yieldvault_wallet_manual_disconnect');
+        sessionStorage.removeItem('yieldvault_wallet_reconnect_prompt_dismissed');
+        mockedFreighter.isConnected.mockResolvedValue({ isConnected: true });
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        await waitFor(() => {
+            fireEvent.click(screen.getByRole('button', { name: /use a different wallet/i }));
+        });
+
+        expect(sessionStorage.getItem('yieldvault_wallet_reconnect_prompt_dismissed')).toBe('1');
+
+        localStorage.clear();
+        sessionStorage.clear();
+    });
+
+    it('clears reconnect prompt dismissed state on manual disconnect', () => {
+        sessionStorage.setItem('yieldvault_wallet_reconnect_prompt_dismissed', '1');
+
+        render(
+            <WalletConnectWrapper
+                walletAddress="GABC123"
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        const disconnectButton = screen.getByLabelText(/Disconnect Wallet/i);
+        fireEvent.click(disconnectButton);
+
+        expect(sessionStorage.getItem('yieldvault_wallet_reconnect_prompt_dismissed')).toBeNull();
+
+        sessionStorage.clear();
+    });
 });

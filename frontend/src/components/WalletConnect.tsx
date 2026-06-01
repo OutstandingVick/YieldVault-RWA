@@ -16,6 +16,10 @@ import {
   getLastWalletProvider,
   setLastWalletProvider,
   clearLastWalletProvider,
+  isReconnectPromptDismissed,
+  setReconnectPromptDismissed,
+  clearReconnectPromptDismissed,
+  isProviderAvailable,
 } from "../lib/walletSession";
 import WalletReconnectPrompt from "./WalletReconnectPrompt";
 
@@ -59,12 +63,19 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
 
   // Show reconnect prompt for returning users who have a persisted provider
   useEffect(() => {
-    if (!walletAddress && !isWalletManualDisconnectSet()) {
-      const provider = getLastWalletProvider();
-      if (provider) {
-        setReconnectProvider(provider);
+    const checkAndSetReconnectProvider = async () => {
+      if (!walletAddress && !isWalletManualDisconnectSet() && !isReconnectPromptDismissed()) {
+        const provider = getLastWalletProvider();
+        if (provider) {
+          // Validate provider is available before suggesting reconnect
+          const available = await isProviderAvailable(provider);
+          if (available) {
+            setReconnectProvider(provider);
+          }
+        }
       }
-    }
+    };
+    void checkAndSetReconnectProvider();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -128,6 +139,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           // Set session start time for expiry tracking
           localStorage.setItem("wallet_session_start", Date.now().toString());
           clearWalletManualDisconnect();
+          clearReconnectPromptDismissed();
           setLastWalletProvider("freighter");
           setReconnectProvider(null);
           onConnect(userInfo.address);
@@ -288,6 +300,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           onClick={() => {
             setConnectionError(null);
             setWalletManualDisconnect();
+            clearReconnectPromptDismissed();
             clearLastWalletProvider();
             onDisconnect("manual");
             toast.info({
@@ -316,6 +329,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           }}
           onDismiss={() => {
             setReconnectProvider(null);
+            setReconnectPromptDismissed();
             clearLastWalletProvider();
           }}
         />
