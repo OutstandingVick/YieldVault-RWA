@@ -16,6 +16,7 @@ import Skeleton, { ChartSkeleton } from "./Skeleton";
 import { type TimeRange, getNow, getCutoffDate } from "../lib/dateUtils";
 import { usePreferencesContext } from "../context/PreferencesContext";
 import { formatDate, formatNumber } from "../lib/formatters";
+import { formatChartNumber, createChartNumberTickFormatter } from "../lib/chartFormatters";
 
 const VaultPerformanceTooltip = ({
   active,
@@ -41,7 +42,7 @@ const VaultPerformanceTooltip = ({
           {label ? formatDate(label, { month: "short", day: "numeric", year: "numeric" }, locale) : ""}
         </div>
         <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>
-          Index: {formatNumber(value, { locale, minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          Index: {formatChartNumber(value, locale, { maxDecimals: 2 })}
         </div>
       </div>
     );
@@ -138,7 +139,7 @@ const VaultPerformanceChart: React.FC = () => {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-                  tickFormatter={(value: number) => formatNumber(value, { locale, maximumFractionDigits: 2 })}
+                  tickFormatter={createChartNumberTickFormatter(locale, true)}
                 />
                 <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                 <Area 
@@ -176,7 +177,7 @@ const VaultPerformanceChart: React.FC = () => {
                     axisLine={false}
                     tickLine={false}
                     tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-                    tickFormatter={(value: number) => formatNumber(value, { locale, maximumFractionDigits: 2 })}
+                    tickFormatter={createChartNumberTickFormatter(locale, true)}
                   />
                   <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                   <Area 
