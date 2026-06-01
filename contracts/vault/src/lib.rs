@@ -1040,10 +1040,12 @@ impl YieldVault {
                 .instance()
                 .get(&DataKey::TreasuryBalance)
                 .unwrap_or(0);
-            env.storage().instance().set(
-                &DataKey::TreasuryBalance,
-                &treasury_bal.checked_add(fee_amount).expect("overflow"),
-            );
+            let new_treasury_bal = treasury_bal.checked_add(fee_amount).expect("overflow");
+            env.storage()
+                .instance()
+                .set(&DataKey::TreasuryBalance, &new_treasury_bal);
+            env.events()
+                .publish((symbol_short!("feeacc"),), (fee_amount, new_treasury_bal));
         }
 
         let ta = env
@@ -1099,6 +1101,42 @@ impl YieldVault {
             .instance()
             .get(&DataKey::TreasuryBalance)
             .unwrap_or(0)
+    }
+
+    /// Transfers the entire accumulated treasury balance to the treasury address.
+    /// Only the Admin can call this. Emits a `feeclm` event.
+    ///
+    /// ### Errors
+    /// Panics if no treasury address is configured or the balance is zero.
+    pub fn claim_fees(env: Env) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .expect("treasury not set");
+
+        let balance: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0);
+        if balance == 0 {
+            panic!("no fees to claim");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryBalance, &0i128);
+
+        let token_addr: Address = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
+        token::Client::new(&env, &token_addr)
+            .transfer(&env.current_contract_address(), &treasury, &balance);
+
+        env.events()
+            .publish((symbol_short!("feeclm"),), (treasury, balance));
     }
 
     // ── Goal 2: Large-withdrawal timelock ────────────────────────────────────
