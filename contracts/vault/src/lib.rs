@@ -68,6 +68,7 @@ pub enum DataKey {
     PriceOracle,
     PriceOracleHeartbeat,
     LastValidatedPrice,
+    LastActionSeq(Address),
     OracleEnabled,
 }
 
@@ -101,6 +102,7 @@ pub enum VaultError {
     HeartbeatExceeded = 15,
     PriceDeviationExceeded = 16,
     OracleNotSet = 17,
+    RapidAction = 18,
 }
 
 #[contract]
@@ -780,6 +782,14 @@ impl YieldVault {
     /// Publishes a `(symbol_short!("deposit"),)` event with `(amount, shares_minted)`.
 
     pub fn deposit(env: Env, user: Address, amount: i128) -> Result<i128, VaultError> {
+        // Guard against rapid opposing actions in same ledger sequence
+        let current_seq = env.ledger().sequence();
+        let last_seq_key = DataKey::LastActionSeq(user.clone());
+        if let Some(last_seq) = env.storage().instance().get::<_, u32>(&last_seq_key) {
+            if last_seq == current_seq {
+                return Err(VaultError::RapidAction);
+            }
+        }
         let mut state = Self::get_state(&env);
         if state.is_paused {
             return Err(VaultError::ContractPaused);
@@ -820,6 +830,8 @@ impl YieldVault {
             (amount, shares_to_mint),
         );
 
+        // Update last action sequence for user
+        env.storage().instance().set(&DataKey::LastActionSeq(user.clone()), &current_seq);
         Ok(shares_to_mint)
     }
 
@@ -833,6 +845,14 @@ impl YieldVault {
     /// The quantity of underlying tokens returned to the user.
 
     pub fn withdraw(env: Env, user: Address, shares: i128) -> Result<i128, VaultError> {
+        // Guard against rapid opposing actions in same ledger sequence
+        let current_seq = env.ledger().sequence();
+        let last_seq_key = DataKey::LastActionSeq(user.clone());
+        if let Some(last_seq) = env.storage().instance().get::<DataKey, u32>(&last_seq_key) {
+            if last_seq == current_seq {
+                return Err(VaultError::RapidAction);
+            }
+        }
         let mut state = Self::get_state(&env);
         if state.is_paused {
             return Err(VaultError::ContractPaused);
@@ -894,6 +914,8 @@ impl YieldVault {
             .instance()
             .set(&user_key, &Self::checked_sub(user_shares, shares)?);
 
+        // Update last action sequence for user
+        env.storage().instance().set(&DataKey::LastActionSeq(user.clone()), &current_seq);
         env.events().publish(
             (symbol_short!("withdraw"), user),
             (assets_to_return, shares),
@@ -981,20 +1003,8 @@ impl YieldVault {
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
 
-        let ta = env
-            .storage()
-            .instance()
-            .get::<_, i128>(&DataKey::TotalAssets)
-            .unwrap_or(0);
-        // Update total assets state
-        let ta = env
-            .storage()
-            .instance()
-            .get::<_, i128>(&DataKey::TotalAssets)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalAssets, &(ta + amount));
+        let ta = env.storage().instance().get::<_, i128>(&DataKey::TotalAssets).unwrap_or(0);
+        env.storage().instance().set(&DataKey::TotalAssets, &(ta + amount));
 
         let mut state = Self::get_state(&env);
         state.total_assets += amount;

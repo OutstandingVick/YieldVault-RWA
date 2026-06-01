@@ -318,6 +318,21 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "LastActionSeq"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "ProposalNonce"
                             }
                           ]
@@ -369,7 +384,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 467886
+                                  "lo": 0
                                 }
                               }
                             },
@@ -380,7 +395,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 467886
+                                  "lo": 0
                                 }
                               }
                             }
