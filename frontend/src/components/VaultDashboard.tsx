@@ -37,6 +37,7 @@ import { useDashboardUrlState, type TransactionTab, type TransactionStep } from 
 import RefreshControl from "./RefreshControl";
 import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
+import { useNetworkStatus } from "../hooks/useNetworkStatus";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -284,10 +285,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
 
+  const { isOnline } = useNetworkStatus();
   const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
     walletAddress,
     amount,
-    dashboardUrl.state.tab
+    dashboardUrl.state.tab,
+    isOnline
   );
 
   const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();

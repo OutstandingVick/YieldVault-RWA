@@ -2499,6 +2499,10 @@ button {
   background: rgba(34, 197, 94, 0.95);
 }
 
+.offline-banner--retrying {
+  background: rgba(245, 158, 11, 0.95);
+}
+
 .offline-banner__content {
   max-width: 1200px;
   margin: 0 auto;
