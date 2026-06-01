@@ -130,6 +130,28 @@ export const es = {
   common: {
     dismiss: "Descartar",
   },
+  txTimeline: {
+    ariaLabel: "Línea de tiempo del estado de la transacción",
+    viewOnExplorer: "Ver en Stellar Explorer",
+    steps: {
+      pending: {
+        label: "Enviada",
+        desc: "Transacción enviada a la red Stellar.",
+      },
+      confirming: {
+        label: "Confirmando",
+        desc: "Esperando inclusión en el ledger…",
+      },
+      finalized: {
+        label: "Finalizada",
+        desc: "Transacción confirmada en la cadena.",
+      },
+      failed: {
+        label: "Fallida",
+        desc: "La red no aceptó la transacción.",
+      },
+    },
+  },
   commands: {
     goToVaults: "Ir a Bóvedas",
     goToPortfolio: "Ir a Portafolio",
