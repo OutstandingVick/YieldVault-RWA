@@ -24,6 +24,9 @@ import { useForm } from "../forms/useForm";
 import type { ValidationSchema } from "../forms/validate";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 import { useTokenAllowance } from "../hooks/useTokenAllowance";
+import { createDepositFormSchema, MIN_DEPOSIT_AMOUNT } from "../forms/schemas/depositFormSchema";
+import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
+import { mapServerError } from "../lib/errorMappers";
 import CopyButton from "./CopyButton";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
@@ -138,48 +141,6 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
   );
 };
 
-function getAmountValidationError(
-  actionType: TransactionTab,
-  rawAmount: string,
-  availableBalance: number,
-  isCapReached: boolean,
-  xlmBalance: number,
-  feeXlm: number,
-): string | null {
-  if (!rawAmount.trim()) {
-    return "Amount is required.";
-  }
-
-  const value = Number(rawAmount);
-  if (Number.isNaN(value) || !Number.isFinite(value)) {
-    return "Enter a valid number.";
-  }
-
-  if (value <= 0) {
-    return "Amount must be greater than 0.";
-  }
-
-  if (actionType === "deposit" && value < MIN_DEPOSIT_AMOUNT) {
-    return `Minimum deposit is ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC.`;
-  }
-
-  if (value > availableBalance) {
-    return actionType === "deposit"
-      ? "Deposit amount cannot exceed your available USDC balance."
-      : "The withdrawal amount exceeds your available USDC balance.";
-  }
-
-  if (actionType === "deposit" && isCapReached) {
-    return "Deposits are temporarily disabled because the vault is at capacity.";
-  }
-
-  if (actionType === "deposit" && xlmBalance < feeXlm) {
-    return "Insufficient XLM balance for network fees.";
-  }
-
-  return null;
-}
-
 const VaultDashboard: React.FC<VaultDashboardProps> = ({
   walletAddress,
   usdcBalance = 0,
@@ -210,33 +171,39 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const availableBalance = walletAddress ? usdcBalance : 0;
 
-  const transactionSchema = React.useMemo<ValidationSchema<{ amount: string }>>(() => ({
-    amount: {
-      required: "Amount is required.",
-      custom: (value) => {
-        const num = Number(value);
-        if (isNaN(num) || !isFinite(num)) return "Enter a valid number.";
-        if (num <= 0) return "Amount must be greater than 0.";
+  // Wizard state
+  const [transactionResult, setTransactionResult] = useState<{
+    success: boolean;
+    message: string;
+    txHash?: string
+  } | null>(null);
 
-        if (dashboardUrl.state.tab === "deposit") {
-          if (num < MIN_DEPOSIT_AMOUNT) {
-            return `Minimum deposit is ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC.`;
-          }
-          if (isCapReached) {
-            return "Deposits are temporarily disabled because the vault is at capacity.";
-          }
-          if (num > availableBalance) {
-            return "Deposit amount cannot exceed your available USDC balance.";
-          }
-        } else {
-          if (num > availableBalance) {
-            return "The withdrawal amount exceeds your available USDC balance.";
-          }
-        }
-        return undefined;
-      }
+  const { isOffline, countdown } = useOfflineRetryCountdown();
+
+  const depositMutation = useDepositMutation();
+  const withdrawMutation = useWithdrawMutation();
+  const { approvalStatus, needsApproval, approve, resetApproval } =
+    useTokenAllowance(walletAddress);
+
+  const { isOnline } = useNetworkStatus();
+  const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
+    walletAddress,
+    "",
+    dashboardUrl.state.tab,
+    isOnline
+  );
+
+  const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();
+  const [customSlippage, setCustomSlippage] = useState("");
+
+  // Create validation schema based on transaction type and current state
+  const transactionSchema = React.useMemo<ValidationSchema<{ amount: string }>>(() => {
+    if (dashboardUrl.state.tab === "deposit") {
+      return createDepositFormSchema(availableBalance, isCapReached, xlmBalance, feeXlm);
+    } else {
+      return createWithdrawFormSchema(availableBalance);
     }
-  }), [dashboardUrl.state.tab, availableBalance, isCapReached]);
+  }, [dashboardUrl.state.tab, availableBalance, isCapReached, xlmBalance, feeXlm]);
 
   const {
     values,
@@ -249,15 +216,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
-
-  // Wizard state
-  const [transactionResult, setTransactionResult] = useState<{
-    success: boolean;
-    message: string;
-    txHash?: string
-  } | null>(null);
-
-  const { isOffline, countdown } = useOfflineRetryCountdown();
 
   // Handle deep link parameters
   useEffect(() => {
@@ -274,27 +232,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
   }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
 
-  const depositMutation = useDepositMutation();
-  const withdrawMutation = useWithdrawMutation();
-  const { approvalStatus, needsApproval, approve, resetApproval } =
-    useTokenAllowance(walletAddress);
-
   // Reset approval when deposit amount changes
   useEffect(() => {
     resetApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
-
-  const { isOnline } = useNetworkStatus();
-  const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
-    walletAddress,
-    amount,
-    dashboardUrl.state.tab,
-    isOnline
-  );
-
-  const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();
-  const [customSlippage, setCustomSlippage] = useState("");
 
   const resetWizard = () => {
     setValues({ amount: "" });
@@ -304,20 +246,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   };
 
   const goToReview = () => {
-    const validationError = getAmountValidationError(
-      dashboardUrl.state.tab,
-      amount,
-      availableBalance,
-      isCapReached,
-      xlmBalance,
-      feeXlm,
-    );
-
-    if (validationError) {
-      setFieldError("amount", validationError);
+    if (Object.keys(errors).length > 0) {
       toast.warning({
-        title: "Enter a valid amount",
-        description: validationError,
+        title: "Please fix validation errors",
+        description: errors.amount || "Please enter a valid amount",
       });
       return;
     }
@@ -357,14 +289,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const strategy = summary.strategy;
   const enteredAmount = Number(amount);
-  const activeAmountError = getAmountValidationError(
-    dashboardUrl.state.tab,
-    amount,
-    availableBalance,
-    isCapReached,
-    xlmBalance,
-    feeXlm,
-  );
+  const activeAmountError = errors.amount;
   const isValidAmount = !activeAmountError;
   const showInlineError = touched.amount && Boolean(activeAmountError);
   const managementFeeBps = 35;
@@ -442,30 +367,37 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
       });
     } catch (err: unknown) {
-      if (isValidationError(err)) {
-        err.details.forEach((detail) => {
-          if (detail.field === "amount") {
-            setFieldError("amount", detail.message);
-          }
+      // Map server errors to form field errors
+      const mappedError = mapServerError(err);
+      
+      if (mappedError.fieldErrors.length > 0) {
+        // Set field-level errors
+        mappedError.fieldErrors.forEach(({ fieldName, message }) => {
+          setFieldError(fieldName as keyof { amount: string }, message);
         });
         dashboardUrl.setStep("amount");
       }
 
+      // Get error message for display
+      let errorMessage = "An error occurred during the transaction.";
+      
+      if (isValidationError(err)) {
+        errorMessage = err.details?.[0]?.message || errorMessage;
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (mappedError.generalError) {
+        errorMessage = mappedError.generalError;
+      }
+
       setTransactionResult({
         success: false,
-        message:
-          err instanceof Error
-            ? err.message
-            : "An error occurred during the transaction.",
+        message: errorMessage,
       });
       dashboardUrl.setStep("result");
       
       toast.error({
         title: "Transaction Failed",
-        description:
-          err instanceof Error
-            ? err.message
-            : "An error occurred during the transaction.",
+        description: errorMessage,
       });
     }
   };
