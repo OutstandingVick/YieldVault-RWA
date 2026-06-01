@@ -39,7 +39,8 @@ export const corsOptions: CorsOptions = {
       return callback(null, true);
     }
 
-    const isAllowed = allowedOrigins.some(allowed => {
+    const currentAllowedOrigins = getCORSOrigins();
+    const isAllowed = currentAllowedOrigins.some(allowed => {
       if (allowed instanceof RegExp) {
         return allowed.test(origin);
       }
