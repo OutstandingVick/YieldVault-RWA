@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -161,6 +161,7 @@ const columns: DataTableColumn<Transaction>[] = [
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
+  const navigate = useNavigate();
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
   const transactions = queryTransactions ?? [];
@@ -392,7 +393,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   // ── Empty state ─────────────────────────────────────────────────────────
   const emptyMessage = (
     <EmptyState
-      variant="minimal"
+      kind={hasActiveFilters ? "no-results" : "no-data"}
       title={hasActiveFilters ? "No transactions found" : "No transactions yet"}
       description={
         hasActiveFilters
@@ -402,7 +403,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       icon={<Activity size={24} />}
       {...(hasActiveFilters
         ? { actionLabel: "Reset filters", onAction: clearAll }
-        : {})}
+        : {
+            actionLabel: "Deposit Now",
+            onAction: () => navigate("/"),
+          })}
     />
   );
 

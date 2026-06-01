@@ -77,6 +77,7 @@ const Analytics: React.FC = () => {
             ) : (
                 /* Empty state: loading done, no TVL / no historical data */
                 <EmptyState
+                    kind="no-data"
                     title="No data to display."
                     description="Performance metrics will appear here once your assets start generating yield."
                     icon={<LineChart />}

@@ -659,6 +659,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           {/* Empty state: wallet connected, loading done, no USDC balance */}
           {!isLoading && walletAddress && usdcBalance === 0 && (
             <EmptyState
+              kind="no-data"
               title="No deposits yet."
               description="Start earning yield by depositing USDC into our high-efficiency vaults."
               icon={<TrendingUp />}
