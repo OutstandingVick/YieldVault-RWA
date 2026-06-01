@@ -1,5 +1,6 @@
 # Contract Upgrade & Migration Playbook
 
+<<<<<<< HEAD
 **Purpose:** Guide contract teams through safe Stellar Soroban contract upgrades, on-chain migration steps, rollback strategy, and post-upgrade validation.
 
 **When to Use This Runbook**
@@ -176,3 +177,178 @@ Use when the upgrade introduced incompatible storage changes or the instance is 
 - `docs/runbooks/README.md`
 
 **Last Updated:** June 2026
+
+
+- In-place upgrades using the Vault contract's `upgrade(new_wasm_hash)` function.
+- Contract deployments on Soroban Testnet and Mainnet.
+- Code and state migration steps for YieldVault contract version changes.
+- Rollback actions when an upgrade fails or post-upgrade verification does not pass.
+
+## Assumptions
+
+- The Vault contract is already deployed and initialized.
+- The Vault supports the on-chain `upgrade(new_wasm_hash)` admin function.
+- The admin key is available and authorized for contract upgrades.
+- Contract state is preserved by Soroban during on-chain code upgrades.
+
+## 1. Pre-Upgrade Checks
+
+### 1.1 Operational Preconditions
+
+- [ ] Confirm the current network and contract ID.
+- [ ] Confirm admin account has sufficient XLM for transaction fees.
+- [ ] Ensure the current Vault contract is paused before upgrading.
+- [ ] Verify there are no in-flight deposit/withdrawal operations.
+- [ ] Confirm a clean `git` working tree and that the upgrade build is produced from an audited commit.
+- [ ] Record the current `version()` and `total_assets()` values for comparison.
+
+### 1.2 Build & Deployment Preconditions
+
+- [ ] Run contract unit and integration tests.
+- [ ] Build the new WASM binary:
+  - `cargo build --target wasm32-unknown-unknown --release`
+- [ ] Optimize the WASM binary:
+  - `soroban contract optimize --wasm target/wasm32-unknown-unknown/release/yield_vault_rwa.wasm`
+- [ ] Upload/install the new WASM to the network to obtain the hash:
+  - `soroban contract install --wasm target/wasm32-unknown-unknown/release/yield_vault_rwa.optimized.wasm --network <network>`
+- [ ] Preserve the previous deployment artifact(s), including the old WASM hash and prior contract build.
+
+### 1.3 Stakeholder & Communication Checks
+
+- [ ] Notify on-call and governance stakeholders of planned upgrade.
+- [ ] Confirm rollback readiness with the operations team.
+- [ ] Identify monitoring dashboards and event streams that must be observed during the upgrade.
+
+## 2. Upgrade & Migration Steps
+
+### 2.1 Pause the Vault
+
+- Pause the Vault contract to prevent new user operations during the upgrade.
+- Example:
+  ```bash
+  soroban contract invoke --id <CONTRACT_ID> --source admin --network <network> -- set_pause --paused true
+  ```
+- Confirm pause status before proceeding.
+
+### 2.2 Apply Contract Upgrade
+
+- Execute the upgrade using the new WASM hash:
+  ```bash
+  soroban contract invoke --id <CONTRACT_ID> --source admin --network <network> -- upgrade --new_wasm_hash <NEW_WASM_HASH>
+  ```
+- Confirm the transaction is successful and collect the transaction ID.
+
+### 2.3 Post-Upgrade Migration Tasks
+
+- If the new contract version requires explicit storage migration, execute the documented migration call immediately after upgrade.
+- Example migration flow:
+  - `soroban contract invoke --id <CONTRACT_ID> --source admin --network <network> -- migrate_state --params ...`
+- Note: YieldVault upgrade semantics are designed to preserve Soroban instance storage. Only run a migration call if the new version explicitly defines one.
+
+### 2.4 Verify Upgrade Success
+
+- Check `version()` to confirm the new contract version is active:
+  ```bash
+  soroban contract invoke --id <CONTRACT_ID> --network <network> -- version
+  ```
+- Confirm storage consistency for key contract state values:
+  - `total_assets()`
+  - `total_shares()`
+  - `admin()`
+- Verify the contract is still paused and safe before resuming normal operations.
+
+### 2.5 Resume Operations
+
+- Resume the Vault only after verification passes:
+  ```bash
+  soroban contract invoke --id <CONTRACT_ID> --source admin --network <network> -- set_pause --paused false
+  ```
+- Confirm pause status is cleared.
+
+## 3. Rollback Strategy
+
+### 3.1 Rollback Preparation
+
+- Preserve the prior WASM hash before performing the upgrade.
+- Preserve the previous deployment artifact and any pre-upgrade state snapshot.
+- Maintain a documented fallback plan if code rollback is not sufficient.
+
+### 3.2 Rollback Conditions
+
+Rollback if any of the following occur:
+
+- Upgrade transaction fails.
+- `version()` does not return the expected updated value.
+- Critical post-upgrade verification checks fail.
+- Smoke tests for deposit/withdrawal fail.
+- Production monitoring reports abnormal errors or gas/execution anomalies.
+
+### 3.3 Rollback Execution
+
+- Pause the Vault contract if it is not already paused.
+- Upgrade back to the previous WASM hash:
+  ```bash
+  soroban contract invoke --id <CONTRACT_ID> --source admin --network <network> -- upgrade --new_wasm_hash <PREVIOUS_WASM_HASH>
+  ```
+- Confirm the rollback transaction succeeds.
+- Verify `version()` returns the previous contract version.
+- Re-run post-rollback smoke tests.
+
+### 3.4 State Corruption & Recovery
+
+- If rollback restores code but state is corrupted, the issue may require manual recovery.
+- Escalate to the security/engineering team and follow applicable disaster recovery runbooks.
+- Do not resume user-facing operations until state integrity is confirmed.
+
+## 4. Post-Upgrade Verification
+
+### 4.1 Functional Smoke Tests
+
+- Run a minimal deposit/withdrawal smoke test using a trusted wallet or test account.
+- Validate the following contract calls:
+  - `balance(<test_address>)`
+  - `total_assets()`
+  - `total_shares()`
+  - `deposit(...)` and `withdraw(...)` behaviour if the Vault contract is not paused.
+- Confirm all calls return expected results and do not revert.
+
+### 4.2 Monitoring Verification
+
+- Verify contract events continue to emit correctly via Soroban RPC.
+- Check the backend and frontend log streams for any contract invocation failures.
+- Confirm there are no repeated `API_503` or `transaction failed` errors after the upgrade.
+
+### 4.3 Deployment Artifact Verification
+
+- Update deployment metadata and artifacts with:
+  - Contract ID
+  - WASM hash
+  - Git commit SHA
+  - Network name
+  - Upgrade transaction ID
+- Store the artifact in the release tracking system.
+
+### 4.4 Operational Handoff
+
+- Notify stakeholders that the upgrade is complete.
+- Record the final verification status and any anomalies.
+- If the upgrade is on mainnet, monitor for at least one complete Stellar ledger cycle (~5 seconds per ledger) and confirm stable metrics.
+
+## 5. Testing the Playbook
+
+### 5.1 Test Verification Checklist
+
+- [ ] Perform the upgrade first on Soroban Testnet.
+- [ ] Execute the pause, upgrade, verify, and resume steps end-to-end.
+- [ ] Validate that rollback works by intentionally reverting to the prior WASM hash in a staging environment.
+- [ ] Confirm that state values such as `total_assets()` remain consistent before and after upgrade.
+- [ ] Confirm deployment artifacts capture the correct hash and transaction IDs.
+
+### 5.2 Acceptance Criteria
+
+- The upgrade completes successfully on testnet.
+- The Vault remains paused during code migration and is resumed only after verification.
+- Rollback is possible and has been tested.
+- Post-upgrade smoke tests pass.
+- Monitoring shows no contract-level failures after the upgrade.
+>>>>>>> 6aa6cab (Documentation: Added upgrade and migration playbook for contract deployments)
