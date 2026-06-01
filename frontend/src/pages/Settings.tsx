@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { usePreferencesContext } from '../context/PreferencesContext';
-import type { Theme, Locale, Currency, NotificationPreferences } from '../hooks/usePreferences';
+import type { Theme, Locale, Currency, NotificationPreferences, Precision } from '../hooks/usePreferences';
 
 // ─── tiny icon helpers (SVG inline) ───────────────────────────────────────────
 
@@ -283,9 +283,7 @@ const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
 
 const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
   { value: 'USD', label: 'USD — US Dollar ($)' },
-  { value: 'EUR', label: 'EUR — Euro (€)' },
-  { value: 'GBP', label: 'GBP — British Pound (£)' },
-  { value: 'JPY', label: 'JPY — Japanese Yen (¥)' },
+  { value: 'XLM', label: 'XLM — Stellar Lumens' },
 ];
 
 const NOTIF_KEYS: { key: keyof NotificationPreferences; label: string; description: string }[] = [

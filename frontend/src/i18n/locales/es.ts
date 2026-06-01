@@ -25,11 +25,31 @@ export const es = {
   },
   wallet: {
     connecting: "Conectando...",
+    checkingFreighter: "Comprobando billetera…",
     connectFreighter: "Conectar Freighter",
     rpcPrefix: "RPC:",
     rpcCustom: "Personalizado",
     rpcDefault: "Predeterminado",
     disconnectAria: "Desconectar billetera",
+    status: {
+      connected: "Conectado",
+      connecting: "Conectando a la billetera...",
+      disconnected: "No conectado",
+      error: "Error de conexión",
+    },
+    error: {
+      notInstalled: "Extensión de billetera Freighter no detectada. Instala Freighter para continuar.",
+      notAllowed: "Permiso de Freighter denegado. Aprueba el acceso en la extensión.",
+      noAddress: "No se pudo obtener la dirección de la billetera. Verifica los permisos de Freighter.",
+      generic: "Conexión fallida. Asegúrate de que Freighter esté desbloqueado y aprobado.",
+    },
+    tooltip: {
+      connectedStatus: "Billetera conectada y lista para usar",
+      disconnectedStatus: "Conecta tu billetera Freighter para continuar",
+      connectingStatus: "Estableciendo conexión...",
+      checkingStatus: "Buscando una sesión existente de Freighter en este dispositivo",
+      errorStatus: "Conexión fallida - intenta de nuevo o verifica Freighter",
+    },
   },
   toast: {
     walletConnected: {
@@ -57,7 +77,7 @@ export const es = {
     title: "Datos no disponibles",
   },
   dataTable: {
-    pageLabel: "PasswordService" gina",
+    pageLabel: "Página",
     pageOf: "de",
     previous: "Anterior",
     next: "Siguiente",
@@ -66,8 +86,13 @@ export const es = {
   shortcuts: {
     title: "Atajos de teclado",
     close: "Cerrar",
-    hint: "Presiona Esc para cerrar este dilogo",
     hint: "Presiona Esc para cerrar este diálogo",
+  },
+  palette: {
+    placeholder: "Buscar acciones…",
+    noResults: "Sin resultados",
+    hint: "↑↓ navegar · Enter ejecutar · Esc cerrar",
+    open: "Abrir paleta de comandos",
   },
   refresh: {
     live: "En vivo",
@@ -88,5 +113,61 @@ export const es = {
     empty: "No hay actividad para mostrar",
     today: "Hoy",
     yesterday: "Ayer",
+  },
+  session: {
+    warning: {
+      title: "La sesión expirará pronto",
+      message: "Tu sesión de billetera expirará en {{minutes}} minutos. Vuelve a conectar para continuar sin interrupciones.",
+      reconnect: "Reconectar",
+    },
+  },
+  reconnect: {
+    title: "Bienvenido de nuevo",
+    description: "Reconecta con {{provider}} para continuar.",
+    confirm: "Reconectar",
+    dismiss: "Usar otra billetera",
+  },
+  common: {
+    dismiss: "Descartar",
+  },
+  txTimeline: {
+    ariaLabel: "Línea de tiempo del estado de la transacción",
+    viewOnExplorer: "Ver en Stellar Explorer",
+    steps: {
+      pending: {
+        label: "Enviada",
+        desc: "Transacción enviada a la red Stellar.",
+      },
+      confirming: {
+        label: "Confirmando",
+        desc: "Esperando inclusión en el ledger…",
+      },
+      finalized: {
+        label: "Finalizada",
+        desc: "Transacción confirmada en la cadena.",
+      },
+      failed: {
+        label: "Fallida",
+        desc: "La red no aceptó la transacción.",
+      },
+    },
+  },
+  commands: {
+    goToVaults: "Ir a Bóvedas",
+    goToPortfolio: "Ir a Portafolio",
+    goToAnalytics: "Ir a Analítica",
+    goToHistory: "Ir a Historial",
+    deposit: "Depositar USDC",
+    withdraw: "Retirar USDC",
+    connectWallet: "Conectar billetera",
+    settings: "Abrir configuración",
+    showShortcuts: "Mostrar atajos de teclado",
+    openPalette: "Abrir paleta de comandos",
+    closeModal: "Cerrar modal",
+    scopes: {
+      navigation: "Navegación",
+      actions: "Acciones",
+      general: "General"
+    }
   },
 } as const;

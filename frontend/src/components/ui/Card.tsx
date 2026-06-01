@@ -8,6 +8,7 @@ interface CardProps {
   className?: string;
   noPadding?: boolean;
   noHover?: boolean;
+  style?: React.CSSProperties;
   onClick?: () => void;
 }
 
@@ -18,6 +19,7 @@ export const Card: React.FC<CardProps> = ({
   className = "",
   noPadding = false,
   noHover = false,
+  style,
   onClick,
 }) => {
   return (
@@ -26,6 +28,7 @@ export const Card: React.FC<CardProps> = ({
         onClick ? "is-clickable" : ""
       } ${className}`}
       onClick={onClick}
+      style={style}
     >
       {header && <div className="card-header">{header}</div>}
       <div className={`card-body ${noPadding ? "no-padding" : ""}`}>{children}</div>

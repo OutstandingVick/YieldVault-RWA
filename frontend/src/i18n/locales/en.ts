@@ -25,11 +25,31 @@ export const en = {
   },
   wallet: {
     connecting: "Connecting...",
+    checkingFreighter: "Checking wallet…",
     connectFreighter: "Connect Freighter",
     rpcPrefix: "RPC:",
     rpcCustom: "Custom",
     rpcDefault: "Default",
     disconnectAria: "Disconnect Wallet",
+    status: {
+      connected: "Connected",
+      connecting: "Connecting to wallet...",
+      disconnected: "Not connected",
+      error: "Connection error",
+    },
+    error: {
+      notInstalled: "Freighter wallet extension not detected. Install Freighter to proceed.",
+      notAllowed: "Freighter permission denied. Approve access in the extension.",
+      noAddress: "Unable to retrieve wallet address. Check Freighter permissions.",
+      generic: "Connection failed. Ensure Freighter is unlocked and approved.",
+    },
+    tooltip: {
+      connectedStatus: "Wallet connected and ready to use",
+      disconnectedStatus: "Connect your Freighter wallet to proceed",
+      connectingStatus: "Establishing connection...",
+      checkingStatus: "Looking for an existing Freighter session on this device",
+      errorStatus: "Connection failed - try again or check Freighter",
+    },
   },
   toast: {
     walletConnected: {
@@ -68,6 +88,12 @@ export const en = {
     close: "Close",
     hint: "Press Esc to close this dialog",
   },
+  palette: {
+    placeholder: "Search actions…",
+    noResults: "No matching actions",
+    hint: "↑↓ navigate · Enter run · Esc close",
+    open: "Open command palette",
+  },
   refresh: {
     live: "Live",
     stopped: "Stopped",
@@ -81,11 +107,69 @@ export const en = {
     pausedHidden: "Paused (tab hidden)",
     pausedOffline: "Paused (offline)",
     pausedManual: "Paused",
+    staleData: "Data may be stale",
+    staleAgo: "Last updated {{age}} ago",
   },
   timeline: {
     loading: "Loading activity...",
     empty: "No activity to display",
     today: "Today",
     yesterday: "Yesterday",
+  },
+  session: {
+    warning: {
+      title: "Session Expiring Soon",
+      message: "Your wallet session will expire in {{minutes}} minutes. Reconnect to continue without interruption.",
+      reconnect: "Reconnect",
+    },
+  },
+  reconnect: {
+    title: "Welcome back",
+    description: "Reconnect with {{provider}} to continue.",
+    confirm: "Reconnect",
+    dismiss: "Use a different wallet",
+  },
+  common: {
+    dismiss: "Dismiss",
+  },
+  txTimeline: {
+    ariaLabel: "Transaction status timeline",
+    viewOnExplorer: "View on Stellar Explorer",
+    steps: {
+      pending: {
+        label: "Submitted",
+        desc: "Transaction sent to the Stellar network.",
+      },
+      confirming: {
+        label: "Confirming",
+        desc: "Waiting for ledger inclusion…",
+      },
+      finalized: {
+        label: "Finalized",
+        desc: "Transaction confirmed on-chain.",
+      },
+      failed: {
+        label: "Failed",
+        desc: "Transaction was not accepted by the network.",
+      },
+    },
+  },
+  commands: {
+    goToVaults: "Go to Vaults",
+    goToPortfolio: "Go to Portfolio",
+    goToAnalytics: "Go to Analytics",
+    goToHistory: "Go to History",
+    deposit: "Deposit USDC",
+    withdraw: "Withdraw USDC",
+    connectWallet: "Connect Wallet",
+    settings: "Open Settings",
+    showShortcuts: "Show keyboard shortcuts",
+    openPalette: "Open command palette",
+    closeModal: "Close modal",
+    scopes: {
+      navigation: "Navigation",
+      actions: "Actions",
+      general: "General"
+    }
   },
 } as const;

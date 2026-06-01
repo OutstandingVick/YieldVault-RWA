@@ -2,27 +2,35 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
 } from "react";
+import { subscribeToApiTelemetry, normalizeApiError } from "../lib/api";
 import type { ApiError } from "../lib/api";
-import { subscribeToApiTelemetry } from "../lib/api";
 import type { VaultSummary } from "../lib/vaultApi";
 import { networkConfig } from "../config/network";
-import { useVaultSummary } from "../hooks/useVaultData";
+import { useVaultSummary, useVaultHistory } from "../hooks/useVaultData";
+import { formatCurrency } from "../lib/formatters";
 
 interface VaultContextType {
   summary: VaultSummary;
   tvl: number;
+  depositCap: number;
+  utilization: number;
+  isCapWarning: boolean;
+  isCapReached: boolean;
   apy: number;
   formattedTvl: string;
   formattedApy: string;
   lastUpdate: Date;
   isLoading: boolean;
   error: ApiError | null;
+  contractPaused: boolean;
   refresh: () => Promise<void>;
 }
 
 const DEFAULT_SUMMARY: VaultSummary = {
   tvl: 12450800,
+  depositCap: 15000000,
   apy: 8.45,
   participantCount: 1248,
   monthlyGrowthPct: 12.5,
@@ -31,6 +39,7 @@ const DEFAULT_SUMMARY: VaultSummary = {
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
   updatedAt: "2026-03-25T10:00:00.000Z",
+  contractPaused: false,
   strategy: {
     id: "stellar-benji",
     name: "Franklin BENJI Connector",
@@ -48,7 +57,11 @@ const VaultContext = createContext<VaultContextType | undefined>(undefined);
 export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { data, isLoading, error: queryError, refetch } = useVaultSummary();
+  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary();
+  const { data: historyData, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } = useVaultHistory();
+
+  const isLoading = isSummaryLoading || isHistoryLoading;
+  const queryError = summaryError || historyError;
 
   const summary: VaultSummary = data
     ? {
@@ -60,16 +73,14 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     : DEFAULT_SUMMARY;
 
-  const error: ApiError | null = queryError
-    ? {
-        code: "FETCH_ERROR",
-        message: queryError.message,
-        userMessage: "Failed to load vault data",
-        statusCode: 500,
-      }
-    : null;
+  // Normalize any query error so consumers can render an API status banner.
+  const error: ApiError | null = queryError ? normalizeApiError(queryError) : null;
 
-  const lastUpdate = new Date(summary.updatedAt);
+  const lastUpdate = useMemo(() => new Date(summary.updatedAt), [summary.updatedAt]);
+
+  const utilization = summary.depositCap > 0 ? summary.tvl / summary.depositCap : 0;
+  const isCapWarning = utilization > 0.9 && utilization < 1.0;
+  const isCapReached = utilization >= 1.0;
 
   useEffect(() => {
     const unsubscribe = subscribeToApiTelemetry((event) => {
@@ -81,16 +92,27 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
     return unsubscribe;
   }, []);
 
-  const formattedTvl = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(summary.tvl);
+  const formattedTvl = formatCurrency(summary.tvl, "USD", 0);
 
-  const formattedApy = `${summary.apy.toFixed(2)}%`;
+  const calculateApy = () => {
+    if (!historyData || historyData.length < 2) return null;
+    const start = historyData[0];
+    const end = historyData[historyData.length - 1];
+    
+    const startDate = new Date(start.date).getTime();
+    const endDate = new Date(end.date).getTime();
+    const days = (endDate - startDate) / (1000 * 60 * 60 * 24);
+    
+    if (days <= 0) return null;
+    return ((end.value / start.value) ** (365 / days) - 1) * 100;
+  };
+
+  const calculatedApy = calculateApy();
+  const currentApy = calculatedApy !== null ? calculatedApy : summary.apy;
+  const formattedApy = calculatedApy !== null || data ? `${currentApy.toFixed(2)}%` : "N/A";
 
   const refresh = async () => {
-    await refetch();
+    await Promise.all([refetchSummary(), refetchHistory()]);
   };
 
   return (
@@ -98,12 +120,17 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
       value={{
         summary,
         tvl: summary.tvl,
-        apy: summary.apy,
+        depositCap: summary.depositCap,
+        utilization,
+        isCapWarning,
+        isCapReached,
+        apy: currentApy,
         formattedTvl,
         formattedApy,
         lastUpdate,
         isLoading,
         error,
+        contractPaused: summary.contractPaused,
         refresh,
       }}
     >

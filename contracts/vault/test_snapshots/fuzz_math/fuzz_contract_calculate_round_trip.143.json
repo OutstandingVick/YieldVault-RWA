@@ -40,7 +40,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 182371
+                    "lo": 640728
                   }
                 }
               ]
@@ -65,7 +65,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 747890
+                    "lo": 572994
                   }
                 }
               ]
@@ -90,7 +90,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 182371
+                    "lo": 640728
                   }
                 }
               ]
@@ -112,7 +112,7 @@
                     {
                       "i128": {
                         "hi": 0,
-                        "lo": 182371
+                        "lo": 640728
                       }
                     }
                   ]
@@ -289,14 +289,26 @@
                     "storage": [
                       {
                         "key": {
-                          "vec": [
-                            {
-                              "symbol": "Admin"
-                            }
-                          ]
+                          "u32": 0
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 2
+                        },
+                        "val": {
+                          "bool": true
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 4
+                        },
+                        "val": {
+                          "u32": 2
                         }
                       },
                       {
@@ -318,7 +330,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "LastActionSeq"
+                              "symbol": "LastDepositTime"
                             },
                             {
                               "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -326,7 +338,7 @@
                           ]
                         },
                         "val": {
-                          "u32": 0
+                          "u64": 0
                         }
                       },
                       {
@@ -355,7 +367,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 182371
+                            "lo": 640728
                           }
                         }
                       },
@@ -384,7 +396,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 0
+                                  "lo": 640728
                                 }
                               }
                             },
@@ -395,7 +407,7 @@
                               "val": {
                                 "i128": {
                                   "hi": 0,
-                                  "lo": 0
+                                  "lo": 640728
                                 }
                               }
                             }
@@ -425,7 +437,7 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 182371
+                            "lo": 640728
                           }
                         }
                       },
@@ -440,7 +452,25 @@
                         "val": {
                           "i128": {
                             "hi": 0,
-                            "lo": 182371
+                            "lo": 640728
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "UserDeposit"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 640728
                           }
                         }
                       }
@@ -531,7 +561,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 182371
+                          "lo": 640728
                         }
                       }
                     },
@@ -677,7 +707,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 747890
+                          "lo": 572994
                         }
                       }
                     },

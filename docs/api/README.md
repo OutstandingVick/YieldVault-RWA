@@ -17,11 +17,64 @@ http://localhost:3000
 
 ### Authentication
 
-API endpoints support rate limiting per API key. Include your API key in the `x-api-key` header:
+The backend supports two authentication schemes:
 
-```bash
-curl -H "x-api-key: your-api-key" http://localhost:3000/api/vault/summary
-```
+- `Authorization: Bearer <access-token>` — user session authentication for wallet-based access.
+- `Authorization: ApiKey <api-key>` — admin/system authentication for privileged backend operations.
+
+> Note: backend auth-protected routes require the `Authorization` header. The `x-api-key` header is used only as a rate-limiting fallback key and is not accepted as the authentication credential for admin routes.
+
+#### API Key Authentication
+
+Admin routes and privileged backend operations use API keys.
+
+- Header format: `Authorization: ApiKey <api-key>`
+- Applies to all `/admin/*` endpoints.
+- Also applies to admin transaction exports on `GET /api/v1/vault/transactions/export`.
+
+API key roles:
+
+- `admin`
+  - Allowed to access protected admin endpoints.
+  - Allowed to perform admin-scoped transaction exports.
+- `super-admin`
+  - Has all `admin` privileges.
+  - Required for super-admin-only actions:
+    - `GET /admin/impersonate/:wallet`
+    - `DELETE /admin/idempotency/keys`
+    - `POST /admin/api-keys/register` when creating a key with role `super-admin`
+
+When registering a new API key via `POST /admin/api-keys/register`, an existing `admin` key can create another `admin` key, but only an existing `super-admin` key may register a new `super-admin` key.
+
+#### JWT Authentication
+
+User session authentication uses JWT access tokens and refresh tokens.
+
+- `POST /api/v1/auth/login`
+  - Body: `{ "walletAddress": "<wallet-address>" }`
+  - Returns a Bearer access token and a refresh token.
+- `POST /api/v1/auth/refresh`
+  - Body: `{ "refreshToken": "<refresh-token>" }`
+  - Rotates the refresh token and returns a new access token pair.
+- `POST /api/v1/auth/logout`
+  - Requires `Authorization: Bearer <access-token>`.
+  - Revokes the current session.
+- `POST /api/v1/auth/logout-all`
+  - Requires `Authorization: Bearer <access-token>`.
+  - Revokes all active sessions for the authenticated wallet.
+
+#### Transaction export access boundaries
+
+`GET /api/v1/vault/transactions/export` supports both authentication methods:
+
+- `Authorization: Bearer <access-token>`
+  - The request is scoped to the wallet in the token subject.
+  - If `walletAddress` is provided, it must match the authenticated wallet.
+  - Attempting to export another wallet's transactions returns `403 Forbidden`.
+- `Authorization: ApiKey <api-key>`
+  - Requires an `admin`-role API key.
+  - `walletAddress` is required for admin exports.
+  - Allows exporting any wallet's transactions when authorized.
 
 ### Endpoints
 
@@ -72,7 +125,14 @@ All errors follow a consistent format:
 }
 ```
 
-See [ERROR_FORMAT.md](./ERROR_FORMAT.md) for detailed error documentation.
+| Document | Purpose |
+|----------|---------|
+| [ERROR_FORMAT.md](./ERROR_FORMAT.md) | Frontend `ApiError` / `ValidationError` shapes and handling patterns |
+| [ERROR_CODE_CATALOG.md](./ERROR_CODE_CATALOG.md) | Full error code list, HTTP/Soroban codes, and integrator remediation |
+
+See [ERROR_CODE_CATALOG.md](./ERROR_CODE_CATALOG.md) when building SDKs or
+support runbooks; use [ERROR_FORMAT.md](./ERROR_FORMAT.md) when working in the
+React client.
 
 ## Generate docs locally
 

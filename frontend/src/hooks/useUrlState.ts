@@ -19,10 +19,9 @@ export function useUrlState<TFilters extends Record<string, string>>(
   const state = useMemo(() => {
     const pageRaw = searchParams.get("page");
     const pageSizeRaw = searchParams.get("pageSize");
+    // Support both "direction" and "sortDirection" as URL param names
     const sortDirectionRaw =
       searchParams.get("direction") ?? searchParams.get("sortDirection");
-    // Support both "direction" and "sortDirection" as URL param names
-    const sortDirectionRaw = searchParams.get("direction") ?? searchParams.get("sortDirection");
 
     const pageNum = Number(pageRaw);
     const page =

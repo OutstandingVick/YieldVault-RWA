@@ -1,6 +1,5 @@
 import type { ApiError, ValidationError } from "../lib/api";
 import type { FC } from "react";
-import type { ApiError } from "../lib/api";
 import { useTranslation } from "../i18n";
 
 interface ApiStatusBannerProps {
@@ -22,6 +21,9 @@ const ApiStatusBanner: FC<ApiStatusBannerProps> = ({ error }) => {
     >
       <div style={{ fontWeight: 600, marginBottom: "4px" }}>
         {t("apiBanner.title")}
+      </div>
+      <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: "4px" }}>
+        Failed to load vault data
       </div>
       <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
         {error.userMessage}

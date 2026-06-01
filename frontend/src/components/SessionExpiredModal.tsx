@@ -1,6 +1,6 @@
 import React from "react";
-import { createPortal } from "react-dom";
 import { Lock, Wallet, Home } from "lucide-react";
+import { Modal } from "./Modal";
 
 interface SessionExpiredModalProps {
   intendedPath: string;
@@ -13,15 +13,25 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
   onReconnect,
   onDismiss,
 }) => {
-  return createPortal(
-    <div
-      className="session-expired-overlay"
-      role="dialog"
-      aria-modal="true"
+  return (
+    <Modal
+      isOpen={true}
+      onClose={onDismiss}
+      size="sm"
+      showCloseButton={false}
+      closeOnBackdropClick={false}
+      closeOnEscape={false}
       aria-labelledby="session-expired-title"
       aria-describedby="session-expired-desc"
     >
-      <div className="session-expired-modal glass-panel">
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          textAlign: "center",
+        }}
+      >
         <div
           style={{
             background: "var(--bg-error)",
@@ -31,49 +41,48 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            marginBottom: "8px",
+            marginBottom: "16px",
           }}
         >
           <Lock size={48} />
         </div>
 
-        <div style={{ textAlign: "center" }}>
-          <h1
-            id="session-expired-title"
-            className="text-gradient"
-            style={{ fontSize: "1.8rem", marginBottom: "12px" }}
-          >
-            Session Expired
-          </h1>
+        <h1
+          id="session-expired-title"
+          className="text-gradient"
+          style={{ fontSize: "1.8rem", marginBottom: "12px", marginTop: 0 }}
+        >
+          Session Expired
+        </h1>
+        <p
+          id="session-expired-desc"
+          style={{
+            color: "var(--text-secondary)",
+            fontSize: "1rem",
+            lineHeight: "1.6",
+            marginBottom: "16px",
+            marginTop: 0,
+          }}
+        >
+          Your wallet session is no longer authorised. Please reconnect
+          Freighter to continue where you left off.
+        </p>
+        {intendedPath && intendedPath !== "/" && (
           <p
-            id="session-expired-desc"
             style={{
-              color: "var(--text-secondary)",
-              fontSize: "1rem",
-              lineHeight: "1.6",
-              marginBottom: "8px",
+              color: "var(--text-tertiary)",
+              fontSize: "0.875rem",
+              fontFamily: "monospace",
+              background: "var(--bg-muted)",
+              display: "inline-block",
+              padding: "4px 10px",
+              borderRadius: "var(--radius-sm)",
+              marginBottom: "16px",
             }}
           >
-            Your wallet session is no longer authorised. Please reconnect
-            Freighter to continue where you left off.
+            {intendedPath}
           </p>
-          {intendedPath && intendedPath !== "/" && (
-            <p
-              style={{
-                color: "var(--text-tertiary)",
-                fontSize: "0.875rem",
-                fontFamily: "monospace",
-                background: "var(--bg-muted)",
-                display: "inline-block",
-                padding: "4px 10px",
-                borderRadius: "var(--radius-sm)",
-                marginBottom: "4px",
-              }}
-            >
-              {intendedPath}
-            </p>
-          )}
-        </div>
+        )}
 
         <div
           style={{
@@ -81,14 +90,13 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
             flexDirection: "column",
             gap: "12px",
             width: "100%",
-            marginTop: "8px",
           }}
         >
           <button
             id="session-expired-reconnect"
             className="btn btn-primary animate-glow"
             onClick={onReconnect}
-            style={{ width: "100%", padding: "14px" }}
+            style={{ width: "100%", padding: "14px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
             <Wallet size={18} />
             Reconnect Wallet
@@ -97,15 +105,14 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
           <button
             className="btn btn-outline"
             onClick={onDismiss}
-            style={{ width: "100%", padding: "14px" }}
+            style={{ width: "100%", padding: "14px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
             <Home size={18} />
             Go to Home
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 };
 

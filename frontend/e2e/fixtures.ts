@@ -1,8 +1,10 @@
+/* eslint-disable react-hooks/rules-of-hooks */
 import { test as base, type Page } from '@playwright/test';
 
 // Inline fixture data — avoids JSON import attribute requirements across Node versions
-const vaultSummary = {
+export const vaultSummary = {
   tvl: 12450800,
+  depositCap: 15_000_000,
   apy: 8.45,
   participantCount: 1248,
   monthlyGrowthPct: 12.5,
@@ -21,6 +23,12 @@ const vaultSummary = {
     description:
       'Connector strategy that routes vault yield updates from BENJI-issued tokenized money market exposure on Stellar.',
   },
+};
+
+/** TVL at deposit cap — drives `isCapReached` in VaultContext (utilization >= 1). */
+export const vaultSummaryAtCapacity = {
+  ...vaultSummary,
+  tvl: vaultSummary.depositCap,
 };
 
 const portfolioHoldings = [
@@ -102,6 +110,10 @@ const portfolioHoldings = [
  * Intercept mock API routes so tests are fully deterministic.
  */
 export async function interceptApiRoutes(page: Page) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('hasSeenWalkthrough', 'true');
+  });
+
   await page.route('**/mock-api/vault-summary.json', (route) =>
     route.fulfill({
       status: 200,
@@ -116,6 +128,35 @@ export async function interceptApiRoutes(page: Page) {
       body: JSON.stringify(portfolioHoldings),
     }),
   );
+
+  await page.route(/https:\/\/horizon-testnet\.stellar\.org\/accounts\/[^/?]+.*/, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+
+    const pathname = new URL(route.request().url()).pathname;
+    const accountId = pathname.split('/').filter(Boolean).pop() ?? 'unknown';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: accountId,
+        account_id: accountId,
+        sequence: '12884901882',
+        subentry_count: 0,
+        balances: [
+          { asset_type: 'native', balance: '5.0000000' },
+          {
+            asset_type: 'credit_alphanum4',
+            asset_code: 'USDC',
+            asset_issuer: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
+            balance: '1250.5000000',
+          },
+        ],
+      }),
+    });
+  });
 }
 
 /**
@@ -250,7 +291,6 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   appPage: async ({ page }, use) => {
     await interceptApiRoutes(page);
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

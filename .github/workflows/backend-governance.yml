@@ -1,0 +1,54 @@
+name: Backend Governance
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-governance.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-governance.yml'
+
+jobs:
+  backend-governance:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+      - name: Run governance checks
+        run: npm run ci:governance
+
+      - name: Verify OpenAPI documentation
+        run: |
+          npm run generate:openapi
+          if [ -n "$(git status --porcelain openapi.json)" ]; then
+            echo "❌ openapi.json is out of date. Run 'npm run generate:openapi' locally and commit the changes."
+            git diff openapi.json
+            exit 1
+          fi
+
+      - name: Check for database schema drift
+        run: npm run db:check-drift
