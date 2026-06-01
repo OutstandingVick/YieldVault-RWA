@@ -245,6 +245,8 @@ pub enum VaultError {
     InvalidMigrationTarget = 13,
     /// Arithmetic overflow was detected before mutating state.
     MathOverflow = 14,
+    /// Strategy operation exceeded maximum allowed slippage.
+    SlippageExceeded = 15,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -1398,6 +1400,91 @@ impl YieldVault {
             &DataKey::TotalAssets,
             &idle_ta.checked_add(amount).expect("overflow"),
         );
+    }
+
+    /// Rebalance funds between strategies with max slippage protection.
+    /// Admin function to safely migrate assets from one strategy to another.
+    pub fn rebalance(
+        env: Env,
+        from_strategy: Address,
+        to_strategy: Address,
+        amount: i128,
+        min_divest_value: i128,
+        min_invest_value: i128,
+    ) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        let from_client = StrategyClient::new(&env, &from_strategy);
+        let to_client = StrategyClient::new(&env, &to_strategy);
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
+
+        // Measure actual token balance before divest
+        let vault_bal_before = token_client.balance(&env.current_contract_address());
+
+        // Divest from old strategy
+        from_client.withdraw(&amount);
+
+        // Verify divest slippage by measuring actual token balance
+        let vault_bal_after_divest = token_client.balance(&env.current_contract_address());
+        let withdrawn_assets = vault_bal_after_divest
+            .checked_sub(vault_bal_before)
+            .unwrap_or(0);
+
+        if withdrawn_assets < min_divest_value {
+            return Err(VaultError::SlippageExceeded);
+        }
+
+        // Adjust watermark for from_strategy
+        let current_watermark = Self::strategy_watermark(env.clone(), from_strategy.clone());
+        if current_watermark > withdrawn_assets {
+            env.storage().instance().set(
+                &DataKey::StrategyWatermark(from_strategy.clone()),
+                &current_watermark.checked_sub(withdrawn_assets).expect("underflow"),
+            );
+        } else {
+            env.storage()
+                .instance()
+                .set(&DataKey::StrategyWatermark(from_strategy.clone()), &0i128);
+        }
+
+        // Record strategy state before invest
+        let to_strategy_val_before = to_client.total_value();
+
+        // Invest into new strategy
+        token_client.approve(
+            &env.current_contract_address(),
+            &to_strategy,
+            &withdrawn_assets,
+            &env.ledger().sequence(),
+        );
+
+        to_client.deposit(&withdrawn_assets);
+
+        // Verify invest slippage
+        let to_strategy_val_after = to_client.total_value();
+        let invested_value = to_strategy_val_after
+            .checked_sub(to_strategy_val_before)
+            .unwrap_or(0);
+
+        if invested_value < min_invest_value {
+            return Err(VaultError::SlippageExceeded);
+        }
+
+        // Adjust watermark for to_strategy
+        Self::raise_strategy_watermark(&env, &to_strategy, to_strategy_val_after);
+
+        // We moved withdrawn_assets into the new strategy, so idle TotalAssets hasn't changed.
+        // We only moved funds from one strategy to another.
+        // Note: The total_assets of the vault might have changed slightly due to slippage,
+        // but idle assets remain the same because we sent exactly `withdrawn_assets` back out.
+        
+        Ok(())
     }
 
     /// Admin function to artificially accrue yield, deducting the protocol fee.
