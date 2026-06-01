@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useLayoutEffect } from "react";
 import {
   usePreferences,
   type UserPreferences,
@@ -18,12 +18,21 @@ interface PreferencesContextType {
   setNotification: (key: keyof NotificationPreferences, value: boolean) => void;
   toggleCompactMode: () => void;
   toggleShowBalances: () => void;
+  setPrecision: (precision: number) => void;
   resetToDefaults: () => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextType | undefined>(undefined);
 
-export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface PreferencesProviderProps {
+  children: React.ReactNode;
+  walletAddress?: string | null;
+}
+
+export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
+  children,
+  walletAddress,
+}) => {
   const {
     preferences,
     setTheme,
@@ -32,8 +41,9 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    setPrecision,
     resetToDefaults,
-  } = usePreferences();
+  } = usePreferences(walletAddress);
 
   // Resolve 'system' to an actual light/dark value
   const resolvedTheme = useMemo((): 'light' | 'dark' => {
@@ -44,7 +54,7 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
   }, [preferences.theme]);
 
   // Apply resolved theme to document root
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', resolvedTheme);
     // Persist the raw preference so ThemeContext (ThemeToggle) stays in sync
     localStorage.setItem('theme', resolvedTheme);
@@ -68,6 +78,7 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    setPrecision,
     resetToDefaults,
   };
 

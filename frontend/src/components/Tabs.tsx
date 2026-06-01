@@ -162,12 +162,12 @@ export function TabsTrigger({ value, children, className = "" }: { value: string
   return (
     <button
       type="button"
-      role="tab"
       aria-selected={isActive}
       aria-controls={`panel-${value}`}
       id={`tab-${value}`}
       data-state={isActive ? "active" : "inactive"}
       data-value={value}
+      tabIndex={isActive ? 0 : -1}
       className={`tabs-trigger ${isActive ? "active" : ""} ${className}`}
       onClick={() => onValueChange(value)}
       onKeyDown={handleKeyDown}

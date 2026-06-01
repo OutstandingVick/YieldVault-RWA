@@ -22,7 +22,7 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000',
+        url: 'http://localhost:3000/api/v1',
         description: 'Development server',
       },
     ],
@@ -66,7 +66,19 @@ const options: swaggerJsdoc.Options = {
 export const specs = swaggerJsdoc(options);
 */
 
-export const specs = {};
+export const specs = {
+  openapi: '3.1.0',
+  info: {
+    title: 'YieldVault Stellar RWA API',
+    version: '1.0.0',
+  },
+  servers: [
+    {
+      url: '/api/v1',
+      description: 'API v1',
+    },
+  ],
+};
 
 export function setupSwagger(app: Express) {
   const nodeEnv = process.env.NODE_ENV || 'development';

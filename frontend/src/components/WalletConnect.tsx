@@ -13,7 +13,15 @@ import {
   clearWalletManualDisconnect,
   isWalletManualDisconnectSet,
   setWalletManualDisconnect,
+  getLastWalletProvider,
+  setLastWalletProvider,
+  clearLastWalletProvider,
+  isReconnectPromptDismissed,
+  setReconnectPromptDismissed,
+  clearReconnectPromptDismissed,
+  isProviderAvailable,
 } from "../lib/walletSession";
+import WalletReconnectPrompt from "./WalletReconnectPrompt";
 
 const IS_AUTOMATED_TEST =
   typeof process !== "undefined" &&
@@ -47,10 +55,28 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       typeof window !== "undefined" &&
       !isWalletManualDisconnectSet(),
   );
+  const [reconnectProvider, setReconnectProvider] = useState<ReturnType<typeof getLastWalletProvider>>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const initialSyncDoneRef = useRef(false);
   const toast = useToast();
   const { t } = useTranslation();
+
+  // Show reconnect prompt for returning users who have a persisted provider
+  useEffect(() => {
+    const checkAndSetReconnectProvider = async () => {
+      if (!walletAddress && !isWalletManualDisconnectSet() && !isReconnectPromptDismissed()) {
+        const provider = getLastWalletProvider();
+        if (provider) {
+          // Validate provider is available before suggesting reconnect
+          const available = await isProviderAvailable(provider);
+          if (available) {
+            setReconnectProvider(provider);
+          }
+        }
+      }
+    };
+    void checkAndSetReconnectProvider();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let mounted = true;
@@ -110,7 +136,12 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       if (allowed.isAllowed) {
         const userInfo = await getAddress();
         if (userInfo.address) {
+          // Set session start time for expiry tracking
+          localStorage.setItem("wallet_session_start", Date.now().toString());
           clearWalletManualDisconnect();
+          clearReconnectPromptDismissed();
+          setLastWalletProvider("freighter");
+          setReconnectProvider(null);
           onConnect(userInfo.address);
           setConnectionError(null);
           toast.success({
@@ -269,6 +300,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           onClick={() => {
             setConnectionError(null);
             setWalletManualDisconnect();
+            clearReconnectPromptDismissed();
+            clearLastWalletProvider();
             onDisconnect("manual");
             toast.info({
               title: t("toast.walletDisconnected.title"),
@@ -287,6 +320,20 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
 
   return (
     <div style={{ position: "relative" }}>
+      {reconnectProvider && !walletAddress && !isConnecting && (
+        <WalletReconnectPrompt
+          provider={reconnectProvider}
+          onConfirm={() => {
+            setReconnectProvider(null);
+            void handleConnect();
+          }}
+          onDismiss={() => {
+            setReconnectProvider(null);
+            setReconnectPromptDismissed();
+            clearLastWalletProvider();
+          }}
+        />
+      )}
       <button
         ref={buttonRef}
         className={`btn ${connectionError ? "btn-error" : "btn-primary"} ${isConnecting || showDiscovering ? "animate-glow" : ""}`}

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 export type Theme = 'light' | 'dark' | 'system';
 export type Locale = 'en-US' | 'en-GB' | 'de-DE' | 'fr-FR' | 'ja-JP' | 'zh-CN';
-export type Currency = 'USD' | 'EUR' | 'GBP' | 'JPY';
+export type Currency = 'USD' | 'XLM';
+export type Precision = number; // number of decimal places for display
 
 export interface NotificationPreferences {
   depositAlerts: boolean;
@@ -20,9 +21,10 @@ export interface UserPreferences {
   notifications: NotificationPreferences;
   compactMode: boolean;
   showBalances: boolean;
+  precision: Precision; // decimal places for number/currency formatting
 }
 
-const STORAGE_KEY = 'yieldvault-preferences';
+const STORAGE_KEY_PREFIX = "yieldvault-preferences";
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   theme: 'dark',
@@ -38,11 +40,17 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   },
   compactMode: false,
   showBalances: true,
+  precision: 2, // default to 2 decimal places
 };
 
-function loadPreferences(): UserPreferences {
+function getStorageKey(walletAddress?: string | null): string {
+  const walletScope = walletAddress?.trim() ? walletAddress.trim() : "guest";
+  return `${STORAGE_KEY_PREFIX}:${walletScope}`;
+}
+
+function loadPreferences(walletAddress?: string | null): UserPreferences {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(getStorageKey(walletAddress));
     if (!raw) return DEFAULT_PREFERENCES;
     const parsed = JSON.parse(raw) as Partial<UserPreferences>;
     return {
@@ -58,16 +66,22 @@ function loadPreferences(): UserPreferences {
   }
 }
 
-function savePreferences(prefs: UserPreferences): void {
+function savePreferences(prefs: UserPreferences, walletAddress?: string | null): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    localStorage.setItem(getStorageKey(walletAddress), JSON.stringify(prefs));
   } catch {
     // storage quota exceeded or unavailable — silently ignore
   }
 }
 
-export function usePreferences() {
-  const [preferences, setPreferencesState] = useState<UserPreferences>(loadPreferences);
+export function usePreferences(walletAddress?: string | null) {
+  const [preferences, setPreferencesState] = useState<UserPreferences>(() =>
+    loadPreferences(walletAddress),
+  );
+
+  useEffect(() => {
+    setPreferencesState(loadPreferences(walletAddress));
+  }, [walletAddress]);
 
   const setPreferences = useCallback((updater: Partial<UserPreferences> | ((prev: UserPreferences) => UserPreferences)) => {
     setPreferencesState(prev => {
@@ -75,10 +89,10 @@ export function usePreferences() {
         typeof updater === 'function'
           ? updater(prev)
           : { ...prev, ...updater };
-      savePreferences(next);
+      savePreferences(next, walletAddress);
       return next;
     });
-  }, []);
+  }, [walletAddress]);
 
   const setTheme = useCallback((theme: Theme) => {
     setPreferences({ theme });
@@ -107,10 +121,14 @@ export function usePreferences() {
     setPreferences(prev => ({ ...prev, showBalances: !prev.showBalances }));
   }, [setPreferences]);
 
+  const setPrecision = useCallback((precision: Precision) => {
+    setPreferences({ precision });
+  }, [setPreferences]);
+
   const resetToDefaults = useCallback(() => {
-    savePreferences(DEFAULT_PREFERENCES);
+    savePreferences(DEFAULT_PREFERENCES, walletAddress);
     setPreferencesState(DEFAULT_PREFERENCES);
-  }, []);
+  }, [walletAddress]);
 
   return {
     preferences,
@@ -120,6 +138,7 @@ export function usePreferences() {
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    setPrecision,
     resetToDefaults,
   };
 }

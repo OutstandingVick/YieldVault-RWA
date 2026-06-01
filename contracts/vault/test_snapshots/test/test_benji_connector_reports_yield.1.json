@@ -227,6 +227,7 @@
         }
       ]
     ],
+    [],
     []
   ],
   "ledger": {
@@ -473,6 +474,14 @@
                       },
                       {
                         "key": {
+                          "u32": 4
+                        },
+                        "val": {
+                          "u32": 2
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "BenjiStrategy"
@@ -496,6 +505,21 @@
                             "hi": 0,
                             "lo": 1
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "LastDepositTime"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 0
                         }
                       },
                       {
@@ -623,6 +647,24 @@
                               }
                             }
                           ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "StrategyWatermark"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 40
+                          }
                         }
                       },
                       {

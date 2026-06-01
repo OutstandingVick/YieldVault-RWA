@@ -411,6 +411,14 @@
                       },
                       {
                         "key": {
+                          "u32": 4
+                        },
+                        "val": {
+                          "u32": 2
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "DaoThreshold"
@@ -422,6 +430,21 @@
                             "hi": 0,
                             "lo": 1
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "LastDepositTime"
+                            },
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 0
                         }
                       },
                       {

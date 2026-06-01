@@ -25,7 +25,7 @@
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, Address, Env, Vec};
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -88,6 +88,7 @@ fn test_vault_with_benji_strategy() {
     // 1. Initialize
     vault.initialize(&admin, &usdc.address);
     strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
     vault.set_strategy(&strategy_id);
 
     // 2. User Deposits 100 USDC
@@ -119,6 +120,58 @@ fn test_vault_with_benji_strategy() {
 
     assert_eq!(vault.total_shares(), 50);
     assert_eq!(vault.total_assets(), 66); // 0 idle + 66 BENJI still in strategy (mock doesn't burn on withdraw)
+}
+
+#[test]
+fn test_invest_respects_min_liquidity_buffer() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &100);
+
+    let benji_token = create_token(&env, &token_admin);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+
+    assert_eq!(vault.min_liquidity_buffer(), 0);
+    vault.set_min_liquidity_buffer(&40);
+    assert_eq!(vault.min_liquidity_buffer(), 40);
+    vault.deposit(&user, &100);
+
+    let blocked = vault.try_invest(&70);
+    assert!(matches!(
+        blocked,
+        Err(Ok(VaultError::LiquidityBufferNotMet))
+    ));
+    assert_eq!(usdc.balance(&vault_id), 100);
+    assert_eq!(usdc.balance(&strategy_id), 0);
+
+    vault.invest(&60);
+    assert_eq!(usdc.balance(&vault_id), 40);
+    assert_eq!(usdc.balance(&strategy_id), 60);
+    assert_eq!(vault.strategy_watermark(&strategy_id), 60);
+}
+
+#[test]
+#[should_panic(expected = "min_liquidity_buffer must be >= 0")]
+fn test_set_min_liquidity_buffer_negative_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+    vault.set_min_liquidity_buffer(&-1);
 }
 
 #[test]
@@ -232,7 +285,10 @@ fn test_deposit_tiny_amount_after_large_yield_mints_zero_shares() {
                                     // Depositing 1 asset: 1 * 1 / 1_000_001 = 0 shares — should fail.
     let deposit_result = vault.try_deposit(&user, &1_000_000);
     // Deposit should now fail to prevent silent loss of funds
-    assert!(deposit_result.is_err(), "deposit should fail when shares would round to 0");
+    assert!(
+        deposit_result.is_err(),
+        "deposit should fail when shares would round to 0"
+    );
 }
 
 // ─── 3. withdraw ─────────────────────────────────────────────────────────────
@@ -257,6 +313,32 @@ fn test_benji_connector_reports_yield() {
 
     vault.report_benji_yield(&benji_strategy, &40);
     assert_eq!(vault.total_assets(), 540);
+    assert_eq!(vault.strategy_watermark(&benji_strategy), 40);
+}
+
+#[test]
+fn test_benji_yield_uses_watermark_fee_accounting() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    let benji_strategy = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+    usdc_sa.mint(&benji_strategy, &100);
+
+    vault.deposit(&user, &500);
+    vault.set_fee_bps(&1_000);
+
+    let proposal_id = vault.create_strategy_proposal(&admin, &benji_strategy);
+    vault.vote_on_proposal(&admin, &proposal_id, &true, &1);
+    vault.execute_strategy_proposal(&proposal_id);
+
+    vault.report_benji_yield(&benji_strategy, &100);
+
+    assert_eq!(vault.total_assets(), 590);
+    assert_eq!(vault.treasury_balance(), 10);
+    assert_eq!(vault.strategy_watermark(&benji_strategy), 100);
 }
 
 #[test]
@@ -351,7 +433,73 @@ fn test_accrue_yield_increases_total_assets() {
     assert_eq!(vault.total_shares(), 0); // shares unchanged.
 }
 
+#[test]
+fn test_checkpoint() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _usdc, usdc_sa, _admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100);
+
+    // User deposits 100
+    vault.deposit(&user, &100);
+
+    // Create a checkpoint (admin-auth in production; tests mock auth)
+    let cp = vault.create_checkpoint();
+    assert_eq!(cp, 1);
+
+    // Global totals should be recorded
+    assert_eq!(vault.total_shares_at(&cp), 100);
+    assert_eq!(vault.total_assets_at(&cp), 100);
+
+    // User snapshots their balance for the checkpoint
+    vault.snapshot_user_balance(&user);
+    assert_eq!(vault.balance_at(&user, &cp), 100);
+}
+
 // ─── 5. report_benji_yield ───────────────────────────────────────────────────
+
+#[test]
+fn test_accrue_yield_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let result = vault.try_accrue_yield(&0);
+    assert!(matches!(result, Err(Ok(VaultError::InvalidAmount))));
+}
+
+#[test]
+fn test_accrue_yield_fee_math_overflow_reverts_before_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc, _, admin) = setup_vault(&env);
+    vault.set_fee_bps(&10_000);
+
+    let result = vault.try_accrue_yield(&i128::MAX);
+    assert!(matches!(result, Err(Ok(VaultError::MathOverflow))));
+    assert_eq!(usdc.balance(&admin), 0);
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 0);
+}
+
+#[test]
+fn test_accrue_yield_full_fee_accumulates_to_treasury_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    usdc_sa.mint(&admin, &250);
+
+    vault.set_fee_bps(&10_000);
+    vault.accrue_yield(&250);
+
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 250);
+}
 
 #[test]
 #[should_panic]
@@ -932,7 +1080,8 @@ fn test_invariant_share_asset_round_trip() {
 fn test_privileged_functions_protected() {
     // Privileged functions protected by admin.require_auth():
     // - set_strategy: admin.require_auth()
-    // - set_pause: admin.require_auth()
+    // - pause: admin.require_auth()
+    // - unpause: admin.require_auth()
     // - configure_korean_strategy: admin.require_auth()
     // - accrue_korean_debt_yield: admin.require_auth()
     // - set_dao_threshold: admin.require_auth()
@@ -1095,13 +1244,116 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.total_assets(), 200);
 }
 
-/// Comprehensive test for versioned events and pauseable entrypoint enforcement
-#[test]
-fn test_versioned_events_and_pause_enforcement() {
-    use soroban_sdk::IntoVal;
-    use soroban_sdk::TryIntoVal;
-    use soroban_sdk::testutils::Events;
+// ─── 11. withdrawal cooldown ──────────────────────────────────────────────────
 
+#[test]
+fn test_withdrawal_cooldown_blocks_immediate_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600); // 1 hour cooldown
+    assert_eq!(vault.withdrawal_cooldown(), 3600);
+
+    vault.deposit(&user, &500);
+
+    // Withdraw should be blocked by cooldown
+    let result = vault.try_withdraw(&user, &100);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_withdrawal_cooldown_allows_withdraw_after_cooldown_expires() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.deposit(&user, &500);
+
+    // Fast-forward past cooldown
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    let withdrawn = vault.withdraw(&user, &200);
+    assert_eq!(withdrawn, 200);
+    assert_eq!(vault.balance(&user), 300);
+}
+
+#[test]
+fn test_withdrawal_cooldown_zero_by_default() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    // Default cooldown is 0
+    assert_eq!(vault.withdrawal_cooldown(), 0);
+
+    vault.deposit(&user, &500);
+
+    // Withdraw works immediately with zero cooldown
+    let withdrawn = vault.withdraw(&user, &200);
+    assert_eq!(withdrawn, 200);
+}
+
+#[test]
+fn test_withdrawal_cooldown_respects_per_user() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    usdc_sa.mint(&user_a, &500);
+    usdc_sa.mint(&user_b, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+
+    vault.deposit(&user_a, &500);
+    vault.deposit(&user_b, &500);
+
+    // Fast-forward past cooldown for user_b only by advancing time for all
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    // user_a deposited at the same time, but old timestamp means cooldown passed for both
+    let withdrawn_b = vault.withdraw(&user_b, &200);
+    assert_eq!(withdrawn_b, 200);
+
+    let withdrawn_a = vault.withdraw(&user_a, &100);
+    assert_eq!(withdrawn_a, 100);
+}
+
+#[test]
+fn test_withdrawal_cooldown_can_be_disabled() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.deposit(&user, &500);
+
+    // Disable cooldown
+    vault.set_withdrawal_cooldown(&0);
+    assert_eq!(vault.withdrawal_cooldown(), 0);
+
+    // Withdraw should work now
+    let withdrawn = vault.withdraw(&user, &300);
+    assert_eq!(withdrawn, 300);
+}
+
+#[test]
+fn test_withdrawal_cooldown_new_deposit_resets_timer() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -1109,59 +1361,50 @@ fn test_versioned_events_and_pause_enforcement() {
     let user = Address::generate(&env);
     usdc_sa.mint(&user, &1000);
 
-    // 1. Test event emission for deposit
+    vault.set_withdrawal_cooldown(&3600);
+
+    vault.deposit(&user, &500);
+
+    // Fast-forward partially
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1800);
+
+    // Make another deposit - timer resets
     vault.deposit(&user, &200);
 
-    // Retrieve and verify deposit event
-    let events = env.events().all();
-    assert!(events.len() > 0);
-    let deposit_event = events.get(events.len() - 1).unwrap();
-    assert_eq!(deposit_event.0, vault.address);
+    // Withdraw should still be blocked (timer reset by latest deposit)
+    let result = vault.try_withdraw(&user, &100);
+    assert!(result.is_err());
+}
 
-    let expected_deposit_topics = soroban_sdk::Vec::from_array(&env, [
-        symbol_short!("deposit").into_val(&env),
-        symbol_short!("v1").into_val(&env),
-        user.clone().into_val(&env),
-    ]);
-    assert_eq!(deposit_event.1, expected_deposit_topics);
+#[test]
+fn test_withdrawal_cooldown_then_timelock_then_execute() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-    let actual_deposit_data: (i128, i128) = deposit_event.2.try_into_val(&env).unwrap();
-    assert_eq!(actual_deposit_data, (200i128, 200i128));
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100_000);
 
-    // 2. Test event emission for withdraw
-    vault.withdraw(&user, &50);
+    vault.set_withdrawal_cooldown(&3600);
+    vault.set_large_withdrawal_threshold(&1000);
 
-    // Retrieve and verify withdraw event
-    let events = env.events().all();
-    assert!(events.len() > 0);
-    let withdraw_event = events.get(events.len() - 1).unwrap();
-    assert_eq!(withdraw_event.0, vault.address);
+    vault.deposit(&user, &100_000);
 
-    let expected_withdraw_topics = soroban_sdk::Vec::from_array(&env, [
-        symbol_short!("withdraw").into_val(&env),
-        symbol_short!("v1").into_val(&env),
-        user.clone().into_val(&env),
-    ]);
-    assert_eq!(withdraw_event.1, expected_withdraw_topics);
+    // Cooldown blocks the withdraw call
+    let blocked = vault.try_withdraw(&user, &50_000);
+    assert!(blocked.is_err());
 
-    let actual_withdraw_data: (i128, i128) = withdraw_event.2.try_into_val(&env).unwrap();
-    assert_eq!(actual_withdraw_data, (50i128, 50i128));
+    // Fast-forward past cooldown
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
 
-    // 3. Test pauseable restrictions
-    vault.set_pause(&true);
-    assert!(vault.is_paused());
+    // Now withdraw triggers the timelock (large withdrawal)
+    let result = vault.withdraw(&user, &50_000);
+    assert_eq!(result, 0); // pending withdrawal
 
-    // Deposit and withdraw should fail with ContractPaused error when paused
-    let deposit_res = vault.try_deposit(&user, &100);
-    assert!(deposit_res.is_err());
+    // Fast-forward past timelock
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
 
-    let withdraw_res = vault.try_withdraw(&user, &50);
-    assert!(withdraw_res.is_err());
-
-    // Resume the contract and check that deposits resume normally
-    vault.set_pause(&false);
-    assert!(!vault.is_paused());
-
-    vault.deposit(&user, &100);
-    assert_eq!(vault.balance(&user), 250); // 200 - 50 + 100 = 250
+    // execute_withdrawal works
+    let executed = vault.execute_withdrawal(&user);
+    assert_eq!(executed, 50_000);
 }

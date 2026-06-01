@@ -25,15 +25,248 @@ model VaultState {
 }
 
 model Transaction {
-  id        String   @id @default(uuid())
-  user      String
-  amount    String
-  type      String
-  timestamp DateTime @default(now())
+  id           String   @id @default(uuid())
+  user         String
+  amount       String
+  type         String
+  status       String?
+  referralCode String?
+  timestamp    DateTime @default(now())
 }
 
-model ApySnapshot {
+model Referral {
+  id              Int       @id @default(autoincrement())
+  referrerAddress String
+  referredAddress String    @unique
+  firstDepositAt  DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([referrerAddress])
+}
+
+model ReferralCode {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  ownerAddress String
+  createdAt    DateTime @default(now())
+}
+
+model AdminAuditLog {
+  id         String   @id
+  action     String
+  method     String
+  path       String
+  statusCode Int
+  actor      String
+  apiKeyHash String
+  ipAddress  String
+  userAgent  String
+  metadata   String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actor])
+}
+
+model ApiKeyAuditEvent {
+  id             String   @id @default(uuid())
+  actor          String
+  action         String
+  keyFingerprint String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([keyFingerprint])
+}
+
+model ExportJob {
+  id                String   @id
+  format            String
+  fileName          String
+  contentType       String
+  checksum          String
+  checksumAlgorithm String
+  generatedBy       String
+  walletAddress     String?
+  rowCount          Int
+  filters           String
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([checksum])
+  @@index([generatedBy])
+  @@index([walletAddress])
+  @@index([format])
+}
+
+model BulkExportJob {
+  id            String   @id
+  status        String   @default("pending")
+  format        String
+  generatedBy   String
+  filters       String
+  totalRows     Int      @default(0)
+  processedRows Int      @default(0)
+  errorRows     Int      @default(0)
+  artifactId    String?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  completedAt   DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([generatedBy])
+}
+
+model EventCursor {
+  id                Int      @id @default(1)
+  lastLedgerSeq     Int
+  lastProcessedAt   DateTime @updatedAt
+}
+
+model ProcessedEvent {
+  id              String   @id
+  ledgerSeq       Int
+  eventType       String
+  contractId      String
+  txHash          String
+  processedAt     DateTime @default(now())
+
+  @@index([ledgerSeq])
+  @@index([txHash])
+}
+
+model WebhookEndpoint {
+  id                    String    @id
+  url                   String
+  eventTypes            String    // JSON array
+  enabled               Boolean   @default(true)
+  secret                String?
+  secretHash            String?
+  verificationStatus    String    @default("pending")
+  challengeTokenHash    String?
+  challengeExpiresAt    DateTime?
+  verifiedAt            DateTime?
+  lastVerificationError String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+  deletedBy             String?
+
+  deliveries            WebhookDelivery[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([verificationStatus])
+}
+
+model WebhookDelivery {
+  id          String    @id
+  endpointId  String
+  endpointUrl String
+  eventType   String
+  status      String
+  attempts    Int
+  deliveredAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([endpointId])
+}
+
+model AdminActionReceipt {
+  id             String   @id @default(uuid())
+  action         String
+  actor          String
+  timestamp      DateTime @default(now())
+  inputHash      String
+  resultingState String   // JSON string
+  signature      String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([actor])
+  @@index([timestamp])
+}
+
+model AdminImpersonationSession {
+  id           String    @id @default(uuid())
+  actor        String
+  apiKeyHash   String
+  targetWallet String
+  reason       String
+  startedAt    DateTime  @default(now())
+  expiresAt    DateTime
+  endedAt      DateTime?
+  status       String    @default("active")
+  ipAddress    String
+  userAgent    String
+
+  ledgerEntries AdminImpersonationLedgerEntry[]
+
+  @@index([status])
+  @@index([actor])
+  @@index([targetWallet])
+  @@index([startedAt])
+  @@index([expiresAt])
+}
+
+model AdminImpersonationLedgerEntry {
   id        String   @id @default(uuid())
-  apy       Float
-  timestamp DateTime @default(now())
+  sessionId String
+  eventType String
+  actor     String
+  metadata  String
+  createdAt DateTime @default(now())
+
+  session AdminImpersonationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model EmailQueue {
+  id          String    @id @default(uuid())
+  to          String
+  subject     String
+  text        String?
+  html        String?
+  status      String    @default("pending")
+  retryCount  Int       @default(0)
+  maxRetries  Int       @default(5)
+  nextRetryAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WebhookDeadLetter {
+  id                 String   @id @default(uuid())
+  endpointId         String
+  endpointUrl        String
+  eventType          String
+  payload            String
+  attempts           Int
+  lastError          String?
+  originalDeliveryId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  retriedAt          DateTime?
+  status             String   @default("dead-letter")
+
+  @@index([endpointId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([status])
 }

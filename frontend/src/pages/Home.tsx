@@ -5,9 +5,10 @@ import { usePageHeadingFocus } from "../hooks/usePageHeadingFocus";
 interface HomeProps {
   walletAddress: string | null;
   usdcBalance: number;
+  xlmBalance: number;
 }
 
-const Home: React.FC<HomeProps> = ({ walletAddress, usdcBalance }) => {
+const Home: React.FC<HomeProps> = ({ walletAddress, usdcBalance, xlmBalance }) => {
   const headingRef = usePageHeadingFocus<HTMLHeadingElement>();
 
   return (
@@ -26,7 +27,7 @@ const Home: React.FC<HomeProps> = ({ walletAddress, usdcBalance }) => {
         </p>
       </header>
 
-      <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} />
+      <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} xlmBalance={xlmBalance} />
     </>
   );
 };

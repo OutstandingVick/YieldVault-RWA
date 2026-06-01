@@ -2,6 +2,75 @@
 
 First off, thank you for considering contributing to YieldVault-RWA! It's people like you that make this project great.
 
+## Secret Scanning & Prevention
+
+This repository uses **gitleaks** to prevent accidental commits of secrets (API keys, private keys, passwords, etc.).
+
+### Pre-commit Hook
+
+A pre-commit hook runs automatically before each `git commit` to scan for secrets in staged files. If secrets are detected, the commit will be blocked.
+
+#### Installation
+
+The pre-commit hook is already configured via **Husky**. When you clone the repository:
+
+```bash
+# Install dependencies (includes husky setup)
+npm install
+```
+
+The hook is located at `.husky/pre-commit` and runs `scripts/secrets-check.js`.
+
+#### Manual Setup (if needed)
+
+```bash
+# Install husky
+npm install husky --save-dev
+
+# Initialize husky
+npx husky init
+
+# Create the pre-commit hook
+echo 'node scripts/secrets-check.js' > .husky/pre-commit
+
+# Configure git to use husky hooks
+git config core.hooksPath .husky
+```
+
+#### Bypassing the Hook (Use with Caution)
+
+If you encounter a false positive, you can bypass the hook:
+```bash
+git commit --no-verify -m "Your commit message"
+```
+
+**⚠️ Never bypass the hook for actual secrets!**
+
+#### What the Hook Detects
+
+The hook scans for common secret patterns including:
+- AWS Access Keys and Secret Keys
+- GitHub Personal Access Tokens
+- Private Keys (RSA, EC, DSA)
+- API Keys and Secret Tokens
+- Passwords in code
+- Bearer Tokens and JWTs
+- Stripe API Keys
+- Slack Tokens
+- Database connection strings
+
+### GitHub Secret Scanning
+
+GitHub's built-in secret scanning is enabled on this repository. When secrets are pushed to the repository:
+
+1. GitHub will alert you via the Security tab
+2. Alerts are routed to the security team based on repository settings
+3. Push protection blocks commits containing known secret patterns
+
+To configure secret scanning alerts:
+1. Go to **Repository Settings** → **Security** → **Secret scanning**
+2. Review and configure alert notifications
+
 ## Branch Naming Convention
 
 To keep our repository organized, we follow a strict branch naming convention. Please name your branch according to the type of work you are doing:
@@ -37,6 +106,10 @@ Please use the following template for your PR description:
 - [Explain how the changes were tested]
 - [Include steps for reviewers to verify the fix/feature locally]
 ```
+
+## Documentation
+
+- **[Domain Glossary](./docs/GLOSSARY.md)** — Shared definitions for vault shares, APY, strategies, and other project terminology. Please use these terms consistently in code, comments, and documentation.
 
 ## Local Development Setup
 
@@ -87,3 +160,7 @@ npm run dev
 ```
 
 Thank you for your contributions!
+
+## Issue Triage and PR Review Process
+
+For details on how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged, see [TRIAGE_AND_REVIEW.md](./TRIAGE_AND_REVIEW.md).

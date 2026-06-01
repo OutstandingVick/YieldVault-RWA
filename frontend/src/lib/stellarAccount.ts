@@ -69,3 +69,16 @@ export async function fetchUsdcBalance(
 
   return usdc ? Number(usdc.balance) : 0;
 }
+
+export async function fetchXlmBalance(
+  walletAddress: string,
+  rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || `https://${TESTNET_SOROBAN_RPC}`,
+): Promise<number> {
+  const horizonUrl = toHorizonUrl(rpcUrl);
+  const server = new Horizon.Server(horizonUrl);
+  const account = await server.accounts().accountId(walletAddress).call();
+
+  const native = account.balances.find((balance) => balance.asset_type === "native");
+  return native ? Number(native.balance) : 0;
+}
+

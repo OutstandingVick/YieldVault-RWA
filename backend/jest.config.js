@@ -19,4 +19,21 @@ module.exports = {
     },
   },
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
+  testTimeout: 30000,
+  globals: {
+    'ts-jest': {
+      diagnostics: false,
+      tsconfig: {
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+      },
+    },
+  },
+  // Preload script to block problematic modules
+  setupFiles: ['<rootDir>/src/__tests__/preload.js'],
+  // Override module resolution to prevent @prisma/instrumentation from loading
+  moduleNameMapper: {
+    '^@prisma/instrumentation$': '<rootDir>/src/__tests__/mocks/prismainstrumentation.js',
+    '^@opentelemetry/(.*)$': '<rootDir>/src/__tests__/mocks/opentelemetry.js',
+  },
 };

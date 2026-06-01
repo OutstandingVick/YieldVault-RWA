@@ -25,10 +25,3 @@ CREATE TABLE "Transaction" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_address_key" ON "User"("address");
-
--- CreateTable
-CREATE TABLE "ApySnapshot" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "apy" REAL NOT NULL,
-    "timestamp" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);

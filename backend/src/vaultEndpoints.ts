@@ -1,320 +1,295 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
+import { allowlistMiddleware } from './middleware/allowlist';
+import { invalidateCache } from './middleware/cache';
+import { writesLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
+import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
+import { withSpan, getCurrentTraceId } from './tracing';
+import { requireFlag } from './featureFlags';
+import { referralService } from './referralService';
+import { getPrismaClient } from './prismaClient';
+import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
+import { validate, VaultOperationSchema } from './middleware/validate';
+import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
+import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import crypto from 'crypto';
-import { db } from './database';
-import { validateApiKey } from './middleware/apiKeyAuth';
-import { cacheMiddleware } from './middleware/cache';
-import { parsePaginationQuery } from './pagination';
+import { tryAcquireWalletLock } from './walletLock';
+import { normalizeWalletAddress } from './walletUtils';
 
 const router = Router();
 
-/**
- * Helper to generate a fingerprint for the request body.
- */
+function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
+  invalidateCache();
+  next();
+}
+
 function generateFingerprint(body: any): string {
   return crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
 }
 
 /**
- * POST /api/v1/vault/deposits
- * Submit a deposit request and send confirmation email upon "confirmation".
- * Supports idempotency via x-idempotency-key header.
+ * Simulates a Soroban RPC call wrapped in the circuit breaker and a trace span.
+ * Replace the body with the real stellar-sdk / soroban-client call.
  */
-router.post('/deposits', async (req: Request, res: Response) => {
-  const idempotencyKey = req.headers['x-idempotency-key'] as string;
-  const { amount, asset, walletAddress, email } = req.body;
+async function submitSorobanTx(type: string, payload: Record<string, unknown>): Promise<string> {
+  return sorobanCircuitBreaker.execute(() =>
+    withSpan('soroban.rpc.submit', async (span) => {
+      span.setAttributes({ 'rpc.type': type, 'rpc.wallet': String(payload.walletAddress ?? '') });
+      // Simulate network call – replace with real Soroban RPC invocation
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return `0x${crypto.randomBytes(4).toString('hex')}${crypto.randomBytes(4).toString('hex')}`;
+    }),
+  );
+}
 
-  if (!amount || !asset || !walletAddress) {
-    return res.status(400).json({
-      error: 'Bad Request',
-      status: 400,
-      message: 'Missing required fields: amount, asset, and walletAddress are required',
+/** Shared handler logic for deposit / withdrawal to avoid duplication. */
+async function handleVaultOperation(
+  req: Request,
+  res: Response,
+  type: 'deposit' | 'withdrawal',
+): Promise<Response> {
+  // Task 3: read Idempotency-Key header (spec-compliant name)
+  const idempotencyKey =
+    (req.headers['idempotency-key'] as string | undefined) ||
+    (req.headers['x-idempotency-key'] as string | undefined);
+
+  const { amount, asset, walletAddress, email, referralCode } = req.body;
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const walletLock = tryAcquireWalletLock(normalizedWallet);
+
+  if (!walletLock.acquired) {
+    return res.status(409).json({
+      error: 'Conflict',
+      status: 409,
+      code: 'WALLET_OPERATION_IN_PROGRESS',
+      message: 'Another operation is already in progress for this wallet',
+      walletAddress: normalizedWallet,
     });
   }
 
   const operation = async () => {
-    // 1. Simulate on-chain transaction submission
-    const txHash = `0x${crypto.randomBytes(4).toString('hex')}${crypto.randomBytes(4).toString('hex')}`;
-    
-    const body = {
-      id: `tx-${crypto.randomBytes(4).toString('hex')}`,
-      type: 'deposit',
-      amount,
-      asset,
-      walletAddress,
-      transactionHash: txHash,
-      status: 'pending',
-      timestamp: new Date().toISOString(),
-    };
+    return withSpan(`vault.${type}`, async (span) => {
+      span.setAttributes({
+        'vault.amount': String(amount),
+        'vault.asset': String(asset),
+        'vault.wallet': String(walletAddress),
+      });
 
-    // 2. Simulate on-chain confirmation and send email (async)
-    // We trigger this after returning the response
-    setTimeout(async () => {
+      let txHash: string;
       try {
-        // Simulate on-chain confirmation delay
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        logger.log('info', 'Deposit confirmed on-chain', { txHash, walletAddress });
+        txHash = await submitSorobanTx(type, { amount, asset, walletAddress });
+      } catch (err) {
+        if (err instanceof CircuitOpenError) {
+          // Bubble up so the route handler can return 503
+          throw err;
+        }
+        throw err;
+      }
 
-        if (email) {
-          await emailService.sendDepositConfirmation(email, {
-            amount: String(amount),
-            asset,
-            date: new Date().toISOString(),
+      // Persist transaction to DB
+      const prisma = getPrismaClient();
+      await prisma.transaction.create({
+        data: {
+          user: walletAddress,
+          amount: String(amount),
+          type,
+          referralCode,
+        },
+      });
+
+      // Handle referral recording on deposit
+      if (type === 'deposit') {
+        await referralService.recordDeposit(walletAddress, referralCode);
+      }
+
+      const body = {
+        id: `tx-${crypto.randomBytes(4).toString('hex')}`,
+        type,
+        amount,
+        asset,
+        walletAddress,
+        transactionHash: txHash,
+        status: 'pending',
+        timestamp: new Date().toISOString(),
+      };
+
+      // Fire webhook delivery in background so transaction API latency is not blocked.
+      const eventType: TransactionEventType =
+        type === 'deposit' ? 'transaction.deposit.created' : 'transaction.withdrawal.created';
+      void emitTransactionEvent(eventType, {
+        transactionId: body.id,
+        amount: String(body.amount),
+        asset: String(body.asset),
+        walletAddress: String(body.walletAddress),
+        transactionHash: String(body.transactionHash),
+        status: String(body.status),
+        timestamp: String(body.timestamp),
+      }).catch((error) => {
+        logger.log('error', 'Failed to emit webhook delivery', {
+          error: error instanceof Error ? error.message : String(error),
+          eventType,
+          transactionId: body.id,
+        });
+      });
+
+      span.setAttributes({ 'vault.txHash': txHash });
+
+      // Post-confirmation email (fire-and-forget)
+      const schedulePostConfirmation = process.env.NODE_ENV === 'test'
+        ? (fn: () => Promise<void>) => {
+            void fn();
+          }
+        : (fn: () => Promise<void>) => {
+            setTimeout(() => {
+              void fn();
+            }, 100);
+          };
+
+      schedulePostConfirmation(async () => {
+        try {
+          const confirmationDelayMs = process.env.NODE_ENV === 'test' ? 0 : 5000;
+          if (confirmationDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, confirmationDelayMs));
+          }
+          logger.log('info', `${type} confirmed on-chain`, {
             txHash,
             walletAddress,
+            traceId: getCurrentTraceId(),
+          });
+          if (email) {
+            const sendFn =
+              type === 'deposit'
+                ? emailService.sendDepositConfirmation.bind(emailService)
+                : emailService.sendWithdrawalConfirmation.bind(emailService);
+            await sendFn(email, {
+              amount: String(amount),
+              asset,
+              date: new Date().toISOString(),
+              txHash,
+              walletAddress,
+            });
+          }
+        } catch (error) {
+          logger.log('error', 'Error in post-confirmation email logic', {
+            error: error instanceof Error ? error.message : String(error),
+            txHash,
+            traceId: getCurrentTraceId(),
           });
         }
-      } catch (error) {
-        logger.log('error', 'Error in post-confirmation email logic', {
-          error: error instanceof Error ? error.message : String(error),
-          txHash,
-        });
-      }
-    }, 100);
+      });
 
-    return {
-      statusCode: 201,
-      body,
-    };
+      return { statusCode: 201, body };
+    });
   };
 
   try {
+    const invalidateReadCaches = () => invalidateCache();
+
     if (idempotencyKey) {
       const fingerprint = generateFingerprint(req.body);
-      const { result, replayed } = await idempotencyStore.execute(idempotencyKey, fingerprint, operation);
-      
-      if (replayed) {
-        res.setHeader('idempotency-status', 'replayed');
-      }
-      
+      const { result, replayed } = await idempotencyStore.execute(
+        idempotencyKey,
+        fingerprint,
+        operation,
+      );
+      if (replayed) res.setHeader('idempotency-status', 'replayed');
+      invalidateReadCaches();
       return res.status(result.statusCode).json(result.body);
     }
 
     const result = await operation();
+    invalidateReadCaches();
     return res.status(result.statusCode).json(result.body);
-  } catch (error) {
-    if (error instanceof IdempotencyConflictError) {
+  } catch (err) {
+    if (err instanceof IdempotencyConflictError) {
       return res.status(409).json({
         error: 'Conflict',
         status: 409,
-        message: error.message,
+        message: err.message,
       });
     }
-    
-    logger.log('error', 'Deposit operation failed', {
-      error: error instanceof Error ? error.message : String(error),
+
+    if (err instanceof CircuitOpenError) {
+      const retryAfterSec = Math.ceil(err.retryAfterMs / 1000);
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        status: 503,
+        message: 'Soroban RPC is temporarily unavailable. Please retry later.',
+        retryAfterMs: err.retryAfterMs,
+      });
+    }
+
+    logger.log('error', `${type} operation failed`, {
+      error: err instanceof Error ? err.message : String(err),
+      traceId: getCurrentTraceId(),
     });
-    
     return res.status(500).json({
       error: 'Internal Server Error',
       status: 500,
-      message: 'Failed to process deposit',
+      message: `Failed to process ${type}`,
     });
+  } finally {
+    walletLock.release();
   }
-});
+}
+
+/**
+ * POST /api/v1/vault/deposits
+ * Accepts optional Idempotency-Key header for deduplication.
+ * Requires wallet address to be on the private beta allowlist (Issue #375).
+ */
+router.post(
+  '/deposits',
+  writesLimiter,
+  invalidateReadCaches,
+  requireSignedWalletAction('deposit'),
+  allowlistMiddleware,
+  validate({ body: VaultOperationSchema }),
+  (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
+);
 
 /**
  * POST /api/v1/vault/withdrawals
- * Submit a withdrawal request and send confirmation email upon "confirmation".
+ * Accepts optional Idempotency-Key header for deduplication.
+ * Requires wallet address to be on the private beta allowlist (Issue #375).
  */
-router.post('/withdrawals', async (req: Request, res: Response) => {
-  const idempotencyKey = req.headers['x-idempotency-key'] as string;
-  const { amount, asset, walletAddress, email } = req.body;
+router.post(
+  '/withdrawals',
+  writesLimiter,
+  invalidateReadCaches,
+  requireSignedWalletAction('withdrawal'),
+  allowlistMiddleware,
+  validate({ body: VaultOperationSchema }),
+  withdrawalDailyLimitMiddleware(),
+  (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
+);
 
-  if (!amount || !asset || !walletAddress) {
-    return res.status(400).json({
-      error: 'Bad Request',
-      status: 400,
-      message: 'Missing required fields: amount, asset, and walletAddress are required',
-    });
-  }
-
-  const operation = async () => {
-    const txHash = `0x${crypto.randomBytes(4).toString('hex')}${crypto.randomBytes(4).toString('hex')}`;
-    
-    const body = {
-      id: `tx-${crypto.randomBytes(4).toString('hex')}`,
-      type: 'withdrawal',
-      amount,
-      asset,
-      walletAddress,
-      transactionHash: txHash,
-      status: 'pending',
-      timestamp: new Date().toISOString(),
-    };
-
-    setTimeout(async () => {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        logger.log('info', 'Withdrawal confirmed on-chain', { txHash, walletAddress });
-
-        if (email) {
-          await emailService.sendWithdrawalConfirmation(email, {
-            amount: String(amount),
-            asset,
-            date: new Date().toISOString(),
-            txHash,
-            walletAddress,
-          });
-        }
-      } catch (error) {
-        logger.log('error', 'Error in post-confirmation email logic', {
-          error: error instanceof Error ? error.message : String(error),
-          txHash,
-        });
-      }
-    }, 100);
-
-    return {
-      statusCode: 201,
-      body,
-    };
-  };
-
-  try {
-    if (idempotencyKey) {
-      const fingerprint = generateFingerprint(req.body);
-      const { result, replayed } = await idempotencyStore.execute(idempotencyKey, fingerprint, operation);
-      
-      if (replayed) {
-        res.setHeader('idempotency-status', 'replayed');
-      }
-      
-      return res.status(result.statusCode).json(result.body);
-    }
-
-    const result = await operation();
-    return res.status(result.statusCode).json(result.body);
-  } catch (error) {
-    if (error instanceof IdempotencyConflictError) {
-      return res.status(409).json({
-        error: 'Conflict',
-        status: 409,
-        message: error.message,
-      });
-    }
-    
-    return res.status(500).json({
-      error: 'Internal Server Error',
-      status: 500,
-      message: 'Failed to process withdrawal',
-    });
-  }
-});
+// ─── Feature-flagged v2 endpoints ────────────────────────────────────────────
 
 /**
- * GET /api/v1/vault/portfolio/:walletAddress
- * Retrieve user portfolio summary, including aggregates and yield.
- * Securely protected by CORS, validation middleware, and caching.
+ * POST /api/v1/vault/deposits/v2
+ * Gated behind the "deposit-v2" feature flag.
+ * Supports per-wallet targeting via x-wallet-address header or body.walletAddress.
  */
-router.get(
-  '/portfolio/:walletAddress',
-  validateApiKey,
-  cacheMiddleware({ ttl: 60000 }), // 1 minute cache
-  async (req: Request, res: Response) => {
-    const { walletAddress } = req.params;
-
-    try {
-      // 1. Verify user exists in the system
-      const userCheck = await db.query(
-        'SELECT * FROM "User" WHERE address = ? LIMIT 1',
-        [walletAddress]
-      );
-
-      if (userCheck.rows.length === 0) {
-        return res.status(404).json({
-          error: 'Not Found',
-          status: 404,
-          message: `Wallet address ${walletAddress} not found`,
-        });
-      }
-
-      // 2. Fetch deposits and withdrawals aggregates
-      const aggResult = await db.query(
-        'SELECT type, SUM(CAST(amount AS REAL)) as total FROM "Transaction" WHERE user = ? GROUP BY type',
-        [walletAddress]
-      );
-
-      let totalDeposited = 0;
-      let totalWithdrawn = 0;
-
-      for (const row of aggResult.rows) {
-        if (row.type === 'deposit') {
-          totalDeposited = Number(row.total);
-        } else if (row.type === 'withdrawal') {
-          totalWithdrawn = Number(row.total);
-        }
-      }
-
-      const netPosition = totalDeposited - totalWithdrawn;
-
-      // 3. Fetch latest APY snapshot
-      const apyResult = await db.query(
-        'SELECT apy FROM "ApySnapshot" ORDER BY timestamp DESC LIMIT 1'
-      );
-      const latestApy = apyResult.rows[0] ? Number(apyResult.rows[0].apy) : 0;
-
-      // Estimated yield accrued = net position * apy%
-      const estimatedYield = netPosition > 0 ? netPosition * (latestApy / 100) : 0;
-
-      // 4. Handle pagination for transaction details if requested
-      const pagination = parsePaginationQuery(req, {
-        defaultLimit: 10,
-        maxLimit: 100,
-        defaultSortBy: 'timestamp',
-        defaultSortOrder: 'desc',
-      });
-
-      const countResult = await db.query(
-        'SELECT COUNT(*) as count FROM "Transaction" WHERE user = ?',
-        [walletAddress]
-      );
-      const totalCount = Number(countResult.rows[0]?.count || 0);
-
-      const limitVal = pagination.limit || 10;
-      const pageVal = pagination.page || 1;
-      const offsetVal = (pageVal - 1) * limitVal;
-
-      const transactionsResult = await db.query(
-        'SELECT * FROM "Transaction" WHERE user = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?',
-        [walletAddress, limitVal, offsetVal]
-      );
-
-      return res.status(200).json({
-        walletAddress,
-        totalDeposited,
-        totalWithdrawn,
-        netPosition,
-        estimatedYield,
-        latestApy,
-        transactions: {
-          data: transactionsResult.rows,
-          pagination: {
-            count: transactionsResult.rows.length,
-            total: totalCount,
-            currentPage: pageVal,
-            totalPages: Math.ceil(totalCount / limitVal),
-            hasNextPage: pageVal * limitVal < totalCount,
-            hasPrevPage: pageVal > 1,
-          },
-        },
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      logger.log('error', 'Failed to retrieve user portfolio summary', {
-        error: error instanceof Error ? error.message : String(error),
-        walletAddress,
-      });
-
-      return res.status(500).json({
-        error: 'Internal Server Error',
-        status: 500,
-        message: 'Failed to retrieve portfolio summary',
-      });
-    }
-  }
+router.post(
+  '/deposits/v2',
+  writesLimiter,
+  invalidateReadCaches,
+  requireSignedWalletAction('deposit'),
+  requireFlag('deposit-v2'),
+  validate({ body: VaultOperationSchema }),
+  (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
+
+/**
+ * POST /api/v1/vault/strategy
+ * Gated behind the "strategy-selection" feature flag.
+ */
+router.post('/strategy', writesLimiter, requireFlag('strategy-selection'), (_req: Request, res: Response) => {
+  res.status(200).json({ message: 'Strategy selection endpoint (v2 preview)' });
+});
 
 export default router;

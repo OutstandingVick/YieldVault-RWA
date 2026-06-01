@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::oracle::{
     price_data_new, price_data_scaled_price, validate_conversion_rate,
     validate_price_for_calculation, OracleValidator, DEFAULT_HEARTBEAT_SECONDS,
@@ -16,7 +14,7 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(e, &token_address)
 }
 
-const SCALE: i128 = 1_000_000_000_000_000_000i128;
+const _SCALE: i128 = 1_000_000_000_000_000_000i128;
 
 #[test]
 fn test_oracle_price_data_creation() {
@@ -74,9 +72,8 @@ fn test_validate_deviation_within_bounds() {
         Some(5000),
         Some(&last_price),
     );
-    match result {
-        Ok(_) => assert!(true),
-        Err(e) => panic!("Validation error: {:?}", e),
+    if let Err(e) = result {
+        panic!("Validation error: {:?}", e);
     }
 }
 

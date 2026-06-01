@@ -1,96 +1,200 @@
+/**
+ * Tests for JWT session tokens with refresh token rotation (Issue #377).
+ */
+
 import request from 'supertest';
 import app from '../index';
-import { tokenStore, InMemoryRefreshTokenStore, RedisRefreshTokenStore } from '../auth';
+import {
+  issueTokenPair,
+  verifyJwt,
+  rotateRefreshToken,
+  SessionRevokedError,
+  InvalidRefreshTokenError,
+} from '../auth';
+import { VALID_TEST_WALLET } from './setup';
 
-describe('Auth & Session Management - Issue #436', () => {
-  // 1. Verify store fallback logic
-  it('should correctly select the token store based on REDIS_URL presence', () => {
-    if (process.env.REDIS_URL) {
-      expect(tokenStore).toBeInstanceOf(RedisRefreshTokenStore);
-    } else {
-      expect(tokenStore).toBeInstanceOf(InMemoryRefreshTokenStore);
-    }
+const TEST_WALLET = VALID_TEST_WALLET;
+
+// ─── issueTokenPair unit tests ───────────────────────────────────────────────
+
+describe('issueTokenPair()', () => {
+  it('returns accessToken and refreshToken strings', async () => {
+    const pair = await issueTokenPair(TEST_WALLET);
+    expect(typeof pair.accessToken).toBe('string');
+    expect(typeof pair.refreshToken).toBe('string');
+    expect(typeof pair.accessTokenExpiresAt).toBe('string');
   });
 
-  // 2. Full Session Lifecycle and Replay Attack / Theft Detection
-  describe('JWT Rotation & Replay Theft Detection', () => {
-    let originalRefreshToken: string;
-    let rotatedRefreshToken: string;
+  it('access token is a valid 3-part JWT', async () => {
+    const { accessToken } = await issueTokenPair(TEST_WALLET);
+    expect(accessToken.split('.').length).toBe(3);
+  });
 
-    it('should successfully bootstrap a session via /login', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/login')
-        .send({ userId: 'user-12345' });
+  it('access token payload has correct sub (wallet address)', async () => {
+    const { accessToken } = await issueTokenPair(TEST_WALLET);
+    const payload = verifyJwt(accessToken);
+    expect(payload.sub).toBe(TEST_WALLET);
+  });
 
-      expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+  it('access token expires in ~15 minutes', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const { accessToken } = await issueTokenPair(TEST_WALLET);
+    const payload = verifyJwt(accessToken);
+    const ttl = payload.exp - before;
+    expect(ttl).toBeGreaterThanOrEqual(890);   // 15 min minus small delta
+    expect(ttl).toBeLessThanOrEqual(910);
+  });
+});
 
-      originalRefreshToken = response.body.refreshToken;
-    });
+// ─── verifyJwt unit tests ────────────────────────────────────────────────────
 
-    it('should rotate and refresh successfully on first use', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: originalRefreshToken });
+describe('verifyJwt()', () => {
+  it('successfully verifies a valid token', async () => {
+    const { accessToken } = await issueTokenPair(TEST_WALLET);
+    expect(() => verifyJwt(accessToken)).not.toThrow();
+  });
 
-      expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
-      expect(response.body.refreshToken).not.toBe(originalRefreshToken);
+  it('throws on tampered payload', async () => {
+    const { accessToken } = await issueTokenPair(TEST_WALLET);
+    const parts = accessToken.split('.');
+    // Flip a character in the payload segment
+    parts[1] = parts[1].slice(0, -1) + (parts[1].endsWith('A') ? 'B' : 'A');
+    expect(() => verifyJwt(parts.join('.'))).toThrow();
+  });
 
-      rotatedRefreshToken = response.body.refreshToken;
-    });
+  it('throws on expired token', async () => {
+    // Create token with expiry in the past
+    const { accessToken } = await issueTokenPair(TEST_WALLET);
+    const parts = accessToken.split('.');
+    const payload = JSON.parse(Buffer.from(parts[1] + '==', 'base64').toString());
+    payload.exp = Math.floor(Date.now() / 1000) - 1;
+    parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/=/g, '');
+    // Re-sign with a wrong secret to force a signature failure first
+    expect(() => verifyJwt(parts.join('.'))).toThrow();
+  });
 
-    it('should detect a replay attack and invalidate the full family if originalRefreshToken is reused', async () => {
-      // Re-use originalRefreshToken (already used)
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: originalRefreshToken });
+  it('throws on malformed token', () => {
+    expect(() => verifyJwt('not.a.valid.jwt.here')).toThrow('Malformed JWT');
+    expect(() => verifyJwt('onlytwoparts.x')).toThrow('Malformed JWT');
+  });
+});
 
-      expect(response.status).toBe(401);
-      expect(response.body).toHaveProperty('error', 'Unauthorized');
-      expect(response.body.message).toContain('token reuse detected');
+// ─── rotateRefreshToken unit tests ───────────────────────────────────────────
 
-      // Now verify that the rotated token is ALSO invalidated (entire family revoked)
-      const rotatedResponse = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: rotatedRefreshToken });
+describe('rotateRefreshToken()', () => {
+  it('returns a new token pair on first rotation', async () => {
+    const { refreshToken } = await issueTokenPair(TEST_WALLET);
+    const newPair = await rotateRefreshToken(refreshToken);
+    expect(typeof newPair.accessToken).toBe('string');
+    expect(typeof newPair.refreshToken).toBe('string');
+    expect(newPair.refreshToken).not.toBe(refreshToken);
+  });
 
-      expect(rotatedResponse.status).toBe(401);
-    });
+  it('the new access token is valid', async () => {
+    const { refreshToken } = await issueTokenPair(TEST_WALLET);
+    const { accessToken } = await rotateRefreshToken(refreshToken);
+    expect(() => verifyJwt(accessToken)).not.toThrow();
+  });
 
-    it('should return 401 when trying to refresh with a non-existent or invalid token', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: 'non-existent-token-abc-123' });
+  it('invalidates the old refresh token immediately', async () => {
+    const { refreshToken: rt1 } = await issueTokenPair(TEST_WALLET);
+    await rotateRefreshToken(rt1);
+    // Replaying the old token throws SessionRevokedError
+    await expect(rotateRefreshToken(rt1)).rejects.toThrow(SessionRevokedError);
+  });
 
-      expect(response.status).toBe(401);
-      expect(response.body).toHaveProperty('error', 'Unauthorized');
-    });
+  it('replaying a revoked token invalidates the entire session', async () => {
+    const { refreshToken: rt1 } = await issueTokenPair(TEST_WALLET);
+    const { refreshToken: rt2 } = await rotateRefreshToken(rt1);
+    // Replay the first (revoked) token → family-level revocation
+    await expect(rotateRefreshToken(rt1)).rejects.toThrow(SessionRevokedError);
+    // The second token should also be dead now (same family)
+    await expect(rotateRefreshToken(rt2)).rejects.toThrow();
+  });
 
-    it('should successfully revoke a session family on demand', async () => {
-      // Create new session
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({ userId: 'user-revocable' });
+  it('throws InvalidRefreshTokenError for unknown token', async () => {
+    await expect(rotateRefreshToken('deadbeef')).rejects.toThrow(InvalidRefreshTokenError);
+  });
+});
 
-      const newRefToken = loginResponse.body.refreshToken;
+// ─── HTTP endpoint tests ─────────────────────────────────────────────────────
 
-      // Revoke it
-      const revokeResponse = await request(app)
-        .post('/api/v1/auth/revoke')
-        .send({ refreshToken: newRefToken });
+describe('POST /api/v1/auth/login', () => {
+  it('returns 200 with access and refresh tokens', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ walletAddress: TEST_WALLET });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('accessToken');
+    expect(res.body).toHaveProperty('refreshToken');
+    expect(res.body).toHaveProperty('accessTokenExpiresAt');
+    expect(res.body.tokenType).toBe('Bearer');
+    expect(typeof res.body.expiresIn).toBe('number');
+  });
 
-      expect(revokeResponse.status).toBe(200);
-      expect(revokeResponse.body).toHaveProperty('message', 'Session family successfully revoked');
+  it('access token expires in ~15 minutes (900 seconds)', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ walletAddress: TEST_WALLET });
+    expect(res.body.expiresIn).toBe(900);
+  });
 
-      // Refreshing should now fail
-      const refreshResponse = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: newRefToken });
+  it('returns 400 when walletAddress is missing', async () => {
+    const res = await request(app).post('/api/v1/auth/login').send({});
+    expect(res.status).toBe(400);
+  });
 
-      expect(refreshResponse.status).toBe(401);
-    });
+  it('redirects from legacy /auth/login with 301', async () => {
+    const res = await request(app).post('/auth/login').send({ walletAddress: TEST_WALLET });
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('/api/v1/auth/login');
+  });
+});
+
+describe('POST /api/v1/auth/refresh', () => {
+  it('returns a new token pair with a fresh refreshToken', async () => {
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ walletAddress: TEST_WALLET });
+    const { refreshToken } = loginRes.body;
+
+    const refreshRes = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken });
+    expect(refreshRes.status).toBe(200);
+    expect(refreshRes.body).toHaveProperty('accessToken');
+    expect(refreshRes.body).toHaveProperty('refreshToken');
+    expect(refreshRes.body.refreshToken).not.toBe(refreshToken);
+  });
+
+  it('returns 401 for an unknown refresh token', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: 'not-a-real-token' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 when replaying a rotated (revoked) refresh token', async () => {
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ walletAddress: TEST_WALLET });
+    const originalToken = loginRes.body.refreshToken;
+
+    // First rotation – valid
+    await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: originalToken });
+
+    // Replay the original (now revoked) token
+    const replayRes = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: originalToken });
+    expect(replayRes.status).toBe(401);
+    expect(replayRes.body.sessionRevoked).toBe(true);
+  });
+
+  it('returns 400 when refreshToken is missing', async () => {
+    const res = await request(app).post('/api/v1/auth/refresh').send({});
+    expect(res.status).toBe(400);
   });
 });

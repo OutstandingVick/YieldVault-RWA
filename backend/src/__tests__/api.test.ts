@@ -2,10 +2,6 @@ import request from 'supertest';
 import app from '../index';
 
 describe('Backend API', () => {
-  beforeAll(() => {
-    jest.setTimeout(30000);
-  });
-
   // ─── Health Endpoint Tests ───────────────────────────────────────────────
 
   describe('GET /health', () => {
@@ -96,9 +92,9 @@ describe('Backend API', () => {
       );
 
       expect(results.some((r) => r.status === 429)).toBe(true);
-    }, 30000);
+    });
 
-    it('should return 429 with clear error message', async () => {
+    it('should return 429 with clear error message and Retry-After header', async () => {
       // Make multiple requests to trigger rate limit
       const requests = Array(35).fill(null);
       await Promise.all(
@@ -111,11 +107,25 @@ describe('Backend API', () => {
         expect(response.body).toHaveProperty('error');
         expect(response.body).toHaveProperty('status', 429);
         expect(response.body).toHaveProperty('message');
+        // Issue #251: retryAfter field in body
+        expect(response.body).toHaveProperty('retryAfter');
+        expect(typeof response.body.retryAfter).toBe('number');
+        // Issue #251: Retry-After header must be present
+        expect(response.headers).toHaveProperty('retry-after');
       }
-    }, 30000);
+    });
 
-    it('should support per-user rate limiting with API key', async () => {
-      // Test that API key in header is used for rate limiting
+    it('should support per-user rate limiting with wallet address header', async () => {
+      // Test that x-wallet-address header is used as the rate-limit key
+      const response = await request(app)
+        .get('/api/v1/vault/summary')
+        .set('x-wallet-address', 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567');
+
+      expect([200, 429]).toContain(response.status);
+    });
+
+    it('should support per-user rate limiting with API key (backward compat)', async () => {
+      // Test that x-api-key header is still accepted as fallback key
       const response = await request(app)
         .get('/api/v1/vault/summary')
         .set('x-api-key', 'test-key-123');
@@ -144,6 +154,45 @@ describe('Backend API', () => {
       expect(response.body).toHaveProperty('error');
       expect(response.body).toHaveProperty('status');
       expect(response.body).toHaveProperty('message');
+    });
+  });
+
+  describe('Cache Middleware', () => {
+    it('should cache repeated list endpoint requests and mark hits', async () => {
+      const first = await request(app).get('/api/v1/transactions');
+      expect(first.headers['x-cache-hit']).toBe('false');
+
+      const second = await request(app).get('/api/v1/transactions');
+      expect(second.headers['x-cache-hit']).toBe('true');
+    });
+
+    it('should separate cache entries by query string', async () => {
+      const first = await request(app).get('/api/v1/transactions?limit=1');
+      expect(first.headers['x-cache-hit']).toBe('false');
+
+      const second = await request(app).get('/api/v1/transactions?limit=2');
+      expect(second.headers['x-cache-hit']).toBe('false');
+
+      const third = await request(app).get('/api/v1/transactions?limit=2');
+      expect(third.headers['x-cache-hit']).toBe('true');
+    });
+
+    it('should invalidate cached list responses after a vault deposit', async () => {
+      await request(app).get('/api/v1/transactions');
+      const cached = await request(app).get('/api/v1/transactions');
+      expect(cached.headers['x-cache-hit']).toBe('true');
+
+      await request(app)
+        .post('/api/v1/vault/deposits')
+        .send({
+          amount: '100',
+          asset: 'USDC',
+          walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567',
+          email: 'user@example.com',
+        });
+
+      const afterInvalidate = await request(app).get('/api/v1/transactions');
+      expect(afterInvalidate.headers['x-cache-hit']).toBe('false');
     });
   });
 
@@ -182,104 +231,13 @@ describe('Backend API', () => {
 
     it('should handle JSON body parsing', async () => {
       const response = await request(app)
-        .post('/api/v1/vault/summary')
+        .post('/api/vault/summary')
         .send({
           test: 'data',
         });
 
       // Should either accept or reject with proper error
       expect([200, 405, 404, 400]).toContain(response.status);
-    });
-  });
-
-  // ─── Portfolio Aggregation Endpoints Tests (Issue #439) ────────────────────
-  describe('GET /api/v1/vault/portfolio/:walletAddress', () => {
-    const { registerApiKey } = require('../middleware/apiKeyAuth');
-    const { db } = require('../database');
-    let dbQuerySpy: jest.SpyInstance;
-
-    beforeAll(() => {
-      registerApiKey('test-portfolio-key');
-    });
-
-    beforeEach(() => {
-      dbQuerySpy = jest.spyOn(db, 'query');
-    });
-
-    afterEach(() => {
-      dbQuerySpy.mockRestore();
-    });
-
-    it('should return 401 if API key is missing or invalid', async () => {
-      const response = await request(app).get('/api/v1/vault/portfolio/G12345');
-      expect(response.status).toBe(401);
-    });
-
-    it('should return 404 if the wallet address is not found', async () => {
-      dbQuerySpy.mockResolvedValueOnce({ rows: [] }); // User search returns empty
-
-      const response = await request(app)
-        .get('/api/v1/vault/portfolio/G_MISSING')
-        .set('Authorization', 'ApiKey test-portfolio-key');
-
-      expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('error', 'Not Found');
-      expect(response.body.message).toContain('not found');
-    });
-
-    it('should return aggregated portfolio metrics and paginated transactions', async () => {
-      // 1. Mock user check (found)
-      dbQuerySpy.mockResolvedValueOnce({
-        rows: [{ id: 1, address: 'G12345', createdAt: new Date() }],
-      });
-
-      // 2. Mock transaction aggregates (deposit sum, withdrawal sum)
-      dbQuerySpy.mockResolvedValueOnce({
-        rows: [
-          { type: 'deposit', total: 1500.0 },
-          { type: 'withdrawal', total: 300.0 },
-        ],
-      });
-
-      // 3. Mock latest APY snapshot (12.5%)
-      dbQuerySpy.mockResolvedValueOnce({
-        rows: [{ apy: 12.5 }],
-      });
-
-      // 4. Mock transactions count (2)
-      dbQuerySpy.mockResolvedValueOnce({
-        rows: [{ count: 2 }],
-      });
-
-      // 5. Mock paginated transactions list
-      dbQuerySpy.mockResolvedValueOnce({
-        rows: [
-          { id: 'tx-1', user: 'G12345', amount: '1500.00', type: 'deposit', timestamp: new Date() },
-          { id: 'tx-2', user: 'G12345', amount: '300.00', type: 'withdrawal', timestamp: new Date() },
-        ],
-      });
-
-      const response = await request(app)
-        .get('/api/v1/vault/portfolio/G12345')
-        .set('Authorization', 'ApiKey test-portfolio-key');
-
-      expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty('walletAddress', 'G12345');
-      expect(response.body).toHaveProperty('totalDeposited', 1500.0);
-      expect(response.body).toHaveProperty('totalWithdrawn', 300.0);
-      expect(response.body).toHaveProperty('netPosition', 1200.0);
-      expect(response.body).toHaveProperty('latestApy', 12.5);
-      expect(response.body).toHaveProperty('estimatedYield', 150.0); // 1200 * 0.125
-      expect(response.body).toHaveProperty('transactions');
-      expect(response.body.transactions.data).toHaveLength(2);
-      expect(response.body.transactions.pagination).toEqual({
-        count: 2,
-        total: 2,
-        currentPage: 1,
-        totalPages: 1,
-        hasNextPage: false,
-        hasPrevPage: false,
-      });
     });
   });
 });

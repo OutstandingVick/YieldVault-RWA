@@ -1,7 +1,7 @@
 /**
  * @file pagination.ts
  * Pagination utilities and types for consistent list endpoint behavior.
- * 
+ *
  * Provides:
  * - Cursor-based pagination for stable ordering
  * - Offset-based pagination for simple use cases
@@ -10,6 +10,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import type { ParsedUtcDateRange } from './dateRange';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -35,16 +36,18 @@ export interface PaginationQuery {
 export interface PaginationMeta {
   /** Number of items returned in this response. */
   count: number;
+  /** Effective request limit used for this page. */
+  limit: number;
   /** Total number of items available (if known). */
-  total?: number;
+  total: number | null;
   /** Cursor for the next page (if more items exist). */
-  nextCursor?: string;
+  nextCursor: string | null;
   /** Cursor for the previous page (if applicable). */
-  prevCursor?: string;
+  prevCursor: string | null;
   /** Current page number (for offset-based pagination). */
-  currentPage?: number;
+  currentPage: number | null;
   /** Total number of pages (if total is known). */
-  totalPages?: number;
+  totalPages: number | null;
   /** Whether there are more items after this page. */
   hasNextPage: boolean;
   /** Whether there are items before this page. */
@@ -61,6 +64,8 @@ export interface PaginatedResponse<T> {
   pagination: PaginationMeta;
   /** Response timestamp. */
   timestamp: string;
+  /** Normalized UTC date range used by the query, when relevant. */
+  normalizedDateRange?: ParsedUtcDateRange;
 }
 
 /**
@@ -92,7 +97,7 @@ export const DEFAULT_PAGINATION_CONFIG: PaginationConfig = {
 
 /**
  * Parse and validate pagination query parameters from request.
- * 
+ *
  * @param req - Express request object
  * @param config - Pagination configuration
  * @returns Parsed and validated pagination query
@@ -123,6 +128,8 @@ export function parsePaginationQuery(
     const page = parseInt(req.query.page as string, 10);
     if (!isNaN(page) && page > 0) {
       query.page = page;
+    } else {
+      query.page = 1;
     }
   }
 
@@ -149,7 +156,7 @@ export function parsePaginationQuery(
 
 /**
  * Apply cursor-based pagination to an array of items.
- * 
+ *
  * @param items - Array of items to paginate
  * @param query - Pagination query parameters
  * @param getCursor - Function to extract cursor from an item
@@ -162,13 +169,44 @@ export function paginateWithCursor<T>(
 ): { data: T[]; pagination: PaginationMeta } {
   const limit = query.limit || DEFAULT_PAGINATION_CONFIG.defaultLimit;
   let startIndex = 0;
+  const invalidCursor = false;
+
+  if (query.page && query.page > 0) {
+    startIndex = (query.page - 1) * limit;
+  }
 
   // Find starting position based on cursor
   if (query.cursor) {
     const cursorIndex = items.findIndex((item) => getCursor(item) === query.cursor);
-    if (cursorIndex !== -1) {
-      startIndex = cursorIndex + 1;
+    if (cursorIndex === -1) {
+      return {
+        data: [],
+        pagination: createPaginationEnvelope({
+          count: 0,
+          limit,
+          total: query.page ? items.length : null,
+          hasNextPage: false,
+          hasPrevPage: false,
+          currentPage: query.page ? Math.max(1, query.page) : null,
+          totalPages: query.page ? Math.max(1, Math.ceil(items.length / limit)) : null,
+        }),
+      };
     }
+
+    startIndex = cursorIndex + 1;
+  }
+
+  if (invalidCursor) {
+    return {
+      data: [],
+      pagination: createPaginationEnvelope({
+        count: 0,
+        limit,
+        total: items.length,
+        hasNextPage: false,
+        hasPrevPage: false,
+      }),
+    };
   }
 
   // Extract page items
@@ -177,11 +215,15 @@ export function paginateWithCursor<T>(
   const data = hasMore ? pageItems.slice(0, limit) : pageItems;
 
   // Build pagination metadata
-  const pagination: PaginationMeta = {
+  const pagination: PaginationMeta = createPaginationEnvelope({
     count: data.length,
+    limit,
+    total: items.length,
     hasNextPage: hasMore,
     hasPrevPage: startIndex > 0,
-  };
+    currentPage: query.page || null,
+    totalPages: query.page ? Math.max(1, Math.ceil(items.length / limit)) : null,
+  });
 
   if (hasMore && data.length > 0) {
     pagination.nextCursor = getCursor(data[data.length - 1]);
@@ -200,7 +242,7 @@ export function paginateWithCursor<T>(
 
 /**
  * Apply offset-based pagination to an array of items.
- * 
+ *
  * @param items - Array of items to paginate
  * @param query - Pagination query parameters
  * @returns Paginated result with metadata
@@ -217,21 +259,22 @@ export function paginateWithOffset<T>(
   const data = items.slice(startIndex, endIndex);
   const totalPages = Math.ceil(items.length / limit);
 
-  const pagination: PaginationMeta = {
+  const pagination: PaginationMeta = createPaginationEnvelope({
     count: data.length,
+    limit,
     total: items.length,
     currentPage: page,
     totalPages,
     hasNextPage: page < totalPages,
     hasPrevPage: page > 1,
-  };
+  });
 
   return { data, pagination };
 }
 
 /**
  * Sort items by a specified field.
- * 
+ *
  * @param items - Array of items to sort
  * @param sortBy - Field name to sort by
  * @param sortOrder - Sort direction
@@ -272,25 +315,51 @@ export function sortItems<T extends Record<string, unknown>>(
 
 /**
  * Create a standardized paginated response.
- * 
+ *
  * @param data - Array of data items
  * @param pagination - Pagination metadata
  * @returns Formatted paginated response
  */
 export function createPaginatedResponse<T>(
   data: T[],
-  pagination: PaginationMeta
+  pagination: PaginationMeta,
+  extras: Pick<PaginatedResponse<T>, 'normalizedDateRange'> = {}
 ): PaginatedResponse<T> {
   return {
     data,
     pagination,
     timestamp: new Date().toISOString(),
+    ...extras,
+  };
+}
+
+export function createPaginationEnvelope(meta: {
+  count: number;
+  limit: number;
+  total?: number | null;
+  nextCursor?: string | null;
+  prevCursor?: string | null;
+  currentPage?: number | null;
+  totalPages?: number | null;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}): PaginationMeta {
+  return {
+    count: meta.count,
+    limit: meta.limit,
+    total: meta.total ?? null,
+    nextCursor: meta.nextCursor ?? null,
+    prevCursor: meta.prevCursor ?? null,
+    currentPage: meta.currentPage ?? null,
+    totalPages: meta.totalPages ?? null,
+    hasNextPage: meta.hasNextPage,
+    hasPrevPage: meta.hasPrevPage,
   };
 }
 
 /**
  * Send a paginated JSON response.
- * 
+ *
  * @param res - Express response object
  * @param data - Array of data items
  * @param pagination - Pagination metadata
@@ -309,13 +378,16 @@ export function sendPaginatedResponse<T>(
 
 /**
  * Middleware to parse and attach pagination query to request.
- * 
+ *
  * @param config - Pagination configuration
  * @returns Express middleware function
  */
 export function paginationMiddleware(config: Partial<PaginationConfig> = {}) {
   return (req: Request, _res: Response, next: NextFunction) => {
-    (req as Request & { pagination: PaginationQuery }).pagination = parsePaginationQuery(req, config);
+    (req as Request & { pagination: PaginationQuery }).pagination = parsePaginationQuery(
+      req,
+      config
+    );
     next();
   };
 }
@@ -324,7 +396,7 @@ export function paginationMiddleware(config: Partial<PaginationConfig> = {}) {
 
 /**
  * Encode a cursor value to a URL-safe base64 string.
- * 
+ *
  * @param value - Value to encode
  * @returns Encoded cursor string
  */
@@ -334,11 +406,10 @@ export function encodeCursor(value: string): string {
 
 /**
  * Decode a cursor value from a URL-safe base64 string.
- * 
+ *
  * @param cursor - Encoded cursor string
  * @returns Decoded cursor value
  */
 export function decodeCursor(cursor: string): string {
   return Buffer.from(cursor, 'base64url').toString('utf-8');
 }
-
