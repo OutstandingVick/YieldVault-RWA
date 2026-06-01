@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { TrendingUp } from "./icons";
+import EmptyState from "./ui/EmptyState";
 import { usePreferencesContext } from "../context/PreferencesContext";
 import { formatCurrency, formatDate } from "../lib/formatters";
 
@@ -178,21 +179,17 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
       {/* Chart */}
       <div style={{ height: "220px", position: "relative" }}>
         {isEmpty ? (
-          <div
-            style={{
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--text-secondary)",
-              fontSize: "0.9rem",
-              border: "1px dashed var(--border-glass)",
-              borderRadius: "8px",
+          <EmptyState
+            kind="no-data"
+            className="empty-state-compact"
+            title="No yield data yet"
+            description="Deposit to start earning and track daily yield here."
+            icon={<TrendingUp />}
+            actionLabel="Deposit Now"
+            onAction={() => {
+              window.dispatchEvent(new Event("TRIGGER_DEPOSIT"));
             }}
-            aria-label="No yield data available"
-          >
-            No yield data yet — deposit to start earning.
-          </div>
+          />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart

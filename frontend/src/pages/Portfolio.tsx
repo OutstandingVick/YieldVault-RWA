@@ -319,6 +319,34 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
     return `${holdings.length} position${holdings.length !== 1 ? 's' : ''}`;
   }, [holdings.length]);
 
+  const hasActiveHoldingsFilters = Boolean(
+    urlState.filters.search ||
+      (urlState.filters.status && urlState.filters.status !== "all"),
+  );
+
+  const holdingsEmptyMessage = isLoading ? (
+    "Loading positions..."
+  ) : (
+    <EmptyState
+      kind={hasActiveHoldingsFilters ? "no-results" : "no-data"}
+      className="empty-state-compact"
+      title={
+        hasActiveHoldingsFilters
+          ? "No positions matched your filters"
+          : "No positions to show"
+      }
+      description={
+        hasActiveHoldingsFilters
+          ? "Try adjusting your search or status filter."
+          : "Deposit into a vault to see position details here."
+      }
+      icon={<Briefcase />}
+      {...(hasActiveHoldingsFilters
+        ? { actionLabel: "Reset Filters", onAction: reset }
+        : {})}
+    />
+  );
+
   return (
     <div className="glass-panel portfolio-page-panel">
       <PageHeader
@@ -429,11 +457,13 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
           {/* Empty state: wallet connected, loading done, no portfolio value */}
           {!isLoading && totalValue === 0 ? (
-            <FirstTimePortfolioPanel
-              walletConnected={true}
-              onConnectWallet={() => {}}
-              onReviewVault={() => navigate("/")}
-              onDeposit={() => navigate("/")}
+            <EmptyState
+              kind="no-data"
+              title="Your portfolio is empty."
+              description="Once you deposit, you'll be able to track your assets and growth here."
+              icon={<Briefcase />}
+              actionLabel="Deposit Now"
+              onAction={() => navigate("/")}
             />
           ) : (
           <section
@@ -502,11 +532,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               columns={columns}
               rows={rows}
               rowKey={(row) => row.id}
-              emptyMessage={
-                isLoading
-                  ? "Loading positions..."
-                  : "No positions matched the current filters."
-              }
+              emptyMessage={holdingsEmptyMessage}
               isLoading={isLoading}
               skeletonRows={state.pageSize}
               sortBy={state.sortBy}
