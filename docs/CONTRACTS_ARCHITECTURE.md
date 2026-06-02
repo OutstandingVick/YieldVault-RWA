@@ -238,6 +238,9 @@ pub enum VaultError {
 
 ## 5. Data Flow: User Deposit Journey
 
+For full request-to-confirmation sequence diagrams covering both deposit and withdrawal paths (including the 24-hour timelock flow), see **[Deposit & Withdrawal Lifecycle](./DEPOSIT_WITHDRAWAL_LIFECYCLE.md)**.
+
+
 ```
 User Deposit Flow:
 ─────────────────
@@ -606,7 +609,7 @@ The guide includes:
 
 ### Upgrade Procedures
 
-See `contracts/vault/DEPLOYMENT.md` for detailed upgrade runbook including:
+See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK.md` for detailed upgrade runbook including:
 1. Build and optimize new WASM
 2. Pause vault (safety check)
 3. Install new WASM and get hash

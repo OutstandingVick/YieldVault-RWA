@@ -2,12 +2,14 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
 } from "react";
 import { subscribeToApiTelemetry, normalizeApiError } from "../lib/api";
 import type { ApiError } from "../lib/api";
 import type { VaultSummary } from "../lib/vaultApi";
 import { networkConfig } from "../config/network";
 import { useVaultSummary, useVaultHistory } from "../hooks/useVaultData";
+import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { formatCurrency } from "../lib/formatters";
 
 interface VaultContextType {
@@ -56,7 +58,8 @@ const VaultContext = createContext<VaultContextType | undefined>(undefined);
 export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary();
+  const { isOnline } = useNetworkStatus();
+  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary(isOnline);
   const { data: historyData, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } = useVaultHistory();
 
   const isLoading = isSummaryLoading || isHistoryLoading;
@@ -75,7 +78,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   // Normalize any query error so consumers can render an API status banner.
   const error: ApiError | null = queryError ? normalizeApiError(queryError) : null;
 
-  const lastUpdate = new Date(summary.updatedAt);
+  const lastUpdate = useMemo(() => new Date(summary.updatedAt), [summary.updatedAt]);
 
   const utilization = summary.depositCap > 0 ? summary.tvl / summary.depositCap : 0;
   const isCapWarning = utilization > 0.9 && utilization < 1.0;

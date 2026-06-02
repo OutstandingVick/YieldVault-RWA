@@ -27,6 +27,7 @@ import YieldBreakdownChart from "../components/YieldBreakdownChart";
 import { useReferralStats, useReferralLink } from "../hooks/useReferral";
 import ShareModal from "../components/ShareModal";
 import EmptyState from "../components/ui/EmptyState";
+import FirstTimePortfolioPanel from "../components/FirstTimePortfolioPanel";
 import { useNavigate } from "react-router-dom";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 
@@ -318,6 +319,34 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
     return `${holdings.length} position${holdings.length !== 1 ? 's' : ''}`;
   }, [holdings.length]);
 
+  const hasActiveHoldingsFilters = Boolean(
+    urlState.filters.search ||
+      (urlState.filters.status && urlState.filters.status !== "all"),
+  );
+
+  const holdingsEmptyMessage = isLoading ? (
+    "Loading positions..."
+  ) : (
+    <EmptyState
+      kind={hasActiveHoldingsFilters ? "no-results" : "no-data"}
+      className="empty-state-compact"
+      title={
+        hasActiveHoldingsFilters
+          ? "No positions matched your filters"
+          : "No positions to show"
+      }
+      description={
+        hasActiveHoldingsFilters
+          ? "Try adjusting your search or status filter."
+          : "Deposit into a vault to see position details here."
+      }
+      icon={<Briefcase />}
+      {...(hasActiveHoldingsFilters
+        ? { actionLabel: "Reset Filters", onAction: reset }
+        : {})}
+    />
+  );
+
   return (
     <div className="glass-panel portfolio-page-panel">
       <PageHeader
@@ -348,11 +377,12 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       />
 
       {!walletAddress ? (
-        <div style={{ textAlign: "center", padding: "48px" }}>
-          <p style={{ color: "var(--text-secondary)" }}>
-            Please connect your wallet to view your portfolio.
-          </p>
-        </div>
+        <FirstTimePortfolioPanel
+          walletConnected={false}
+          onConnectWallet={() => window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"))}
+          onReviewVault={() => navigate("/")}
+          onDeposit={() => navigate("/")}
+        />
       ) : (
         <div className="flex flex-col gap-lg">
           {error && <ApiStatusBanner error={error} />}
@@ -428,6 +458,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           {/* Empty state: wallet connected, loading done, no portfolio value */}
           {!isLoading && totalValue === 0 ? (
             <EmptyState
+              kind="no-data"
               title="Your portfolio is empty."
               description="Once you deposit, you'll be able to track your assets and growth here."
               icon={<Briefcase />}
@@ -501,11 +532,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               columns={columns}
               rows={rows}
               rowKey={(row) => row.id}
-              emptyMessage={
-                isLoading
-                  ? "Loading positions..."
-                  : "No positions matched the current filters."
-              }
+              emptyMessage={holdingsEmptyMessage}
               isLoading={isLoading}
               skeletonRows={state.pageSize}
               sortBy={state.sortBy}

@@ -25,7 +25,7 @@
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, Address, Env, Vec};
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -161,6 +161,7 @@ fn test_invest_respects_min_liquidity_buffer() {
     vault.invest(&60);
     assert_eq!(usdc.balance(&vault_id), 40);
     assert_eq!(usdc.balance(&strategy_id), 60);
+    assert_eq!(vault.strategy_watermark(&strategy_id), 60);
 }
 
 #[test]
@@ -312,6 +313,32 @@ fn test_benji_connector_reports_yield() {
 
     vault.report_benji_yield(&benji_strategy, &40);
     assert_eq!(vault.total_assets(), 540);
+    assert_eq!(vault.strategy_watermark(&benji_strategy), 40);
+}
+
+#[test]
+fn test_benji_yield_uses_watermark_fee_accounting() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    let benji_strategy = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+    usdc_sa.mint(&benji_strategy, &100);
+
+    vault.deposit(&user, &500);
+    vault.set_fee_bps(&1_000);
+
+    let proposal_id = vault.create_strategy_proposal(&admin, &benji_strategy);
+    vault.vote_on_proposal(&admin, &proposal_id, &true, &1);
+    vault.execute_strategy_proposal(&proposal_id);
+
+    vault.report_benji_yield(&benji_strategy, &100);
+
+    assert_eq!(vault.total_assets(), 590);
+    assert_eq!(vault.treasury_balance(), 10);
+    assert_eq!(vault.strategy_watermark(&benji_strategy), 100);
 }
 
 #[test]
@@ -406,7 +433,73 @@ fn test_accrue_yield_increases_total_assets() {
     assert_eq!(vault.total_shares(), 0); // shares unchanged.
 }
 
+#[test]
+fn test_checkpoint() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _usdc, usdc_sa, _admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100);
+
+    // User deposits 100
+    vault.deposit(&user, &100);
+
+    // Create a checkpoint (admin-auth in production; tests mock auth)
+    let cp = vault.create_checkpoint();
+    assert_eq!(cp, 1);
+
+    // Global totals should be recorded
+    assert_eq!(vault.total_shares_at(&cp), 100);
+    assert_eq!(vault.total_assets_at(&cp), 100);
+
+    // User snapshots their balance for the checkpoint
+    vault.snapshot_user_balance(&user);
+    assert_eq!(vault.balance_at(&user, &cp), 100);
+}
+
 // ─── 5. report_benji_yield ───────────────────────────────────────────────────
+
+#[test]
+fn test_accrue_yield_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+
+    let result = vault.try_accrue_yield(&0);
+    assert!(matches!(result, Err(Ok(VaultError::InvalidAmount))));
+}
+
+#[test]
+fn test_accrue_yield_fee_math_overflow_reverts_before_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc, _, admin) = setup_vault(&env);
+    vault.set_fee_bps(&10_000);
+
+    let result = vault.try_accrue_yield(&i128::MAX);
+    assert!(matches!(result, Err(Ok(VaultError::MathOverflow))));
+    assert_eq!(usdc.balance(&admin), 0);
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 0);
+}
+
+#[test]
+fn test_accrue_yield_full_fee_accumulates_to_treasury_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    usdc_sa.mint(&admin, &250);
+
+    vault.set_fee_bps(&10_000);
+    vault.accrue_yield(&250);
+
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.treasury_balance(), 250);
+}
 
 #[test]
 #[should_panic]
@@ -956,6 +1049,79 @@ fn test_invariant_yield_accrual_never_changes_share_count() {
     assert_eq!(vault.total_assets(), 800);
 }
 
+/// Share price must never decrease when yield accrues.
+///
+/// Yield accrual increases total assets without changing total shares, so the
+/// per-share exchange rate should be monotonic for existing holders.
+#[test]
+fn test_invariant_share_price_monotonic_after_accrue_yield() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1_000);
+    usdc_sa.mint(&admin, &200);
+
+    vault.deposit(&user, &500);
+    let price_before = vault.share_price();
+
+    vault.set_fee_bps(&admin, &1_000);
+    vault.accrue_yield(&100).unwrap();
+
+    let price_after = vault.share_price();
+    assert!(price_after >= price_before);
+    assert_eq!(vault.total_shares(), 500);
+}
+
+/// Yield accrual with a 100% protocol fee should leave the share price unchanged.
+#[test]
+fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1_000);
+    usdc_sa.mint(&admin, &200);
+
+    vault.deposit(&user, &500);
+    vault.set_fee_bps(&admin, &10_000);
+
+    let price_before = vault.share_price();
+    vault.accrue_yield(&100).unwrap();
+    let price_after = vault.share_price();
+
+    assert_eq!(price_after, price_before);
+    assert_eq!(vault.total_shares(), 500);
+}
+
+/// Full withdrawal and redeposit on an empty vault should return to the
+/// 1:1 baseline share price on restart.
+#[test]
+fn test_invariant_share_price_full_exit_and_redeposit_resets_to_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1_200);
+    usdc_sa.mint(&admin, &200);
+
+    vault.deposit(&user, &1_000);
+    vault.accrue_yield(&200).unwrap();
+
+    let shares = vault.balance(&user);
+    let withdrawn = vault.withdraw(&user, &shares).unwrap();
+    assert_eq!(withdrawn, 1_200);
+    assert_eq!(vault.total_shares(), 0);
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.share_price(), 0);
+
+    vault.deposit(&user, &1_200).unwrap();
+    assert_eq!(vault.share_price(), SHARE_PRICE_SCALE);
+}
+
 /// calculate_assets(calculate_shares(x)) ≈ x (round-trip with acceptable truncation).
 #[test]
 fn test_invariant_share_asset_round_trip() {
@@ -1149,4 +1315,525 @@ fn test_multiple_deposits_atomic_state_updates() {
     assert_eq!(vault.balance(&user_b), 100);
     assert_eq!(vault.total_shares(), 200);
     assert_eq!(vault.total_assets(), 200);
+}
+
+// ─── 11. withdrawal cooldown ──────────────────────────────────────────────────
+
+#[test]
+fn test_withdrawal_cooldown_blocks_immediate_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600); // 1 hour cooldown
+    assert_eq!(vault.withdrawal_cooldown(), 3600);
+
+    vault.deposit(&user, &500);
+
+    // Withdraw should be blocked by cooldown
+    let result = vault.try_withdraw(&user, &100);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_withdrawal_cooldown_allows_withdraw_after_cooldown_expires() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.deposit(&user, &500);
+
+    // Fast-forward past cooldown
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    let withdrawn = vault.withdraw(&user, &200);
+    assert_eq!(withdrawn, 200);
+    assert_eq!(vault.balance(&user), 300);
+}
+
+#[test]
+fn test_withdrawal_cooldown_zero_by_default() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    // Default cooldown is 0
+    assert_eq!(vault.withdrawal_cooldown(), 0);
+
+    vault.deposit(&user, &500);
+
+    // Withdraw works immediately with zero cooldown
+    let withdrawn = vault.withdraw(&user, &200);
+    assert_eq!(withdrawn, 200);
+}
+
+#[test]
+fn test_withdrawal_cooldown_respects_per_user() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    usdc_sa.mint(&user_a, &500);
+    usdc_sa.mint(&user_b, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+
+    vault.deposit(&user_a, &500);
+    vault.deposit(&user_b, &500);
+
+    // Fast-forward past cooldown for user_b only by advancing time for all
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    // user_a deposited at the same time, but old timestamp means cooldown passed for both
+    let withdrawn_b = vault.withdraw(&user_b, &200);
+    assert_eq!(withdrawn_b, 200);
+
+    let withdrawn_a = vault.withdraw(&user_a, &100);
+    assert_eq!(withdrawn_a, 100);
+}
+
+#[test]
+fn test_withdrawal_cooldown_can_be_disabled() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &500);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.deposit(&user, &500);
+
+    // Disable cooldown
+    vault.set_withdrawal_cooldown(&0);
+    assert_eq!(vault.withdrawal_cooldown(), 0);
+
+    // Withdraw should work now
+    let withdrawn = vault.withdraw(&user, &300);
+    assert_eq!(withdrawn, 300);
+}
+
+#[test]
+fn test_withdrawal_cooldown_new_deposit_resets_timer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1000);
+
+    vault.set_withdrawal_cooldown(&3600);
+
+    vault.deposit(&user, &500);
+
+    // Fast-forward partially
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1800);
+
+    // Make another deposit - timer resets
+    vault.deposit(&user, &200);
+
+    // Withdraw should still be blocked (timer reset by latest deposit)
+    let result = vault.try_withdraw(&user, &100);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_withdrawal_cooldown_then_timelock_then_execute() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, _) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &100_000);
+
+    vault.set_withdrawal_cooldown(&3600);
+    vault.set_large_withdrawal_threshold(&1000);
+
+    vault.deposit(&user, &100_000);
+
+    // Cooldown blocks the withdraw call
+    let blocked = vault.try_withdraw(&user, &50_000);
+    assert!(blocked.is_err());
+
+    // Fast-forward past cooldown
+    env.ledger().set_timestamp(env.ledger().timestamp() + 3601);
+
+    // Now withdraw triggers the timelock (large withdrawal)
+    let result = vault.withdraw(&user, &50_000);
+    assert_eq!(result, 0); // pending withdrawal
+
+    // Fast-forward past timelock
+    env.ledger().set_timestamp(env.ledger().timestamp() + 86401);
+
+    // execute_withdrawal works
+    let executed = vault.execute_withdrawal(&user);
+    assert_eq!(executed, 50_000);
+}
+
+// ─── 11. batch_deposit ────────────────────────────────────────────────────────
+
+/// Helper: set up a vault with a registered relayer and mint USDC to `users`.
+fn setup_vault_with_relayer(
+    env: &Env,
+    user_amounts: &[(Address, i128)],
+) -> (
+    YieldVaultClient<'_>,
+    token::Client<'_>,
+    token::StellarAssetClient<'_>,
+    Address, // admin
+    Address, // relayer
+) {
+    let (vault, usdc, usdc_sa, admin) = setup_vault(env);
+    let relayer = Address::generate(env);
+    vault.set_relayer(&relayer, &true);
+
+    for (user, amount) in user_amounts {
+        usdc_sa.mint(user, amount);
+    }
+
+    (vault, usdc, usdc_sa, admin, relayer)
+}
+
+#[test]
+fn test_batch_deposit_happy_path_three_users() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    let (vault, usdc, _usdc_sa, _admin, relayer) = setup_vault_with_relayer(
+        &env,
+        &[
+            (user1.clone(), 100),
+            (user2.clone(), 200),
+            (user3.clone(), 300),
+        ],
+    );
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+    entries.push_back(DepositEntry { user: user2.clone(), amount: 200 });
+    entries.push_back(DepositEntry { user: user3.clone(), amount: 300 });
+
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    assert_eq!(result.success_count, 3);
+    assert_eq!(result.failure_count, 0);
+    assert_eq!(result.total_shares_minted, 600); // 1:1 ratio on fresh vault
+
+    // Vault received all tokens
+    let vault_id = vault.address.clone();
+    assert_eq!(usdc.balance(&vault_id), 600);
+
+    // Each user received proportional shares
+    assert_eq!(vault.balance(&user1), 100);
+    assert_eq!(vault.balance(&user2), 200);
+    assert_eq!(vault.balance(&user3), 300);
+
+    assert_eq!(vault.total_assets(), 600);
+    assert_eq!(vault.total_shares(), 600);
+}
+
+#[test]
+fn test_batch_deposit_partial_failure_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    let (vault, _, _usdc_sa, _admin, relayer) =
+        setup_vault_with_relayer(&env, &[(user1.clone(), 500), (user2.clone(), 500)]);
+
+    let mut entries = Vec::new(&env);
+    // entry with zero amount should fail; valid entry should still succeed
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 0 });
+    entries.push_back(DepositEntry { user: user2.clone(), amount: 100 });
+
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+
+    // First entry failed
+    let r0 = result.results.get(0).unwrap();
+    assert!(!r0.success);
+    assert_eq!(r0.error_code, VaultError::InvalidAmount as u32);
+    assert_eq!(r0.shares_minted, 0);
+
+    // Second entry succeeded
+    let r1 = result.results.get(1).unwrap();
+    assert!(r1.success);
+    assert_eq!(r1.shares_minted, 100);
+
+    assert_eq!(vault.balance(&user2), 100);
+    assert_eq!(vault.total_assets(), 100);
+}
+
+#[test]
+fn test_batch_deposit_partial_failure_min_deposit_not_met() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    let (vault, _, _usdc_sa, _admin, relayer) =
+        setup_vault_with_relayer(&env, &[(user1.clone(), 500), (user2.clone(), 500)]);
+
+    vault.set_min_deposit(&50);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 10 }); // below min
+    entries.push_back(DepositEntry { user: user2.clone(), amount: 100 }); // above min
+
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+
+    let r0 = result.results.get(0).unwrap();
+    assert_eq!(r0.error_code, VaultError::MinDepositNotMet as u32);
+
+    let r1 = result.results.get(1).unwrap();
+    assert!(r1.success);
+}
+
+#[test]
+fn test_batch_deposit_partial_failure_exceeds_user_cap() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    let (vault, _, _usdc_sa, _admin, relayer) =
+        setup_vault_with_relayer(&env, &[(user1.clone(), 500), (user2.clone(), 500)]);
+
+    vault.set_per_user_cap(&50);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 }); // exceeds cap
+    entries.push_back(DepositEntry { user: user2.clone(), amount: 30 });  // within cap
+
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    assert_eq!(result.success_count, 1);
+    assert_eq!(result.failure_count, 1);
+
+    let r0 = result.results.get(0).unwrap();
+    assert_eq!(r0.error_code, VaultError::ExceedsUserCap as u32);
+
+    let r1 = result.results.get(1).unwrap();
+    assert!(r1.success);
+    assert_eq!(vault.balance(&user2), 30);
+}
+
+#[test]
+fn test_batch_deposit_rejects_paused_vault() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let user1 = Address::generate(&env);
+    let (vault, _, _usdc_sa, _admin, relayer) =
+        setup_vault_with_relayer(&env, &[(user1.clone(), 100)]);
+
+    vault.pause(&PauseReason::Maintenance);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+
+    let err = vault.try_batch_deposit(&relayer, &entries).unwrap_err();
+    assert_eq!(
+        err.unwrap(),
+        VaultError::ContractPaused
+    );
+}
+
+#[test]
+fn test_batch_deposit_rejects_unregistered_relayer() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let user1 = Address::generate(&env);
+    let (vault, _, _usdc_sa, _admin, _relayer) =
+        setup_vault_with_relayer(&env, &[(user1.clone(), 100)]);
+
+    let impostor = Address::generate(&env);
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+
+    let err = vault.try_batch_deposit(&impostor, &entries).unwrap_err();
+    assert_eq!(
+        err.unwrap(),
+        VaultError::RelayerNotAuthorized
+    );
+}
+
+#[test]
+fn test_batch_deposit_rejects_oversized_batch() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (vault, _, _usdc_sa, _admin, relayer) = setup_vault_with_relayer(&env, &[]);
+
+    vault.set_max_batch_size(&3);
+
+    let mut entries = Vec::new(&env);
+    for _ in 0..4 {
+        let user = Address::generate(&env);
+        entries.push_back(DepositEntry { user, amount: 10 });
+    }
+
+    let err = vault.try_batch_deposit(&relayer, &entries).unwrap_err();
+    assert_eq!(err.unwrap(), VaultError::BatchTooLarge);
+}
+
+#[test]
+fn test_batch_deposit_empty_entries_succeeds_with_zero_totals() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (vault, _, _, _admin, relayer) = setup_vault_with_relayer(&env, &[]);
+
+    let entries: Vec<DepositEntry> = Vec::new(&env);
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    assert_eq!(result.success_count, 0);
+    assert_eq!(result.failure_count, 0);
+    assert_eq!(result.total_shares_minted, 0);
+    assert_eq!(vault.total_assets(), 0);
+}
+
+#[test]
+fn test_batch_deposit_share_price_consistency_after_yield() {
+    // Verify that mid-batch share pricing is updated correctly after yield accrual
+    // so entries later in the batch use the fresh price.
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let seed_user = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    let (vault, usdc, usdc_sa, admin, relayer) = setup_vault_with_relayer(
+        &env,
+        &[
+            (seed_user.clone(), 1000),
+            (user1.clone(), 500),
+            (user2.clone(), 500),
+        ],
+    );
+
+    // Seed the vault so shares are no longer 1:1
+    vault.deposit(&seed_user, &1000);
+    // Accrue yield: 1000 assets -> 2000 assets, 1000 shares remain => 2:1 ratio
+    usdc_sa.mint(&admin, &1000);
+    vault.accrue_yield(&1000);
+    assert_eq!(vault.total_assets(), 2000);
+    assert_eq!(vault.total_shares(), 1000);
+
+    // Now each deposited token is worth 0.5 shares (2:1 price)
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: user1.clone(), amount: 200 });
+    entries.push_back(DepositEntry { user: user2.clone(), amount: 400 });
+
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    assert_eq!(result.success_count, 2);
+    assert_eq!(result.failure_count, 0);
+
+    // user1: 200 assets / (2000/1000) = 100 shares
+    assert_eq!(vault.balance(&user1), 100);
+    // user2: 400 assets / (2200/1100) = 200 shares (price re-computed after user1 entry)
+    assert_eq!(vault.balance(&user2), 200);
+
+    // Total shares = 1000 (seed) + 100 + 200 = 1300
+    assert_eq!(vault.total_shares(), 1300);
+}
+
+#[test]
+fn test_set_relayer_and_is_relayer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let relayer = Address::generate(&env);
+
+    assert!(!vault.is_relayer(&relayer));
+
+    vault.set_relayer(&relayer, &true);
+    assert!(vault.is_relayer(&relayer));
+
+    vault.set_relayer(&relayer, &false);
+    assert!(!vault.is_relayer(&relayer));
+}
+
+#[test]
+fn test_max_batch_size_defaults_to_50_and_is_configurable() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+
+    assert_eq!(vault.max_batch_size(), 50);
+
+    vault.set_max_batch_size(&10);
+    assert_eq!(vault.max_batch_size(), 10);
+}
+
+#[test]
+fn test_batch_deposit_state_invariant_assets_eq_sum_of_deposits() {
+    // After a batch, total_assets must equal the sum of all successful deposit amounts.
+    // Entry at index 3 (amount=0) will fail; the rest succeed.
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let u1 = Address::generate(&env);
+    let u2 = Address::generate(&env);
+    let u3 = Address::generate(&env);
+    let u4 = Address::generate(&env); // zero amount — will fail
+    let u5 = Address::generate(&env);
+
+    let (vault, _, usdc_sa, _admin, relayer) = setup_vault_with_relayer(
+        &env,
+        &[
+            (u1.clone(), 50),
+            (u2.clone(), 100),
+            (u3.clone(), 200),
+            (u4.clone(), 0),
+            (u5.clone(), 75),
+        ],
+    );
+
+    let mut entries = Vec::new(&env);
+    entries.push_back(DepositEntry { user: u1.clone(), amount: 50 });
+    entries.push_back(DepositEntry { user: u2.clone(), amount: 100 });
+    entries.push_back(DepositEntry { user: u3.clone(), amount: 200 });
+    entries.push_back(DepositEntry { user: u4.clone(), amount: 0 }); // invalid
+    entries.push_back(DepositEntry { user: u5.clone(), amount: 75 });
+
+    let _ = usdc_sa; // already minted in setup_vault_with_relayer
+
+    let result = vault.batch_deposit(&relayer, &entries);
+
+    // 50 + 100 + 200 + 75 = 425
+    assert_eq!(vault.total_assets(), 425);
+    assert_eq!(result.failure_count, 1); // zero-amount entry
+    assert_eq!(result.success_count, 4);
 }

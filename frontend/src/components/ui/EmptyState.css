@@ -1,5 +1,3 @@
-/* ─── EmptyState ─────────────────────────────────────────────────────────── */
-
 .empty-state-container {
   display: flex;
   flex-direction: column;
@@ -17,14 +15,44 @@
   width: 100%;
 }
 
-/* Minimal variant — transparent with dashed border */
+.empty-state-no-data,
+.empty-state-default {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-glass);
+}
+
+.empty-state-no-results,
 .empty-state-minimal {
   background: transparent;
   border: 1px dashed var(--border-glass);
   padding: var(--space-8) var(--space-4);
 }
 
-/* ─── Icon circle ─────────────────────────────────────────────────────────── */
+.empty-state-error {
+  background: var(--bg-error);
+  border: 1px solid rgba(255, 107, 107, 0.25);
+}
+
+.empty-state-compact {
+  padding: var(--space-6) var(--space-4);
+  margin: 0;
+}
+
+.empty-state-compact .empty-state-icon-wrapper {
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  margin-bottom: var(--space-3);
+}
+
+.empty-state-compact .empty-state-title {
+  font-size: var(--text-lg);
+}
+
+.empty-state-compact .empty-state-description {
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+}
 
 .empty-state-icon-wrapper {
   display: flex;
@@ -41,6 +69,7 @@
   margin-bottom: var(--space-5);
 }
 
+.empty-state-no-results .empty-state-icon-wrapper,
 .empty-state-minimal .empty-state-icon-wrapper {
   width: 64px;
   height: 64px;
@@ -48,7 +77,12 @@
   box-shadow: none;
 }
 
-/* ─── Typography ──────────────────────────────────────────────────────────── */
+.empty-state-error .empty-state-icon-wrapper {
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  box-shadow: none;
+  color: var(--text-error);
+}
 
 .empty-state-title {
   font-size: var(--text-xl);
@@ -66,18 +100,22 @@
   margin: 0 0 var(--space-8);
 }
 
+.empty-state-no-results .empty-state-description,
 .empty-state-minimal .empty-state-description {
   margin-bottom: var(--space-4);
 }
 
-/* ─── CTA button ──────────────────────────────────────────────────────────── */
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+}
 
 .empty-state-action {
   min-width: 180px;
   padding: 12px 32px;
 }
-
-/* ─── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
   .empty-state-container {
@@ -104,9 +142,11 @@
     width: 100%;
     min-width: unset;
   }
-}
 
-/* ─── Animation ───────────────────────────────────────────────────────────── */
+  .empty-state-actions {
+    width: 100%;
+  }
+}
 
 @keyframes emptyStateFadeIn {
   from {

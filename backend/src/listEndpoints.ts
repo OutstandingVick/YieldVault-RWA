@@ -27,7 +27,8 @@ import { getApyHistory } from './apySnapshot';
 import { cacheMiddleware } from './middleware/cache';
 import { requireAuth, AuthenticatedRequest } from './auth';
 import { normalizeWalletAddress } from './walletUtils';
-import { validateApiKey, hasRequiredApiKeyRole } from './middleware/apiKeyAuth';
+import { validateApiKey } from './middleware/apiKeyAuth';
+import { hasPermission, Permission } from './middleware/rbac';
 import {
   buildExportMetadataHeaderValue,
   recordExportJob,
@@ -151,6 +152,8 @@ export interface TransactionExportArtifact {
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────
 
+const MOCK_WALLET_ADDRESS = 'G234567ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQ';
+
 const MOCK_TRANSACTIONS: Transaction[] = Array.from({ length: 100 }, (_, i) => ({
   id: `tx-${i + 1}`,
   type: i % 2 === 0 ? 'deposit' : 'withdrawal',
@@ -159,7 +162,7 @@ const MOCK_TRANSACTIONS: Transaction[] = Array.from({ length: 100 }, (_, i) => (
   asset: ['XLM', 'USDC', 'yUSDC', 'RWA'][i % 4],
   timestamp: new Date(Date.now() - i * 3600000).toISOString(),
   transactionHash: `hash-${i + 1}-${Math.random().toString(36).substring(7)}`,
-  walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+  walletAddress: MOCK_WALLET_ADDRESS,
 }));
 
 const MOCK_PORTFOLIO_HOLDINGS: PortfolioHolding[] = Array.from({ length: 50 }, (_, i) => ({
@@ -173,7 +176,7 @@ const MOCK_PORTFOLIO_HOLDINGS: PortfolioHolding[] = Array.from({ length: 50 }, (
   unrealizedGainUsd: Math.random() * 1000 - 500,
   issuer: 'YieldVault',
   status: i % 10 === 0 ? 'pending' : 'active',
-  walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz234567',
+  walletAddress: MOCK_WALLET_ADDRESS,
 }));
 
 const MOCK_VAULT_HISTORY: VaultHistoryPoint[] = Array.from({ length: 365 }, (_, i) => ({
@@ -332,11 +335,12 @@ function authenticateTransactionExport(req: ExportRequest, res: Response, next: 
   const authHeader = req.get('Authorization') || '';
   if (authHeader.startsWith('ApiKey ')) {
     validateApiKey(req, res, () => {
-      if (!hasRequiredApiKeyRole(req, 'admin')) {
+      if (!hasPermission(req, Permission.EXPORTS_WRITE)) {
         res.status(403).json({
           error: 'Forbidden',
           status: 403,
-          message: 'Admin API key is required for this export',
+          message: 'Operator role or higher is required for admin transaction export',
+          requiredPermission: Permission.EXPORTS_WRITE,
         });
         return;
       }
@@ -562,10 +566,7 @@ function buildTransactionsCsvExportBody(transactions: Transaction[]): string {
 function escapeCsvValue(value: unknown): string {
   const serialized = value == null ? '' : String(value);
   const escaped = serialized.replace(/"/g, '""');
-  if (/[",\r\n]/.test(escaped)) {
-    return `"${escaped}"`;
-  }
-  return escaped;
+  return `"${escaped}"`;
 }
 
 export function buildPortfolioHoldingsResponse(
@@ -727,7 +728,7 @@ router.get('/vault/transactions/export', authenticateTransactionExport, async (r
     res.status(403).json({
       error: 'Forbidden',
       status: 403,
-      message: 'Users can only export their own transaction history',
+      message: 'Users can only export their own wallet transaction history',
     });
     return;
   }
@@ -742,7 +743,7 @@ router.get('/vault/transactions/export', authenticateTransactionExport, async (r
   }
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const fileBase = `transactions-${walletAddress.slice(0, 8)}-${stamp}`;
+  const fileBase = `transaction-history-${walletAddress.slice(0, 8)}-${stamp}`;
   const fileName = `${fileBase}.${format}`;
 
   try {

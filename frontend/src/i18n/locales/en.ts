@@ -107,6 +107,8 @@ export const en = {
     pausedHidden: "Paused (tab hidden)",
     pausedOffline: "Paused (offline)",
     pausedManual: "Paused",
+    staleData: "Data may be stale",
+    staleAgo: "Last updated {{age}} ago",
   },
   timeline: {
     loading: "Loading activity...",
@@ -129,6 +131,28 @@ export const en = {
   },
   common: {
     dismiss: "Dismiss",
+  },
+  txTimeline: {
+    ariaLabel: "Transaction status timeline",
+    viewOnExplorer: "View on Stellar Explorer",
+    steps: {
+      pending: {
+        label: "Submitted",
+        desc: "Transaction sent to the Stellar network.",
+      },
+      confirming: {
+        label: "Confirming",
+        desc: "Waiting for ledger inclusion…",
+      },
+      finalized: {
+        label: "Finalized",
+        desc: "Transaction confirmed on-chain.",
+      },
+      failed: {
+        label: "Failed",
+        desc: "Transaction was not accepted by the network.",
+      },
+    },
   },
   commands: {
     goToVaults: "Go to Vaults",
