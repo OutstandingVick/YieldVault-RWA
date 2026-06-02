@@ -1,4 +1,4 @@
-export type JobName = 'priceRefresh' | 'positionReconciliation' | 'reportGeneration';
+export type JobName = 'priceRefresh' | 'positionReconciliation' | 'reportGeneration' | 'databaseBackup';
 
 export interface JobPolicy {
   maxAttempts: number;
@@ -43,6 +43,12 @@ export const JOB_POLICIES: Record<JobName, JobPolicy> = {
   reportGeneration: {
     maxAttempts: 5,
     baseDelayMs: 5000,
+    backoffMultiplier: 2,
+    deadLetterThreshold: 2,
+  },
+  databaseBackup: {
+    maxAttempts: 3,
+    baseDelayMs: 10000,
     backoffMultiplier: 2,
     deadLetterThreshold: 2,
   },

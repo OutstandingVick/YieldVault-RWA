@@ -30,6 +30,7 @@ import {
 } from './impersonationSessionService';
 import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
+import { startDbBackupScheduler } from './dbBackupJob';
 import { sorobanCircuitBreaker } from './circuitBreaker';
 import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
 import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
@@ -3008,6 +3009,12 @@ if (process.env.NODE_ENV !== 'test') {
   const stopApyScheduler = startApySnapshotScheduler();
   shutdownHandler.onShutdown(async () => {
     stopApyScheduler();
+  });
+
+  // ─── Database Backup Scheduler (Issue #376) ──────────────────────────────────
+  const stopDbBackupScheduler = startDbBackupScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopDbBackupScheduler();
   });
 
   // Register event polling service shutdown
