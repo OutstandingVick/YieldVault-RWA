@@ -17,8 +17,11 @@ import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import crypto from 'crypto';
 import { tryAcquireWalletLock } from './walletLock';
 import { normalizeWalletAddress } from './walletUtils';
+import Decimal from 'decimal.js';
 
 const router = Router();
+const ZERO = new Decimal(0);
+const DEFAULT_SHARE_PRICE = new Decimal(1);
 
 function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
   invalidateCache();
@@ -42,6 +45,64 @@ async function submitSorobanTx(type: string, payload: Record<string, unknown>): 
       return `0x${crypto.randomBytes(4).toString('hex')}${crypto.randomBytes(4).toString('hex')}`;
     }),
   );
+}
+
+async function updateVaultStateAndSnapshot(
+  type: 'deposit' | 'withdrawal',
+  amountRaw: string,
+  recordedAt: Date,
+): Promise<void> {
+  const prisma = getPrismaClient();
+  const amount = new Decimal(amountRaw);
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.vaultState.findUnique({ where: { id: 1 } });
+    const currentAssets = existing ? new Decimal(existing.totalAssets) : ZERO;
+    const currentShares = existing ? new Decimal(existing.totalShares) : ZERO;
+    const currentSharePrice = currentAssets.gt(0) && currentShares.gt(0)
+      ? currentAssets.div(currentShares)
+      : DEFAULT_SHARE_PRICE;
+
+    let nextAssets = currentAssets;
+    let nextShares = currentShares;
+
+    if (type === 'deposit') {
+      const mintedShares = amount.div(currentSharePrice);
+      nextAssets = currentAssets.plus(amount);
+      nextShares = currentShares.plus(mintedShares);
+    } else {
+      const burnedShares = amount.div(currentSharePrice);
+      nextAssets = Decimal.max(ZERO, currentAssets.minus(amount));
+      nextShares = Decimal.max(ZERO, currentShares.minus(burnedShares));
+    }
+
+    await tx.vaultState.upsert({
+      where: { id: 1 },
+      update: {
+        totalAssets: nextAssets.toFixed(6),
+        totalShares: nextShares.toFixed(6),
+      },
+      create: {
+        id: 1,
+        totalAssets: nextAssets.toFixed(6),
+        totalShares: nextShares.toFixed(6),
+      },
+    });
+
+    const resultingSharePrice = nextAssets.gt(0) && nextShares.gt(0)
+      ? nextAssets.div(nextShares)
+      : DEFAULT_SHARE_PRICE;
+
+    await tx.sharePriceSnapshot.create({
+      data: {
+        sharePrice: resultingSharePrice.toFixed(6),
+        totalAssets: nextAssets.toFixed(6),
+        totalShares: nextShares.toFixed(6),
+        source: `vault_${type}`,
+        recordedAt,
+      },
+    });
+  });
 }
 
 /** Shared handler logic for deposit / withdrawal to avoid duplication. */
@@ -92,16 +153,19 @@ async function handleVaultOperation(
       const prisma = getPrismaClient();
       await prisma.transaction.create({
         data: {
-          user: walletAddress,
+          user: normalizedWallet,
           amount: String(amount),
           type,
+          status: 'completed',
           referralCode,
         },
       });
 
+      await updateVaultStateAndSnapshot(type, String(amount), new Date());
+
       // Handle referral recording on deposit
       if (type === 'deposit') {
-        await referralService.recordDeposit(walletAddress, referralCode);
+        await referralService.recordDeposit(normalizedWallet, referralCode);
       }
 
       const body = {
