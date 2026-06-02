@@ -15,6 +15,7 @@
 
 import { db } from './database';
 import { logger } from './middleware/structuredLogging';
+import { invalidateCache } from './middleware/cache';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,9 @@ export async function runApySnapshotJob(): Promise<void> {
     const apy = await fetchCurrentApy();
     await persistSnapshot(date, apy);
     await pruneOldSnapshots();
+
+    // R5: invalidate APY cache entries after a successful snapshot
+    invalidateCache('GET:/api/v1/vault/apy');
 
     logger.log('info', 'APY snapshot job completed', { date, apy });
   } catch (err) {

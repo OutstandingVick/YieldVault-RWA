@@ -9,6 +9,7 @@ import type { ApiError } from "../lib/api";
 import type { VaultSummary } from "../lib/vaultApi";
 import { networkConfig } from "../config/network";
 import { useVaultSummary, useVaultHistory } from "../hooks/useVaultData";
+import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { formatCurrency } from "../lib/formatters";
 
 interface VaultContextType {
@@ -57,7 +58,8 @@ const VaultContext = createContext<VaultContextType | undefined>(undefined);
 export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary();
+  const { isOnline } = useNetworkStatus();
+  const { data, isLoading: isSummaryLoading, error: summaryError, refetch: refetchSummary } = useVaultSummary(isOnline);
   const { data: historyData, isLoading: isHistoryLoading, error: historyError, refetch: refetchHistory } = useVaultHistory();
 
   const isLoading = isSummaryLoading || isHistoryLoading;

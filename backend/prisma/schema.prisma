@@ -24,6 +24,18 @@ model VaultState {
   updatedAt   DateTime @updatedAt
 }
 
+model SharePriceSnapshot {
+  id          String   @id @default(uuid())
+  sharePrice  String
+  totalAssets String
+  totalShares String
+  source      String
+  recordedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([recordedAt])
+}
+
 model Transaction {
   id           String   @id @default(uuid())
   user         String

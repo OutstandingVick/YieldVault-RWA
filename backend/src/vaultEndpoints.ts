@@ -7,6 +7,7 @@ import { writesLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
 import { withSpan, getCurrentTraceId } from './tracing';
+import { submitVaultOperation, SorobanSimulationError } from './sorobanClient';
 import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
@@ -15,13 +16,20 @@ import { validate, VaultOperationSchema } from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import crypto from 'crypto';
+// crypto is still used below for generateFingerprint and body.id generation.
 import { tryAcquireWalletLock } from './walletLock';
 import { normalizeWalletAddress } from './walletUtils';
+import Decimal from 'decimal.js';
 
 const router = Router();
+const ZERO = new Decimal(0);
+const DEFAULT_SHARE_PRICE = new Decimal(1);
 
 function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
-  invalidateCache();
+  // R5: pattern-scoped invalidation — only clear vault, transactions, and portfolio entries
+  invalidateCache('GET:/api/v1/vault');
+  invalidateCache('GET:/api/v1/transactions');
+  invalidateCache('GET:/api/v1/portfolio');
   next();
 }
 
@@ -30,18 +38,80 @@ function generateFingerprint(body: any): string {
 }
 
 /**
- * Simulates a Soroban RPC call wrapped in the circuit breaker and a trace span.
- * Replace the body with the real stellar-sdk / soroban-client call.
+ * Submit a vault operation to the Stellar network via the real Soroban RPC,
+ * wrapped in the circuit breaker (opens after repeated RPC failures) and an
+ * OTel trace span.
  */
 async function submitSorobanTx(type: string, payload: Record<string, unknown>): Promise<string> {
   return sorobanCircuitBreaker.execute(() =>
     withSpan('soroban.rpc.submit', async (span) => {
       span.setAttributes({ 'rpc.type': type, 'rpc.wallet': String(payload.walletAddress ?? '') });
-      // Simulate network call – replace with real Soroban RPC invocation
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return `0x${crypto.randomBytes(4).toString('hex')}${crypto.randomBytes(4).toString('hex')}`;
+      return submitVaultOperation(
+        type as 'deposit' | 'withdrawal',
+        String(payload.walletAddress),
+        String(payload.amount),
+        String(payload.asset),
+      );
     }),
   );
+}
+
+async function updateVaultStateAndSnapshot(
+  type: 'deposit' | 'withdrawal',
+  amountRaw: string,
+  recordedAt: Date,
+): Promise<void> {
+  const prisma = getPrismaClient();
+  const amount = new Decimal(amountRaw);
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.vaultState.findUnique({ where: { id: 1 } });
+    const currentAssets = existing ? new Decimal(existing.totalAssets) : ZERO;
+    const currentShares = existing ? new Decimal(existing.totalShares) : ZERO;
+    const currentSharePrice = currentAssets.gt(0) && currentShares.gt(0)
+      ? currentAssets.div(currentShares)
+      : DEFAULT_SHARE_PRICE;
+
+    let nextAssets = currentAssets;
+    let nextShares = currentShares;
+
+    if (type === 'deposit') {
+      const mintedShares = amount.div(currentSharePrice);
+      nextAssets = currentAssets.plus(amount);
+      nextShares = currentShares.plus(mintedShares);
+    } else {
+      const burnedShares = amount.div(currentSharePrice);
+      nextAssets = Decimal.max(ZERO, currentAssets.minus(amount));
+      nextShares = Decimal.max(ZERO, currentShares.minus(burnedShares));
+    }
+
+    await tx.vaultState.upsert({
+      where: { id: 1 },
+      update: {
+        totalAssets: nextAssets.toFixed(6),
+        totalShares: nextShares.toFixed(6),
+      },
+      create: {
+        id: 1,
+        totalAssets: nextAssets.toFixed(6),
+        totalShares: nextShares.toFixed(6),
+      },
+    });
+
+    const resultingSharePrice = nextAssets.gt(0) && nextShares.gt(0)
+      ? nextAssets.div(nextShares)
+      : DEFAULT_SHARE_PRICE;
+
+    await tx.sharePriceSnapshot.create({
+      data: {
+        sharePrice: resultingSharePrice.toFixed(6),
+        totalAssets: nextAssets.toFixed(6),
+        totalShares: nextShares.toFixed(6),
+        source: `vault_${type}`,
+        recordedAt,
+      },
+    });
+  });
 }
 
 /** Shared handler logic for deposit / withdrawal to avoid duplication. */
@@ -92,16 +162,19 @@ async function handleVaultOperation(
       const prisma = getPrismaClient();
       await prisma.transaction.create({
         data: {
-          user: walletAddress,
+          user: normalizedWallet,
           amount: String(amount),
           type,
+          status: 'completed',
           referralCode,
         },
       });
 
+      await updateVaultStateAndSnapshot(type, String(amount), new Date());
+
       // Handle referral recording on deposit
       if (type === 'deposit') {
-        await referralService.recordDeposit(walletAddress, referralCode);
+        await referralService.recordDeposit(normalizedWallet, referralCode);
       }
 
       const body = {
@@ -185,8 +258,6 @@ async function handleVaultOperation(
   };
 
   try {
-    const invalidateReadCaches = () => invalidateCache();
-
     if (idempotencyKey) {
       const fingerprint = generateFingerprint(req.body);
       const { result, replayed } = await idempotencyStore.execute(
@@ -195,12 +266,18 @@ async function handleVaultOperation(
         operation,
       );
       if (replayed) res.setHeader('idempotency-status', 'replayed');
-      invalidateReadCaches();
+      // R5: pattern-scoped invalidation on successful write
+      invalidateCache('GET:/api/v1/vault');
+      invalidateCache('GET:/api/v1/transactions');
+      invalidateCache('GET:/api/v1/portfolio');
       return res.status(result.statusCode).json(result.body);
     }
 
     const result = await operation();
-    invalidateReadCaches();
+    // R5: pattern-scoped invalidation on successful write
+    invalidateCache('GET:/api/v1/vault');
+    invalidateCache('GET:/api/v1/transactions');
+    invalidateCache('GET:/api/v1/portfolio');
     return res.status(result.statusCode).json(result.body);
   } catch (err) {
     if (err instanceof IdempotencyConflictError) {
@@ -219,6 +296,15 @@ async function handleVaultOperation(
         status: 503,
         message: 'Soroban RPC is temporarily unavailable. Please retry later.',
         retryAfterMs: err.retryAfterMs,
+      });
+    }
+
+    if (err instanceof SorobanSimulationError) {
+      return res.status(err.statusCode).json({
+        error: err.statusCode === 422 ? 'Unprocessable Entity' : 'Bad Gateway',
+        status: err.statusCode,
+        code: err.code,
+        message: err.message,
       });
     }
 

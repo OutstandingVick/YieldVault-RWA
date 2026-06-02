@@ -2,8 +2,10 @@ import { Router, Request, Response } from 'express';
 import { referralService } from './referralService';
 import { logger } from './middleware/structuredLogging';
 import { normalizeWalletAddress } from './walletUtils';
+import { cacheMiddleware } from './middleware/cache';
 
 const router = Router();
+const REFERRAL_CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
 
 /**
  * @openapi
@@ -33,7 +35,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/:wallet', async (req: Request, res: Response) => {
+router.get('/:wallet', cacheMiddleware({ ttl: REFERRAL_CACHE_TTL_MS }), async (req: Request, res: Response) => {
   const { wallet } = req.params;
 
   if (!wallet) {
@@ -96,7 +98,7 @@ router.get('/:wallet', async (req: Request, res: Response) => {
  *       500:
  *         description: Internal server error
  */
-router.get('/code/:wallet', async (req: Request, res: Response) => {
+router.get('/code/:wallet', cacheMiddleware({ ttl: REFERRAL_CACHE_TTL_MS }), async (req: Request, res: Response) => {
   const { wallet } = req.params;
 
   if (!wallet) {

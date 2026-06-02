@@ -916,7 +916,7 @@ router.get('/vault/history', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reque
  *                 days: { type: integer }
  *                 count: { type: integer }
  */
-router.get('/vault/apy/history', async (req: Request, res: Response) => {
+router.get('/vault/apy/history', cacheMiddleware({ ttl: parseInt(process.env.CACHE_TTL_MS || '60000', 10) }), async (req: Request, res: Response) => {
   try {
     const rawDays = parseInt((req.query.days as string) || '30', 10);
     const days = Number.isFinite(rawDays) ? rawDays : 30;

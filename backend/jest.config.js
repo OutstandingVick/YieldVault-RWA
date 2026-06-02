@@ -35,5 +35,10 @@ module.exports = {
   moduleNameMapper: {
     '^@prisma/instrumentation$': '<rootDir>/src/__tests__/mocks/prismainstrumentation.js',
     '^@opentelemetry/(.*)$': '<rootDir>/src/__tests__/mocks/opentelemetry.js',
+    // Redirect the sorobanClient module that vaultEndpoints imports (./sorobanClient)
+    // so existing integration tests keep passing without a live Stellar RPC.
+    // The sorobanClient unit test imports ../sorobanClient (different specifier)
+    // and is therefore NOT redirected — it tests the real implementation.
+    '^\\.\/sorobanClient$': '<rootDir>/src/__tests__/mocks/sorobanClient.js',
   },
 };
