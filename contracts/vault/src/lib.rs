@@ -90,6 +90,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const STORAGE_VERSION: u32 = 2;
 const MAX_PAGE_SIZE: u32 = 50;
+const SHARE_PRICE_SCALE: i128 = 1_000_000_000_000_000_000;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -622,6 +623,24 @@ impl YieldVault {
         };
 
         idle_assets.checked_add(strategy_assets).expect("overflow")
+    }
+
+    /// Returns the current vault share price scaled to 10^18.
+    ///
+    /// This exchange rate represents the value of one vault share in underlying
+    /// assets and is the basis for frontend share-price reporting. When no shares
+    /// are outstanding, the share price is defined as zero.
+    pub fn share_price(env: Env) -> i128 {
+        let state = Self::get_state(&env);
+        if state.total_shares == 0 {
+            return 0;
+        }
+        state
+            .total_assets
+            .checked_mul(SHARE_PRICE_SCALE)
+            .expect("overflow")
+            .checked_div(state.total_shares)
+            .expect("division by zero")
     }
 
     pub fn balance(env: Env, user: Address) -> i128 {
@@ -1537,7 +1556,32 @@ impl YieldVault {
         );
 
         let mut state = Self::get_state(&env);
+        let price_before = if state.total_shares > 0 {
+            state
+                .total_assets
+                .checked_mul(SHARE_PRICE_SCALE)
+                .expect("overflow")
+                .checked_div(state.total_shares)
+                .expect("division by zero")
+        } else {
+            0
+        };
+
         state.total_assets = state.total_assets.checked_add(net_yield).expect("overflow");
+
+        if state.total_shares > 0 {
+            let price_after = state
+                .total_assets
+                .checked_mul(SHARE_PRICE_SCALE)
+                .expect("overflow")
+                .checked_div(state.total_shares)
+                .expect("division by zero");
+            assert!(
+                price_after >= price_before,
+                "share price must not decrease during yield accrual"
+            );
+        }
+
         env.storage().instance().set(&DataKey::State, &state);
         Ok(())
     }
