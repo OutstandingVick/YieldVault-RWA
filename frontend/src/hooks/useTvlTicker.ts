@@ -10,13 +10,23 @@ const ANIMATION_DURATION_MS = 500;
 /**
  * Polls vault metrics every 15 s and returns an animated TVL value.
  * Exposes `isStale` when the last successful fetch is older than 60 s.
+ *
+ * @param enabled - Optional flag to enable/disable polling (defaults to true)
+ *                  Pass `isOnline` from useNetworkStatus to pause polling when offline
+ *
+ * @example
+ * ```tsx
+ * const { isOnline } = useNetworkStatus();
+ * const { displayTvl, isStale } = useTvlTicker(isOnline);
+ * ```
  */
-export function useTvlTicker() {
+export function useTvlTicker(enabled = true) {
   const { data, dataUpdatedAt } = useQuery({
     queryKey: queryKeys.vault.summary(),
     queryFn: getVaultSummary,
     staleTime: POLL_INTERVAL_MS,
     refetchInterval: POLL_INTERVAL_MS,
+    enabled, // Support pause/resume based on network status
   });
 
   const targetTvl = data?.tvl ?? 0;

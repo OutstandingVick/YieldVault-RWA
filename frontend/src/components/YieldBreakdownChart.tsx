@@ -12,6 +12,7 @@ import { TrendingUp } from "./icons";
 import EmptyState from "./ui/EmptyState";
 import { usePreferencesContext } from "../context/PreferencesContext";
 import { formatCurrency, formatDate } from "../lib/formatters";
+import { formatChartCurrency, createChartCurrencyTickFormatter } from "../lib/chartFormatters";
 
 interface YieldDataPoint {
   date: string;
@@ -79,7 +80,7 @@ function YieldTooltip({ active, payload, label, locale, currency }: TooltipProps
           : ""}
       </div>
       <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>
-        Daily yield: {formatCurrency(value, currency, 2, locale)}
+        Daily yield: {formatChartCurrency(value, currency, locale, { maxDecimals: 2 })}
       </div>
     </div>
   );
@@ -219,7 +220,7 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
                 axisLine={false}
                 tickLine={false}
                 tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-                tickFormatter={(value: number) => formatCurrency(value, currency, 2, locale)}
+                tickFormatter={createChartCurrencyTickFormatter(currency, locale, true)}
               />
               <Tooltip content={(props) => <YieldTooltip {...props} locale={locale} currency={currency} />} />
               <Line

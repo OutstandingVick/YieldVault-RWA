@@ -2,10 +2,27 @@ import { useState, useEffect } from "react";
 import { estimateNetworkFee, getXlmPrice } from "../lib/vaultApi";
 import { useQuery } from "@tanstack/react-query";
 
+/**
+ * Hook for estimating network fees for vault operations.
+ * Fetches current XLM price with polling (60s interval).
+ *
+ * @param walletAddress - User's wallet address
+ * @param amount - Amount for which to estimate the fee
+ * @param action - Type of action: 'deposit' or 'withdraw'
+ * @param enabledNetworkPolling - Optional flag to enable/disable XLM price polling (defaults to true)
+ *                                Pass `isOnline` from useNetworkStatus to pause polling when offline
+ *
+ * @example
+ * ```tsx
+ * const { isOnline } = useNetworkStatus();
+ * const { feeXlm, feeUsd } = useFeeEstimate(address, "100", "deposit", isOnline);
+ * ```
+ */
 export function useFeeEstimate(
   walletAddress: string | null,
   amount: string,
-  action: "deposit" | "withdraw"
+  action: "deposit" | "withdraw",
+  enabledNetworkPolling = true
 ) {
   const [feeXlm, setFeeXlm] = useState<number>(0);
   const [feeUsd, setFeeUsd] = useState<number>(0);
@@ -15,6 +32,7 @@ export function useFeeEstimate(
     queryKey: ["xlmPrice"],
     queryFn: getXlmPrice,
     refetchInterval: 60000, // Refresh every minute
+    enabled: enabledNetworkPolling, // Support pause/resume based on network status
   });
 
   useEffect(() => {

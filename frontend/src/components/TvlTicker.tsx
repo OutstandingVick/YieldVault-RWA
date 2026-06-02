@@ -2,24 +2,24 @@ import React from "react";
 import { Activity, AlertCircle } from "./icons";
 import { useTvlTicker } from "../hooks/useTvlTicker";
 import { formatCurrency } from "../lib/formatters";
-import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
+import { useNetworkStatus } from "../hooks/useNetworkStatus";
 
 /**
  * Live TVL ticker for the dashboard header / navbar.
  * Polls every 15 s, animates number changes, shows a stale indicator
  * when the last successful poll is older than 60 s.
- * Displays offline retry countdown when connection is lost.
+ * Displays offline indicator when connection is lost.
  */
 const TvlTicker: React.FC = () => {
-  const { displayTvl, isStale } = useTvlTicker();
-  const { isOffline, countdown } = useOfflineRetryCountdown();
+  const { isOnline } = useNetworkStatus();
+  const { displayTvl, isStale } = useTvlTicker(isOnline);
 
-  const isWarning = isStale || isOffline;
+  const isWarning = isStale || !isOnline;
 
   return (
     <div
       aria-live="polite"
-      aria-label={isOffline ? `Offline, retrying in ${countdown}s` : `Total Value Locked: ${formatCurrency(displayTvl, "USD", 0)}`}
+      aria-label={!isOnline ? "Offline - TVL data paused" : `Total Value Locked: ${formatCurrency(displayTvl, "USD", 0)}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -43,7 +43,7 @@ const TvlTicker: React.FC = () => {
         <AlertCircle
           size={12}
           color="rgba(255, 159, 10, 0.9)"
-          aria-label={isOffline ? "Connection lost" : "Data may be stale"}
+          aria-label={!isOnline ? "Connection lost" : "Data may be stale"}
         />
       ) : (
         <Activity
@@ -54,9 +54,9 @@ const TvlTicker: React.FC = () => {
         />
       )}
       
-      {isOffline ? (
+      {!isOnline ? (
         <span style={{ color: "rgba(255, 159, 10, 0.9)" }}>
-          Connection lost. Retrying in {countdown}s...
+          Offline – polling paused
         </span>
       ) : (
         <>
