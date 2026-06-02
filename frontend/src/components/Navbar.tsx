@@ -9,6 +9,8 @@ import HealthStatusIndicator from "./HealthStatusIndicator";
 import { Layers } from "./icons";
 import { useTranslation } from "../i18n";
 import { useWalletNetwork } from "../hooks/useWalletNetwork";
+import Badge from "./Badge";
+import { usePendingTransactionCount } from "../hooks/usePendingTransactionCount";
 
 interface NavbarProps {
   currentPath?: "/" | "/analytics" | "/portfolio";
@@ -27,6 +29,7 @@ const Navbar: FC<NavbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const { walletNetwork, expectedNetwork } = useWalletNetwork(walletAddress);
+  const pendingCount = usePendingTransactionCount(walletAddress);
   // Show wallet's actual network when known, otherwise fall back to app's expected network
   const networkLabel = walletNetwork ?? expectedNetwork;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -111,6 +114,14 @@ const Navbar: FC<NavbarProps> = ({
             <NavLink to="/analytics" className="nav-link">
               {t("nav.analytics")}
             </NavLink>
+            <NavLink to="/transactions" className="nav-link" style={{ position: "relative" }}>
+              {t("nav.transactions")}
+              {pendingCount > 0 && (
+                <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
+                  {pendingCount}
+                </Badge>
+              )}
+            </NavLink>
           </div>
         </div>
 
@@ -183,6 +194,14 @@ const Navbar: FC<NavbarProps> = ({
           <NavLink to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
             {t("nav.analytics")}
           </NavLink>
+          <NavLink to="/transactions" onClick={() => setIsMobileMenuOpen(false)}>
+            {t("nav.transactions")}
+            {pendingCount > 0 && (
+              <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
+                {pendingCount}
+              </Badge>
+            )}
+          </NavLink>
 
           <div className="flex items-center justify-between" style={{ marginTop: "24px" }}>
             <ThemeToggle />
@@ -202,6 +221,14 @@ const Navbar: FC<NavbarProps> = ({
           </NavLink>
           <NavLink to="/analytics" role="menuitem" onClick={() => setMenuOpen(false)}>
             {t("nav.analytics")}
+          </NavLink>
+          <NavLink to="/transactions" role="menuitem" onClick={() => setMenuOpen(false)}>
+            {t("nav.transactions")}
+            {pendingCount > 0 && (
+              <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
+                {pendingCount}
+              </Badge>
+            )}
           </NavLink>
         </div>
       )}
