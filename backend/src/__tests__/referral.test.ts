@@ -15,6 +15,8 @@ describe('Referral System Integration', () => {
   beforeAll(async () => {
     // Clear relevant data
     const prisma = getPrisma();
+    await prisma.sharePriceSnapshot.deleteMany();
+    await prisma.vaultState.deleteMany();
     await prisma.referral.deleteMany();
     await prisma.referralCode.deleteMany();
     await prisma.transaction.deleteMany();
@@ -79,14 +81,25 @@ describe('Referral System Integration', () => {
 
   describe('GET /api/v1/referrals/:wallet', () => {
     it('should return referral stats with 6-decimal precision', async () => {
+      const prisma = getPrisma();
+      await prisma.sharePriceSnapshot.create({
+        data: {
+          sharePrice: '1.100000',
+          totalAssets: '1650.000000',
+          totalShares: '1500.000000',
+          source: 'test_yield_period_close',
+          recordedAt: new Date(Date.now() + 1000),
+        },
+      });
+
       const response = await request(app).get(`/api/v1/referrals/${referrerWallet}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('referral_count', 1);
       
-      // Based on our mock yield calculation (10% gain, 5% reward):
-      // Total deposited: 1000 + 500 = 1500
-      // Yield: 1500 * 0.1 = 150
+      // Shares are minted 1:1 at entry and later valued at share price 1.1:
+      // Deposits: 1500 total, shares: 1500, ending value: 1650
+      // Net yield: 1650 - 1500 = 150
       // Reward: 150 * 0.05 = 7.5
       expect(response.body.total_reward_earned).toBe('7.500000');
     });
@@ -99,7 +112,22 @@ describe('Referral System Integration', () => {
 
   describe('Reward Calculation Precision', () => {
     it('should handle small yield values with precision', async () => {
+      const prisma = getPrisma();
+      await prisma.sharePriceSnapshot.deleteMany();
+      await prisma.vaultState.deleteMany();
+      await prisma.referral.deleteMany();
+      await prisma.referralCode.deleteMany();
+      await prisma.transaction.deleteMany();
+
+      const precisionReferrerWallet =
+        'G56789ABCDEFGHIJKLMNOPQRSTUVWXYZ56789ABCDEFGHIJKLMNOPQRST';
       const smallReferredWallet = THIRD_TEST_WALLET;
+      const precisionReferralCode = 'MICROYLD1';
+
+      await referralService.createReferralCode(
+        precisionReferrerWallet,
+        precisionReferralCode,
+      );
       
       // Record small deposit
       await request(app)
@@ -108,19 +136,24 @@ describe('Referral System Integration', () => {
           amount: '0.012345',
           asset: 'USDC',
           walletAddress: smallReferredWallet,
-          referralCode: referralCode,
+          referralCode: precisionReferralCode,
         });
 
-      const response = await request(app).get(`/api/v1/referrals/${referrerWallet}`);
+      await prisma.sharePriceSnapshot.create({
+        data: {
+          sharePrice: '1.001000',
+          totalAssets: '0.012357',
+          totalShares: '0.012345',
+          source: 'test_small_yield_close',
+          recordedAt: new Date(Date.now() + 2000),
+        },
+      });
+
+      const response = await request(app).get(
+        `/api/v1/referrals/${precisionReferrerWallet}`,
+      );
       
-      // Previous 7.5 + (0.012345 * 0.1 * 0.05)
-      // 0.012345 * 0.005 = 0.000061725
-      // 7.5 + 0.000061725 = 7.500061725 -> 7.500062 (rounded to 6 places in simulation maybe)
-      // Actually our simulate calculation rounds yield to 6 places then multiplies
-      // yield = 0.012345 * 0.1 = 0.0012345 -> rounded 0.001235
-      // reward = 0.001235 * 0.05 = 0.00006175
-      // total = 7.5 + 0.00006175 = 7.50006175
-      
+      expect(response.body.total_reward_earned).toBe('0.000001');
       expect(response.body.total_reward_earned).toMatch(/^\d+\.\d{6}$/);
     });
   });
