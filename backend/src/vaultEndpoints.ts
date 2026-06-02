@@ -7,6 +7,7 @@ import { writesLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
 import { withSpan, getCurrentTraceId } from './tracing';
+import { submitVaultOperation, SorobanSimulationError } from './sorobanClient';
 import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
@@ -15,6 +16,7 @@ import { validate, VaultOperationSchema } from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import crypto from 'crypto';
+// crypto is still used below for generateFingerprint and body.id generation.
 import { tryAcquireWalletLock } from './walletLock';
 import { normalizeWalletAddress } from './walletUtils';
 import Decimal from 'decimal.js';
@@ -36,16 +38,20 @@ function generateFingerprint(body: any): string {
 }
 
 /**
- * Simulates a Soroban RPC call wrapped in the circuit breaker and a trace span.
- * Replace the body with the real stellar-sdk / soroban-client call.
+ * Submit a vault operation to the Stellar network via the real Soroban RPC,
+ * wrapped in the circuit breaker (opens after repeated RPC failures) and an
+ * OTel trace span.
  */
 async function submitSorobanTx(type: string, payload: Record<string, unknown>): Promise<string> {
   return sorobanCircuitBreaker.execute(() =>
     withSpan('soroban.rpc.submit', async (span) => {
       span.setAttributes({ 'rpc.type': type, 'rpc.wallet': String(payload.walletAddress ?? '') });
-      // Simulate network call – replace with real Soroban RPC invocation
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return `0x${crypto.randomBytes(4).toString('hex')}${crypto.randomBytes(4).toString('hex')}`;
+      return submitVaultOperation(
+        type as 'deposit' | 'withdrawal',
+        String(payload.walletAddress),
+        String(payload.amount),
+        String(payload.asset),
+      );
     }),
   );
 }
@@ -290,6 +296,15 @@ async function handleVaultOperation(
         status: 503,
         message: 'Soroban RPC is temporarily unavailable. Please retry later.',
         retryAfterMs: err.retryAfterMs,
+      });
+    }
+
+    if (err instanceof SorobanSimulationError) {
+      return res.status(err.statusCode).json({
+        error: err.statusCode === 422 ? 'Unprocessable Entity' : 'Bad Gateway',
+        status: err.statusCode,
+        code: err.code,
+        message: err.message,
       });
     }
 
