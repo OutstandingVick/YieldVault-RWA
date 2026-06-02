@@ -10,6 +10,13 @@ const defaultProps = {
 };
 
 describe("EmptyState", () => {
+  it("renders the default no-data variant without custom copy", () => {
+    render(<EmptyState />);
+
+    expect(screen.getByRole("status", { name: "No data available" })).toBeInTheDocument();
+    expect(screen.getByText("There is nothing to show here yet.")).toBeInTheDocument();
+  });
+
   it("renders title and description", () => {
     render(<EmptyState {...defaultProps} />);
 
@@ -82,6 +89,14 @@ describe("EmptyState", () => {
     expect(container.firstChild).toHaveClass("empty-state-no-results");
   });
 
+  it("applies the search kind class and default copy", () => {
+    const { container } = render(<EmptyState kind="search" />);
+
+    expect(container.firstChild).toHaveClass("empty-state-search");
+    expect(screen.getByText("No results found")).toBeInTheDocument();
+    expect(screen.getByText("Try adjusting your search or filters.")).toBeInTheDocument();
+  });
+
   it("maps variant minimal to no-results", () => {
     const { container } = render(
       <EmptyState {...defaultProps} variant="minimal" />,
@@ -103,6 +118,53 @@ describe("EmptyState", () => {
     );
 
     expect(screen.getByRole("alert")).toHaveClass("empty-state-error");
+  });
+
+  it("renders the default error variant with alert role", () => {
+    render(<EmptyState kind="error" />);
+
+    expect(screen.getByRole("alert", { name: "Something went wrong" })).toBeInTheDocument();
+    expect(
+      screen.getByText("We could not load this information. Please try again."),
+    ).toBeInTheDocument();
+  });
+
+  it("applies the permission kind class", () => {
+    const { container } = render(<EmptyState kind="permission" />);
+
+    expect(container.firstChild).toHaveClass("empty-state-permission");
+    expect(screen.getByText("Access required")).toBeInTheDocument();
+  });
+
+  it("renders object CTA as a button when onClick is provided", () => {
+    const onClick = vi.fn();
+    render(<EmptyState action={{ label: "Try again", onClick }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders object CTA as an internal link when href is provided", () => {
+    render(<EmptyState action={{ label: "Create vault", href: "/vaults/new" }} />);
+
+    expect(screen.getByRole("link", { name: "Create vault" })).toHaveAttribute(
+      "href",
+      "/vaults/new",
+    );
+  });
+
+  it("renders secondary object CTA with secondary styling", () => {
+    const onClick = vi.fn();
+    render(
+      <EmptyState
+        action={{ label: "Primary", onClick: vi.fn() }}
+        secondaryAction={{ label: "Reset", onClick }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Reset" })).toHaveClass(
+      "btn-secondary",
+    );
   });
 
   it("forwards extra className to the root element", () => {

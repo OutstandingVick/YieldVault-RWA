@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import EmptyState from "../components/ui/EmptyState";
 
 const HORIZON_BASE = "https://horizon-testnet.stellar.org";
 const EXPLORER_BASE = "https://stellar.expert/explorer/testnet/tx";
@@ -97,8 +98,13 @@ export default function TransactionReceipt() {
   if (error || !tx) {
     return (
       <div className="receipt-page">
-        <p className="receipt-error">{error ?? "Transaction not found."}</p>
-        <Link to="/" className="receipt-back-link">← Back to app</Link>
+        <EmptyState
+          kind="error"
+          title="Transaction not found"
+          description={error ?? "We could not find this transaction receipt."}
+          action={{ label: "Back to app", href: "/" }}
+          className="receipt-empty-state"
+        />
       </div>
     );
   }
