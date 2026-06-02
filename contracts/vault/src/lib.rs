@@ -75,12 +75,14 @@ mod test;
 pub mod upgrade;
 
 pub mod oracle;
+pub mod whitelist;
 
 use crate::strategy::StrategyClient;
 use crate::upgrade::{
     get_admin, get_pending_admin, get_storage_version, is_initialized, set_admin, set_initialized,
     set_pending_admin, set_storage_version,
 };
+use crate::whitelist::SecureWhitelist;
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
     Address, BytesN, Env, String, Vec,
@@ -419,12 +421,22 @@ impl YieldVault {
     }
 
     /// Set or update the active strategy connector.
+    ///
+    /// The strategy must be whitelisted before it can be set as the active strategy.
+    /// Only the admin can call this function.
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `strategy` - Strategy address to set as active
+    ///
+    /// # Panics
+    /// Panics if the strategy is not whitelisted
     pub fn set_strategy(env: Env, strategy: Address) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        // Check whitelist
-        if !Self::is_strategy_whitelisted(env.clone(), strategy.clone()) {
+        // Check whitelist using SecureWhitelist module
+        if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
             panic!("strategy not whitelisted");
         }
 
@@ -432,19 +444,46 @@ impl YieldVault {
     }
 
     /// Whitelist or un-whitelist a strategy address.
+    ///
+    /// Only the admin can add or remove strategies from the whitelist.
+    /// Whitelisted strategies can be set as the active strategy.
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `strategy` - Strategy address to whitelist/un-whitelist
+    /// * `approved` - true to whitelist, false to un-whitelist
+    ///
+    /// # Authorization
+    /// Caller must be the vault admin
     pub fn whitelist_strategy(env: Env, strategy: Address, approved: bool) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        env.storage()
-            .instance()
-            .set(&DataKey::StrategyWhitelist(strategy), &approved);
+        
+        // Use SecureWhitelist module for whitelist operations
+        match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
+            Ok(_) => {
+                // Also update the DataKey-based storage for backward compatibility
+                env.storage()
+                    .instance()
+                    .set(&DataKey::StrategyWhitelist(strategy), &approved);
+            }
+            Err(_) => panic!("whitelist operation failed"),
+        }
     }
 
+    /// Check if a strategy is whitelisted.
+    ///
+    /// Returns true if the strategy is approved for allocation operations.
+    ///
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `strategy` - Strategy address to check
+    ///
+    /// # Returns
+    /// true if the strategy is whitelisted, false otherwise
     pub fn is_strategy_whitelisted(env: Env, strategy: Address) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::StrategyWhitelist(strategy))
-            .unwrap_or(false)
+        // Use SecureWhitelist module for whitelist checks
+        SecureWhitelist::is_strategy_whitelisted(&env, &strategy)
     }
 
     /// Read the active strategy address.
