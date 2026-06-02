@@ -18,6 +18,7 @@ export const es = {
     vaults: "Bvvvedas",
     portfolio: "Portafolio",
     analytics: "Analica",
+    transactions: "Transacciones",
   },
   theme: {
     toggleToDark: "Cambiar al modo oscuro",
