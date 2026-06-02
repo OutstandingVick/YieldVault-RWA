@@ -1525,9 +1525,18 @@ fn test_batch_deposit_happy_path_three_users() {
     );
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 200 });
-    entries.push_back(DepositEntry { user: user3.clone(), amount: 300 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    });
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 200,
+    });
+    entries.push_back(DepositEntry {
+        user: user3.clone(),
+        amount: 300,
+    });
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1561,8 +1570,14 @@ fn test_batch_deposit_partial_failure_invalid_amount() {
 
     let mut entries = Vec::new(&env);
     // entry with zero amount should fail; valid entry should still succeed
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 0 });
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 100 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 0,
+    });
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 100,
+    });
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1598,8 +1613,14 @@ fn test_batch_deposit_partial_failure_min_deposit_not_met() {
     vault.set_min_deposit(&50);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 10 }); // below min
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 100 }); // above min
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 10,
+    }); // below min
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 100,
+    }); // above min
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1627,8 +1648,14 @@ fn test_batch_deposit_partial_failure_exceeds_user_cap() {
     vault.set_per_user_cap(&50);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 }); // exceeds cap
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 30 });  // within cap
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    }); // exceeds cap
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 30,
+    }); // within cap
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1655,13 +1682,13 @@ fn test_batch_deposit_rejects_paused_vault() {
     vault.pause(&PauseReason::Maintenance);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    });
 
     let err = vault.try_batch_deposit(&relayer, &entries).unwrap_err();
-    assert_eq!(
-        err.unwrap(),
-        VaultError::ContractPaused
-    );
+    assert_eq!(err.unwrap(), VaultError::ContractPaused);
 }
 
 #[test]
@@ -1676,13 +1703,13 @@ fn test_batch_deposit_rejects_unregistered_relayer() {
     let impostor = Address::generate(&env);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    });
 
     let err = vault.try_batch_deposit(&impostor, &entries).unwrap_err();
-    assert_eq!(
-        err.unwrap(),
-        VaultError::RelayerNotAuthorized
-    );
+    assert_eq!(err.unwrap(), VaultError::RelayerNotAuthorized);
 }
 
 #[test]
@@ -1750,8 +1777,14 @@ fn test_batch_deposit_share_price_consistency_after_yield() {
 
     // Now each deposited token is worth 0.5 shares (2:1 price)
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 200 });
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 400 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 200,
+    });
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 400,
+    });
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1822,11 +1855,26 @@ fn test_batch_deposit_state_invariant_assets_eq_sum_of_deposits() {
     );
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: u1.clone(), amount: 50 });
-    entries.push_back(DepositEntry { user: u2.clone(), amount: 100 });
-    entries.push_back(DepositEntry { user: u3.clone(), amount: 200 });
-    entries.push_back(DepositEntry { user: u4.clone(), amount: 0 }); // invalid
-    entries.push_back(DepositEntry { user: u5.clone(), amount: 75 });
+    entries.push_back(DepositEntry {
+        user: u1.clone(),
+        amount: 50,
+    });
+    entries.push_back(DepositEntry {
+        user: u2.clone(),
+        amount: 100,
+    });
+    entries.push_back(DepositEntry {
+        user: u3.clone(),
+        amount: 200,
+    });
+    entries.push_back(DepositEntry {
+        user: u4.clone(),
+        amount: 0,
+    }); // invalid
+    entries.push_back(DepositEntry {
+        user: u5.clone(),
+        amount: 75,
+    });
 
     let _ = usdc_sa; // already minted in setup_vault_with_relayer
 

@@ -72,7 +72,11 @@ impl SecureWhitelist {
     /// ```ignore
     /// SecureWhitelist::add_strategy(&env, &admin, &strategy)?;
     /// ```
-    pub fn add_strategy(env: &Env, caller: &Address, strategy: &Address) -> Result<(), WhitelistError> {
+    pub fn add_strategy(
+        env: &Env,
+        caller: &Address,
+        strategy: &Address,
+    ) -> Result<(), WhitelistError> {
         // Verify caller is the admin
         let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
         if caller != &admin {
@@ -113,7 +117,11 @@ impl SecureWhitelist {
     /// ```ignore
     /// SecureWhitelist::remove_strategy(&env, &admin, &strategy)?;
     /// ```
-    pub fn remove_strategy(env: &Env, caller: &Address, strategy: &Address) -> Result<(), WhitelistError> {
+    pub fn remove_strategy(
+        env: &Env,
+        caller: &Address,
+        strategy: &Address,
+    ) -> Result<(), WhitelistError> {
         // Verify caller is the admin
         let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
         if caller != &admin {

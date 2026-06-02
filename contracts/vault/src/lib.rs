@@ -458,7 +458,7 @@ impl YieldVault {
     pub fn whitelist_strategy(env: Env, strategy: Address, approved: bool) {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        
+
         // Use SecureWhitelist module for whitelist operations
         match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
             Ok(_) => {
@@ -1247,9 +1247,7 @@ impl YieldVault {
         if size == 0 {
             panic!("max_batch_size must be > 0");
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::MaxBatchSize, &size);
+        env.storage().instance().set(&DataKey::MaxBatchSize, &size);
     }
 
     /// Returns the maximum batch size (default 50).
@@ -1433,11 +1431,8 @@ impl YieldVault {
         }
 
         // Compute shares using current in-memory state (updated incrementally)
-        let shares_to_mint = crate::math::assets_to_shares(
-            amount,
-            state.total_shares,
-            state.total_assets,
-        );
+        let shares_to_mint =
+            crate::math::assets_to_shares(amount, state.total_shares, state.total_assets);
 
         if shares_to_mint == 0 {
             return Err(VaultError::InvalidAmount);
@@ -1839,7 +1834,9 @@ impl YieldVault {
         if current_watermark > withdrawn_assets {
             env.storage().instance().set(
                 &DataKey::StrategyWatermark(from_strategy.clone()),
-                &current_watermark.checked_sub(withdrawn_assets).expect("underflow"),
+                &current_watermark
+                    .checked_sub(withdrawn_assets)
+                    .expect("underflow"),
             );
         } else {
             env.storage()
@@ -1877,7 +1874,7 @@ impl YieldVault {
         // We only moved funds from one strategy to another.
         // Note: The total_assets of the vault might have changed slightly due to slippage,
         // but idle assets remain the same because we sent exactly `withdrawn_assets` back out.
-        
+
         Ok(())
     }
 
@@ -2030,8 +2027,11 @@ impl YieldVault {
             .set(&DataKey::TreasuryBalance, &0i128);
 
         let token_addr: Address = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
-        token::Client::new(&env, &token_addr)
-            .transfer(&env.current_contract_address(), &treasury, &balance);
+        token::Client::new(&env, &token_addr).transfer(
+            &env.current_contract_address(),
+            &treasury,
+            &balance,
+        );
 
         env.events()
             .publish((symbol_short!("feeclm"),), (treasury, balance));
