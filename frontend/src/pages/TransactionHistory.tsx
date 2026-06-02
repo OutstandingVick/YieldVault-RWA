@@ -1,25 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
+import { SkeletonText } from "../components/Skeleton";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
 import TransactionTimeline from "../components/TransactionTimeline";
 import EmptyState from "../components/ui/EmptyState";
-import { Activity, Loader2 } from "../components/icons";
+import { Activity, Loader2, Wallet } from "../components/icons";
 import { useTransactionTimeline } from "../hooks/useTransactionTimeline";
 import {
   normalizeApiError,
   isValidationError,
-  type ApiError,
-  type ValidationError,
 } from "../lib/api";
 import {
   formatAmount,
   formatTimestamp,
   truncateHash,
-  getTransactions,
   type Transaction,
 } from "../lib/transactionApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
@@ -36,7 +34,6 @@ interface TransactionHistoryProps {
   walletAddress: string | null;
 }
 
-type TxTypeFilter = "all" | "deposit" | "withdrawal";
 type ViewMode = "paginated" | "infinite";
 const DEFAULT_PAGE_SIZE = 10;
 const INFINITE_SCROLL_BATCH_SIZE = 20;
@@ -146,10 +143,12 @@ const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> 
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
-  const navigate = useNavigate();
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
-  const transactions = queryTransactions ?? [];
+  const transactions = React.useMemo(
+    () => queryTransactions ?? [],
+    [queryTransactions],
+  );
 
   const [selectedPendingHash, setSelectedPendingHash] = useState<string | null>(null);
 
@@ -459,7 +458,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   // ── Empty state ─────────────────────────────────────────────────────────
   const emptyMessage = (
     <EmptyState
-      kind={hasActiveFilters ? "no-results" : "no-data"}
+      kind={hasActiveFilters ? "search" : "no-data"}
       title={hasActiveFilters ? "No transactions found" : "No transactions yet"}
       description={
         hasActiveFilters
@@ -467,12 +466,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
           : "Once you make a deposit or withdrawal, it will appear here."
       }
       icon={<Activity size={24} />}
-      {...(hasActiveFilters
-        ? { actionLabel: "Reset filters", onAction: clearAll }
-        : {
-            actionLabel: "Deposit Now",
-            onAction: () => navigate("/"),
-          })}
+      action={
+        hasActiveFilters
+          ? { label: "Reset filters", onClick: clearAll, variant: "secondary" }
+          : { label: "Deposit Now", href: "/" }
+      }
     />
   );
 
@@ -506,11 +504,13 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       />
 
       {!walletAddress ? (
-        <div style={{ textAlign: "center", padding: "48px" }}>
-          <p style={{ color: "var(--text-secondary)" }}>
-            Please connect your wallet to view your transaction history.
-          </p>
-        </div>
+        <EmptyState
+          kind="permission"
+          title="Connect your wallet"
+          description="Connect your wallet to view your transaction history."
+          icon={<Wallet />}
+          action={{ label: "Go to dashboard", href: "/" }}
+        />
       ) : (
         <div className="flex flex-col gap-lg">
           {error && <ApiStatusBanner error={error} />}
