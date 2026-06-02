@@ -1049,6 +1049,79 @@ fn test_invariant_yield_accrual_never_changes_share_count() {
     assert_eq!(vault.total_assets(), 800);
 }
 
+/// Share price must never decrease when yield accrues.
+///
+/// Yield accrual increases total assets without changing total shares, so the
+/// per-share exchange rate should be monotonic for existing holders.
+#[test]
+fn test_invariant_share_price_monotonic_after_accrue_yield() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1_000);
+    usdc_sa.mint(&admin, &200);
+
+    vault.deposit(&user, &500);
+    let price_before = vault.share_price();
+
+    vault.set_fee_bps(&admin, &1_000);
+    vault.accrue_yield(&100).unwrap();
+
+    let price_after = vault.share_price();
+    assert!(price_after >= price_before);
+    assert_eq!(vault.total_shares(), 500);
+}
+
+/// Yield accrual with a 100% protocol fee should leave the share price unchanged.
+#[test]
+fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1_000);
+    usdc_sa.mint(&admin, &200);
+
+    vault.deposit(&user, &500);
+    vault.set_fee_bps(&admin, &10_000);
+
+    let price_before = vault.share_price();
+    vault.accrue_yield(&100).unwrap();
+    let price_after = vault.share_price();
+
+    assert_eq!(price_after, price_before);
+    assert_eq!(vault.total_shares(), 500);
+}
+
+/// Full withdrawal and redeposit on an empty vault should return to the
+/// 1:1 baseline share price on restart.
+#[test]
+fn test_invariant_share_price_full_exit_and_redeposit_resets_to_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+    usdc_sa.mint(&user, &1_200);
+    usdc_sa.mint(&admin, &200);
+
+    vault.deposit(&user, &1_000);
+    vault.accrue_yield(&200).unwrap();
+
+    let shares = vault.balance(&user);
+    let withdrawn = vault.withdraw(&user, &shares).unwrap();
+    assert_eq!(withdrawn, 1_200);
+    assert_eq!(vault.total_shares(), 0);
+    assert_eq!(vault.total_assets(), 0);
+    assert_eq!(vault.share_price(), 0);
+
+    vault.deposit(&user, &1_200).unwrap();
+    assert_eq!(vault.share_price(), SHARE_PRICE_SCALE);
+}
+
 /// calculate_assets(calculate_shares(x)) ≈ x (round-trip with acceptable truncation).
 #[test]
 fn test_invariant_share_asset_round_trip() {
