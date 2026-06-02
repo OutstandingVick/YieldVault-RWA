@@ -10,12 +10,17 @@
  * In a real application, the UPSERT query would target a `apy_snapshots`
  * Postgres table. The job can be disabled by setting APY_SNAPSHOT_ENABLED=false.
  *
- * Retention: snapshots older than 365 days are pruned during each run.
+ * Environment variables:
+ *   APY_SNAPSHOT_INTERVAL_MS - interval in milliseconds between snapshot runs
+ *                              (default: 3600000 = 1 hour)
+ *
+ * Retention: snapshots older than 90 days are pruned during each run.
  */
 
 import { db } from './database';
 import { logger } from './middleware/structuredLogging';
 import { invalidateCache } from './middleware/cache';
+import { runJobWithRetry, registerJob } from './jobGovernance';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +34,17 @@ export interface ApySnapshot {
 /** Map of YYYY-MM-DD → APY value. Used as DB-layer cache in the mock. */
 const snapshotStore = new Map<string, number>();
 
-const RETENTION_DAYS = 365;
+const RETENTION_DAYS = 90;
+const DEFAULT_SNAPSHOT_INTERVAL_MS = 3_600_000;
+
+function getSnapshotIntervalMs(): number {
+  const raw = process.env.APY_SNAPSHOT_INTERVAL_MS;
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return DEFAULT_SNAPSHOT_INTERVAL_MS;
+  }
+  return parsed;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -121,29 +136,8 @@ export async function runApySnapshotJob(): Promise<void> {
   }
 }
 
-// ─── Midnight-UTC Scheduler ──────────────────────────────────────────────────
+// ─── Periodic Scheduler ─────────────────────────────────────────────────────
 
-/**
- * Returns the number of milliseconds until the next midnight UTC
- * plus a random jitter within [0, 5 minutes] so that the job fires
- * within 5 minutes of midnight UTC (acceptance criterion).
- */
-function msUntilNextMidnightUtc(): number {
-  const now = Date.now();
-  const midnight = new Date();
-  midnight.setUTCHours(24, 0, 0, 0); // next midnight UTC
-  const base = midnight.getTime() - now;
-  const jitter = Math.floor(Math.random() * 5 * 60 * 1000); // up to 5 min
-  return base + jitter;
-}
-
-let schedulerTimer: ReturnType<typeof setTimeout> | null = null;
-
-/**
- * Starts the nightly APY snapshot scheduler.
- * Respects the APY_SNAPSHOT_ENABLED environment variable (defaults to true).
- * Returns a cancel function for clean shutdown.
- */
 export function startApySnapshotScheduler(): () => void {
   const enabled = process.env.APY_SNAPSHOT_ENABLED !== 'false';
   if (!enabled) {
@@ -151,33 +145,25 @@ export function startApySnapshotScheduler(): () => void {
     return () => {};
   }
 
-  const schedule = async () => {
-    try {
-      await runApySnapshotJob();
-    } finally {
-      // Re-schedule for the next day regardless of success/failure
-      const delay = msUntilNextMidnightUtc();
-      logger.log('info', 'APY snapshot next run scheduled', {
-        inMs: delay,
-        nextRun: new Date(Date.now() + delay).toISOString(),
-      });
-      schedulerTimer = setTimeout(schedule, delay);
-    }
-  };
+  const intervalMs = getSnapshotIntervalMs();
+  registerJob('apySnapshot');
 
-  const initialDelay = msUntilNextMidnightUtc();
+  const timer = setInterval(() => {
+    void runJobWithRetry('apySnapshot', runApySnapshotJob).catch((error) => {
+      logger.log('error', 'APY snapshot scheduler encountered an error', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, intervalMs);
+
   logger.log('info', 'APY snapshot scheduler started', {
-    firstRunIn: initialDelay,
-    nextRun: new Date(Date.now() + initialDelay).toISOString(),
+    intervalMs,
+    nextRun: new Date(Date.now() + intervalMs).toISOString(),
   });
-  schedulerTimer = setTimeout(schedule, initialDelay);
 
   return () => {
-    if (schedulerTimer) {
-      clearTimeout(schedulerTimer);
-      schedulerTimer = null;
-      logger.log('info', 'APY snapshot scheduler stopped');
-    }
+    clearInterval(timer);
+    logger.log('info', 'APY snapshot scheduler stopped');
   };
 }
 
