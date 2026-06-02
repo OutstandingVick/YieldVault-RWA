@@ -192,6 +192,10 @@ pub enum DataKey {
     CheckpointTotalAssets(u32),
     UserCheckpoint(Address),
     UserBalanceAt(Address, u32),
+    // Relayer batch-deposit whitelist
+    RelayerWhitelist(Address),
+    // Maximum entries allowed in a single batch_deposit call
+    MaxBatchSize,
 }
 
 #[contracttype]
@@ -210,6 +214,44 @@ pub struct StrategyProposal {
 pub struct PendingWithdrawal {
     pub shares: i128,
     pub unlock_timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// A single entry in a batch deposit request: one user and their deposit amount.
+pub struct DepositEntry {
+    /// The depositing user address (requires auth).
+    pub user: Address,
+    /// The amount of underlying tokens to deposit.
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Per-entry result for a batch deposit operation.
+pub struct DepositResult {
+    /// The depositing user address.
+    pub user: Address,
+    /// Shares minted on success, or 0 on failure.
+    pub shares_minted: i128,
+    /// True if this entry succeeded.
+    pub success: bool,
+    /// Error code if this entry failed; 0 means no error.
+    pub error_code: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Aggregate result returned by `batch_deposit`.
+pub struct BatchDepositResult {
+    /// Per-entry outcomes in the same order as the input `entries` vector.
+    pub results: Vec<DepositResult>,
+    /// Total shares minted across all successful entries.
+    pub total_shares_minted: i128,
+    /// Number of entries that succeeded.
+    pub success_count: u32,
+    /// Number of entries that failed.
+    pub failure_count: u32,
 }
 
 #[contracterror]
@@ -247,6 +289,10 @@ pub enum VaultError {
     MathOverflow = 14,
     /// Strategy operation exceeded maximum allowed slippage.
     SlippageExceeded = 15,
+    /// Batch deposit entries vector exceeds the maximum allowed size.
+    BatchTooLarge = 16,
+    /// Caller is not a registered relayer and cannot submit batch deposits.
+    RelayerNotAuthorized = 17,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -1110,6 +1156,296 @@ impl YieldVault {
 
         env.events()
             .publish((symbol_short!("deposit"),), (amount, shares_to_mint));
+        Ok(shares_to_mint)
+    }
+
+    // ── Relayer management ────────────────────────────────────────────────────
+
+    /// Register or deregister a relayer address allowed to submit batch deposits.
+    ///
+    /// Only the Admin can call this.
+    pub fn set_relayer(env: Env, relayer: Address, approved: bool) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::RelayerWhitelist(relayer), &approved);
+    }
+
+    /// Returns whether the given address is a registered relayer.
+    pub fn is_relayer(env: Env, relayer: Address) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::RelayerWhitelist(relayer))
+            .unwrap_or(false)
+    }
+
+    /// Set the maximum number of entries permitted in a single `batch_deposit` call.
+    ///
+    /// Defaults to 50 if not set. Only the Admin can call this.
+    pub fn set_max_batch_size(env: Env, size: u32) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if size == 0 {
+            panic!("max_batch_size must be > 0");
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::MaxBatchSize, &size);
+    }
+
+    /// Returns the maximum batch size (default 50).
+    pub fn max_batch_size(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxBatchSize)
+            .unwrap_or(50u32)
+    }
+
+    // ── Batch deposit ─────────────────────────────────────────────────────────
+
+    /// Processes multiple user deposits atomically in a single transaction.
+    ///
+    /// This entrypoint is reserved for whitelisted relayers that aggregate deposits
+    /// from multiple users and submit them in one Soroban transaction, reducing
+    /// per-user transaction fees and improving throughput.
+    ///
+    /// ### Atomicity
+    /// All state updates (total_assets, total_shares, share balances) are applied
+    /// together. Individual entries that fail validation (invalid amount, cap
+    /// exceeded, min deposit not met, etc.) are recorded with `success = false`
+    /// in the returned `BatchDepositResult`; other valid entries still succeed.
+    /// The vault pause check is performed upfront and fails the entire call.
+    ///
+    /// ### Authorization
+    /// * `relayer` must be a registered relayer (see `set_relayer`).
+    /// * Each `user` inside the entries must have pre-authorized the vault to
+    ///   transfer their tokens (standard Soroban token auth).
+    ///
+    /// ### Parameters
+    /// * `relayer`  — The address submitting the batch (must be whitelisted).
+    /// * `entries`  — Vector of `DepositEntry { user, amount }` to process.
+    ///
+    /// ### Returns
+    /// A `BatchDepositResult` with per-entry outcomes and aggregate totals.
+    ///
+    /// ### Errors
+    /// * `VaultError::ContractPaused`      — Vault is paused; entire call rejected.
+    /// * `VaultError::RelayerNotAuthorized` — Caller is not a whitelisted relayer.
+    /// * `VaultError::BatchTooLarge`        — `entries.len()` exceeds `max_batch_size`.
+    ///
+    /// ### Events
+    /// Publishes `(symbol_short!("batchdep"),)` with `(total_shares_minted, success_count, failure_count)`.
+    pub fn batch_deposit(
+        env: Env,
+        relayer: Address,
+        entries: Vec<DepositEntry>,
+    ) -> Result<BatchDepositResult, VaultError> {
+        // ── Checks ────────────────────────────────────────────────────────────
+
+        // 1. Vault must not be paused
+        let mut state = Self::get_state(&env);
+        if state.is_paused {
+            return Err(VaultError::ContractPaused);
+        }
+
+        // 2. Caller must be a whitelisted relayer
+        relayer.require_auth();
+        let is_approved: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::RelayerWhitelist(relayer.clone()))
+            .unwrap_or(false);
+        if !is_approved {
+            return Err(VaultError::RelayerNotAuthorized);
+        }
+
+        // 3. Batch size guard
+        let max_size = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::MaxBatchSize)
+            .unwrap_or(50u32);
+        if entries.len() > max_size {
+            return Err(VaultError::BatchTooLarge);
+        }
+
+        // ── Pre-load shared config once ────────────────────────────────────────
+        let token_addr: Address = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
+        let token_client = token::Client::new(&env, &token_addr);
+
+        let min_deposit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinDeposit)
+            .unwrap_or(0);
+
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PerUserCap)
+            .unwrap_or(i128::MAX);
+
+        // ── Effects: process each entry ────────────────────────────────────────
+        let mut results: Vec<DepositResult> = Vec::new(&env);
+        let mut total_shares_minted: i128 = 0i128;
+        let mut success_count: u32 = 0u32;
+        let mut failure_count: u32 = 0u32;
+
+        let n = entries.len();
+        let mut idx: u32 = 0;
+        while idx < n {
+            let entry = entries.get(idx).unwrap();
+            let user = entry.user.clone();
+            let amount = entry.amount;
+
+            // Per-entry validation
+            let entry_result = Self::process_single_batch_entry(
+                &env,
+                &mut state,
+                &token_client,
+                &user,
+                amount,
+                min_deposit,
+                cap,
+            );
+
+            match entry_result {
+                Ok(shares_minted) => {
+                    total_shares_minted = total_shares_minted
+                        .checked_add(shares_minted)
+                        .expect("overflow");
+                    success_count = success_count.checked_add(1).expect("overflow");
+                    results.push_back(DepositResult {
+                        user,
+                        shares_minted,
+                        success: true,
+                        error_code: 0,
+                    });
+                }
+                Err(e) => {
+                    failure_count = failure_count.checked_add(1).expect("overflow");
+                    results.push_back(DepositResult {
+                        user,
+                        shares_minted: 0,
+                        success: false,
+                        error_code: e as u32,
+                    });
+                }
+            }
+
+            idx += 1;
+        }
+
+        // Persist the updated vault state once after all entries are processed
+        env.storage().instance().set(&DataKey::State, &state);
+
+        env.events().publish(
+            (symbol_short!("batchdep"),),
+            (total_shares_minted, success_count, failure_count),
+        );
+
+        Ok(BatchDepositResult {
+            results,
+            total_shares_minted,
+            success_count,
+            failure_count,
+        })
+    }
+
+    /// Internal helper: validates and applies a single deposit within a batch.
+    ///
+    /// State fields `total_assets` and `total_shares` on `state` are updated
+    /// in-memory; the caller must persist `state` after the loop.
+    fn process_single_batch_entry(
+        env: &Env,
+        state: &mut VaultState,
+        token_client: &token::Client,
+        user: &Address,
+        amount: i128,
+        min_deposit: i128,
+        per_user_cap: i128,
+    ) -> Result<i128, VaultError> {
+        if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        if amount < min_deposit {
+            return Err(VaultError::MinDepositNotMet);
+        }
+
+        // Compute shares using current in-memory state (updated incrementally)
+        let shares_to_mint = crate::math::assets_to_shares(
+            amount,
+            state.total_shares,
+            state.total_assets,
+        );
+
+        if shares_to_mint == 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+
+        // Per-user deposit cap check
+        let deposit_key = DataKey::UserDeposit(user.clone());
+        let current_deposit: i128 = env.storage().instance().get(&deposit_key).unwrap_or(0);
+        let new_deposit = current_deposit.checked_add(amount).expect("overflow");
+        if new_deposit > per_user_cap {
+            return Err(VaultError::ExceedsUserCap);
+        }
+
+        // ── Interaction: pull tokens from user ─────────────────────────────────
+        user.require_auth();
+        token_client.transfer(user, &env.current_contract_address(), &amount);
+
+        // ── Effects: update storage ────────────────────────────────────────────
+        env.storage().instance().set(&deposit_key, &new_deposit);
+
+        // Update idle TotalAssets in storage
+        let ta: i128 = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &DataKey::TotalAssets,
+            &ta.checked_add(amount).expect("overflow"),
+        );
+
+        // Update TotalShares in storage
+        let ts: i128 = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalShares)
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &DataKey::TotalShares,
+            &ts.checked_add(shares_to_mint).expect("overflow"),
+        );
+
+        // Update in-memory state (used for subsequent entries in the same batch)
+        state.total_assets = state.total_assets.checked_add(amount).expect("overflow");
+        state.total_shares = state
+            .total_shares
+            .checked_add(shares_to_mint)
+            .expect("overflow");
+
+        // Update user share balance
+        let user_key = DataKey::ShareBalance(user.clone());
+        let user_shares: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
+        env.storage().instance().set(
+            &user_key,
+            &user_shares.checked_add(shares_to_mint).expect("overflow"),
+        );
+
+        // Track last deposit time for withdrawal cooldown
+        env.storage().instance().set(
+            &DataKey::LastDepositTime(user.clone()),
+            &env.ledger().timestamp(),
+        );
+
+        env.events()
+            .publish((symbol_short!("deposit"),), (amount, shares_to_mint));
+
         Ok(shares_to_mint)
     }
 
