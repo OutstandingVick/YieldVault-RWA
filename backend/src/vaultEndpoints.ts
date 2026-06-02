@@ -21,7 +21,10 @@ import { normalizeWalletAddress } from './walletUtils';
 const router = Router();
 
 function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
-  invalidateCache();
+  // R5: pattern-scoped invalidation — only clear vault, transactions, and portfolio entries
+  invalidateCache('GET:/api/v1/vault');
+  invalidateCache('GET:/api/v1/transactions');
+  invalidateCache('GET:/api/v1/portfolio');
   next();
 }
 
@@ -185,8 +188,6 @@ async function handleVaultOperation(
   };
 
   try {
-    const invalidateReadCaches = () => invalidateCache();
-
     if (idempotencyKey) {
       const fingerprint = generateFingerprint(req.body);
       const { result, replayed } = await idempotencyStore.execute(
@@ -195,12 +196,18 @@ async function handleVaultOperation(
         operation,
       );
       if (replayed) res.setHeader('idempotency-status', 'replayed');
-      invalidateReadCaches();
+      // R5: pattern-scoped invalidation on successful write
+      invalidateCache('GET:/api/v1/vault');
+      invalidateCache('GET:/api/v1/transactions');
+      invalidateCache('GET:/api/v1/portfolio');
       return res.status(result.statusCode).json(result.body);
     }
 
     const result = await operation();
-    invalidateReadCaches();
+    // R5: pattern-scoped invalidation on successful write
+    invalidateCache('GET:/api/v1/vault');
+    invalidateCache('GET:/api/v1/transactions');
+    invalidateCache('GET:/api/v1/portfolio');
     return res.status(result.statusCode).json(result.body);
   } catch (err) {
     if (err instanceof IdempotencyConflictError) {

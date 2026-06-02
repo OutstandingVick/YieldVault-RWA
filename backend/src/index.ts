@@ -152,7 +152,7 @@ const port = process.env.PORT || 3000;
 const nodeEnv = process.env.NODE_ENV || 'development';
 const logLevel = (process.env.LOG_LEVEL || (nodeEnv === 'development' ? 'debug' : 'info')) as LogLevel;
 const drainTimeout = parseInt(process.env.DRAIN_TIMEOUT_MS || '30000', 10);
-const cacheVaultMetricsTtl = parseInt(process.env.CACHE_VAULT_METRICS_TTL_MS || '60000', 10);
+const cacheVaultMetricsTtl = parseInt(process.env.CACHE_TTL_MS || process.env.CACHE_VAULT_METRICS_TTL_MS || '60000', 10);
 
 // Configure logger
 logger.configure(logLevel);
@@ -1028,7 +1028,89 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
 });
 
 /**
- * POST /admin/cache/invalidate - Invalidate cache by pattern
+ * GET /admin/cache/stats - Get cache statistics including hit rate (R8)
+ * Requires API key authentication
+ */
+app.get('/admin/cache/stats', validateApiKey, async (_req: Request, res: Response) => {
+  const stats = getCacheStats();
+  // Compute hit rate from Prometheus counters by reading the registry metrics text
+  let hitRate: number | null = null;
+  try {
+    const metricsText = await register.metrics();
+    const hitMatch = metricsText.match(/^cache_hit_count(?:\{[^}]*\})?\s+([\d.]+)/m);
+    const missMatch = metricsText.match(/^cache_miss_count(?:\{[^}]*\})?\s+([\d.]+)/m);
+    // Sum all label combinations
+    const hitTotal = hitMatch
+      ? metricsText
+          .split('\n')
+          .filter((l) => l.startsWith('cache_hit_count'))
+          .reduce((acc, l) => {
+            const m = l.match(/\s+([\d.]+)$/);
+            return acc + (m ? parseFloat(m[1]) : 0);
+          }, 0)
+      : 0;
+    const missTotal = missMatch
+      ? metricsText
+          .split('\n')
+          .filter((l) => l.startsWith('cache_miss_count'))
+          .reduce((acc, l) => {
+            const m = l.match(/\s+([\d.]+)$/);
+            return acc + (m ? parseFloat(m[1]) : 0);
+          }, 0)
+      : 0;
+    const total = hitTotal + missTotal;
+    hitRate = total > 0 ? parseFloat((hitTotal / total).toFixed(4)) : null;
+  } catch {
+    hitRate = null;
+  }
+
+  res.json({
+    entryCount: stats.size,
+    entries: stats.entries,
+    hitRate,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/cache - Clear entire cache or by regex pattern (R8)
+ * ?pattern=<regex> removes only matching entries
+ * Requires API key authentication
+ */
+app.delete('/admin/cache', validateApiKey, (req: Request, res: Response) => {
+  const pattern = typeof req.query.pattern === 'string' ? req.query.pattern : undefined;
+
+  if (pattern !== undefined) {
+    if (pattern.trim() === '') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'pattern query parameter must not be empty; omit it to clear the entire cache',
+      });
+      return;
+    }
+    try {
+      new RegExp(pattern);
+    } catch (e) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: `Invalid regex pattern "${pattern}": ${e instanceof Error ? e.message : String(e)}`,
+      });
+      return;
+    }
+  }
+
+  const removed = invalidateCache(pattern);
+  res.json({
+    removed,
+    pattern: pattern ?? null,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/cache/invalidate - Invalidate cache by pattern (legacy endpoint)
  * Requires API key authentication
  */
 app.post('/admin/cache/invalidate', validateApiKey, (req: Request, res: Response) => {
@@ -1050,28 +1132,6 @@ app.post('/admin/cache/invalidate', validateApiKey, (req: Request, res: Response
     message: 'Cache invalidated',
     pattern,
     stats: getCacheStats(),
-  });
-});
-
-/**
- * GET /admin/cache/stats - Get cache statistics
- * Requires API key authentication
- */
-app.get('/admin/cache/stats', validateApiKey, (_req: Request, res: Response) => {
-  res.json({
-    cache: getCacheStats(),
-    timestamp: new Date().toISOString(),
-  });
-});
-
-/**
- * GET /admin/cache/eviction-stats - Get cache eviction statistics
- * Requires API key authentication
- */
-app.get('/admin/cache/eviction-stats', validateApiKey, (_req: Request, res: Response) => {
-  res.json({
-    cache: getCacheStats(),
-    timestamp: new Date().toISOString(),
   });
 });
 
