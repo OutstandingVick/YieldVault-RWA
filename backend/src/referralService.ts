@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
 import { normalizeWalletAddress } from './walletUtils';
+import { invalidateCache } from './middleware/cache';
 
 // Use the centralized Prisma Client instance
 const getPrisma = () => getPrismaClient();
@@ -73,7 +74,10 @@ export class ReferralService {
         walletAddress: normalizedReferred,
       });
       // We don't throw here to avoid blocking the main deposit flow
+      return;
     }
+    // R5: invalidate referral cache entries after a successful deposit
+    invalidateCache('GET:/api/v1/referrals');
   }
 
   /**
