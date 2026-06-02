@@ -1,47 +1,68 @@
 import React from "react";
 import { Modal } from "./Modal";
-import { AlertTriangle, ShieldAlert, Check, Loader2 } from "./icons";
+import { AlertTriangle, ShieldAlert, Check, Loader2, Copy } from "./icons";
 import { useTranslation } from "../i18n";
+import type { TransactionSummary } from "../types/transaction";
+import { copyTextToClipboard } from "../lib/clipboard";
 
 interface TransactionConfirmationModalProps {
+  /** Whether the modal is visible */
   isOpen: boolean;
-  onClose: () => void;
+
+  /** Called when user clicks Cancel or presses Escape */
+  onCancel: () => void;
+
+  /** Called when user clicks Confirm button */
   onConfirm: () => void;
-  isProcessing: boolean;
-  details: {
-    type: "deposit" | "withdraw";
-    amount: number;
-    asset: string;
-    network: string;
-    feeXlm: number;
-    protocolFeeUsdc: number;
-    strategyName: string;
-    isHighFee?: boolean;
-  };
+
+  /** Disables confirm button and shows loading spinner */
+  isLoading?: boolean;
+
+  /** Complete transaction summary for display and validation */
+  summary: TransactionSummary;
 }
 
+/**
+ * Security-focused transaction confirmation modal.
+ *
+ * Displays all transaction details (amount, asset, network, fee, contract)
+ * and highlights unusual values with warnings.
+ * Requires explicit user confirmation before wallet signing proceeds.
+ *
+ * Security Properties:
+ * - Modal is shown for every sensitive action without exception
+ * - Cannot be dismissed by backdrop click (explicit confirmation required)
+ * - Full contract addresses are displayed and copied, never truncated
+ * - Focus is trapped within modal, Escape calls onCancel
+ * - All ARIA attributes present for accessibility
+ */
 export const TransactionConfirmationModal: React.FC<TransactionConfirmationModalProps> = ({
   isOpen,
-  onClose,
+  onCancel,
   onConfirm,
-  isProcessing,
-  details,
+  isLoading = false,
+  summary,
 }) => {
   const { t } = useTranslation();
 
-  const isLargeAmount = details.amount >= 10000;
-  const hasRisk = isLargeAmount || details.isHighFee;
+  // Determine if confirm button should use warning style
+  const hasWarnings = summary.isUnusualAmount || summary.isUnusualFee || summary.isUnknownContract;
+  const confirmButtonLabel = hasWarnings ? "Confirm Anyway" : "Confirm";
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
-      title={details.type === "deposit" ? "Confirm Deposit" : "Confirm Withdrawal"}
+      onClose={onCancel}
+      title={`Confirm ${summary.actionType}`}
       size="md"
+      closeOnBackdropClick={false}
+      closeOnEscape={true}
+      aria-labelledby="modal-title-confirm"
+      aria-describedby="modal-desc-risk-summary"
     >
       <div style={{ padding: "12px 0" }}>
-        {/* Risk Summary if applicable */}
-        {hasRisk && (
+        {/* Warnings Section: Unusual Values */}
+        {hasWarnings && (
           <div
             style={{
               background: "rgba(255, 159, 10, 0.1)",
@@ -53,51 +74,129 @@ export const TransactionConfirmationModal: React.FC<TransactionConfirmationModal
               gap: "12px",
             }}
           >
-            <ShieldAlert color="var(--text-warning)" size={24} />
+            <ShieldAlert color="var(--text-warning)" size={24} style={{ flexShrink: 0 }} />
             <div>
               <div style={{ fontWeight: 600, color: "var(--text-warning)", marginBottom: "4px" }}>
-                Security Review Required
+                Review Transaction Details
               </div>
               <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                {isLargeAmount && (
-                  <li>Large transaction amount detected ($10k+).</li>
+                {summary.isUnusualAmount && (
+                  <li>This amount is unusually large.</li>
                 )}
-                {details.isHighFee && (
-                  <li>Network fees are unusually high relative to the amount.</li>
+                {summary.isUnusualFee && (
+                  <li>This fee is higher than usual.</li>
+                )}
+                {summary.isUnknownContract && (
+                  <li>This contract address is not in the verified list.</li>
                 )}
               </ul>
             </div>
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <div className="flex justify-between items-center">
+        {/* Transaction Details Section */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "20px" }}>
+          {/* Amount */}
+          <div className="flex justify-between items-start">
             <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Amount</span>
-            <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
-              {details.amount.toFixed(2)} {details.asset}
-            </span>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Network</span>
-            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>{details.network}</span>
-          </div>
-
-          <div className="flex justify-between items-center">
-            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Estimated Fees</span>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                {details.feeXlm.toFixed(6)} XLM (Network)
+              <div
+                style={{
+                  fontSize: "1.1rem",
+                  fontWeight: 700,
+                  color: summary.isUnusualAmount ? "var(--text-warning)" : "var(--text-primary)",
+                }}
+              >
+                {summary.amount}
               </div>
-              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                {details.protocolFeeUsdc.toFixed(4)} USDC (Protocol)
-              </div>
+              {summary.isUnusualAmount && (
+                <div style={{ fontSize: "0.75rem", color: "var(--text-warning)", marginTop: "2px" }}>
+                  Unusually large
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Asset */}
           <div className="flex justify-between items-center">
-            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Target Strategy</span>
-            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>{details.strategyName}</span>
+            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Asset</span>
+            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>{summary.asset}</span>
+          </div>
+
+          {/* Network */}
+          <div className="flex justify-between items-center">
+            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Network</span>
+            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>{summary.network}</span>
+          </div>
+
+          {/* Estimated Fee */}
+          <div className="flex justify-between items-start">
+            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Estimated Fee</span>
+            <div style={{ textAlign: "right" }}>
+              <div
+                style={{
+                  fontSize: "0.9rem",
+                  fontWeight: 600,
+                  color: summary.isUnusualFee ? "var(--text-warning)" : "var(--text-primary)",
+                }}
+              >
+                {summary.estimatedFee}
+              </div>
+              {summary.isUnusualFee && (
+                <div style={{ fontSize: "0.75rem", color: "var(--text-warning)", marginTop: "2px" }}>
+                  Higher than usual
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Contract Address */}
+          <div className="flex justify-between items-start">
+            <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Contract</span>
+            <div style={{ textAlign: "right", maxWidth: "50%" }}>
+              {summary.contractName && (
+                <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: "4px" }}>
+                  {summary.contractName}
+                </div>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  justifyContent: "flex-end",
+                  fontFamily: "monospace",
+                  fontSize: "0.75rem",
+                  color: summary.isUnknownContract ? "var(--text-warning)" : "var(--text-secondary)",
+                  wordBreak: "break-all",
+                }}
+              >
+                <span>{summary.contractAddress}</span>
+                <button
+                  type="button"
+                  onClick={() => copyTextToClipboard(summary.contractAddress)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--accent-cyan)",
+                    cursor: "pointer",
+                    padding: "2px",
+                    display: "flex",
+                    alignItems: "center",
+                    flexShrink: 0,
+                  }}
+                  title="Copy full address"
+                  aria-label="Copy contract address to clipboard"
+                >
+                  <Copy size={14} />
+                </button>
+              </div>
+              {summary.isUnknownContract && (
+                <div style={{ fontSize: "0.75rem", color: "var(--text-warning)", marginTop: "4px" }}>
+                  Not in verified list
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -105,31 +204,51 @@ export const TransactionConfirmationModal: React.FC<TransactionConfirmationModal
           style={{
             height: "1px",
             background: "var(--border-glass)",
-            margin: "24px 0",
+            margin: "20px 0",
           }}
         />
 
-        <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: "1.5", marginBottom: "24px" }}>
-          By confirming, you authorize a signature request in your wallet. 
-          {details.type === "withdraw" ? " Your shares will be burned and funds will be sent to your wallet." : " Your USDC will be deposited into the fund strategy."}
-        </p>
+        {/* Risk Summary Section */}
+        <div
+          id="modal-desc-risk-summary"
+          style={{
+            background: "rgba(0, 240, 255, 0.05)",
+            border: "1px solid rgba(0, 240, 255, 0.2)",
+            borderRadius: "8px",
+            padding: "12px",
+            marginBottom: "24px",
+            fontSize: "0.85rem",
+            color: "var(--text-secondary)",
+            lineHeight: "1.5",
+          }}
+        >
+          <p style={{ margin: 0, fontWeight: 500, color: "var(--accent-cyan)", marginBottom: "6px" }}>
+            ⚠️ Important
+          </p>
+          <p style={{ margin: 0 }}>
+            This transaction cannot be reversed once signed. Review all details carefully before confirming. Only proceed if you understand and accept the transaction parameters.
+          </p>
+        </div>
 
+        {/* Action Buttons */}
         <div className="flex gap-md">
           <button
+            type="button"
             className="btn btn-outline"
             style={{ flex: 1 }}
-            onClick={onClose}
-            disabled={isProcessing}
+            onClick={onCancel}
+            disabled={isLoading}
           >
             Cancel
           </button>
           <button
-            className="btn btn-primary"
+            type="button"
+            className={hasWarnings ? "btn btn-warning" : "btn btn-primary"}
             style={{ flex: 2, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
             onClick={onConfirm}
-            disabled={isProcessing}
+            disabled={isLoading}
           >
-            {isProcessing ? (
+            {isLoading ? (
               <>
                 <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
                 Signing...
@@ -137,7 +256,7 @@ export const TransactionConfirmationModal: React.FC<TransactionConfirmationModal
             ) : (
               <>
                 <Check size={18} />
-                Confirm & Sign
+                {confirmButtonLabel}
               </>
             )}
           </button>

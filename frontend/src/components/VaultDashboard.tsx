@@ -33,7 +33,6 @@ import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
-import { TransactionConfirmationModal } from "./TransactionConfirmationModal";
 import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
 import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
@@ -41,6 +40,8 @@ import RefreshControl from "./RefreshControl";
 import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
+import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation";
+import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -184,6 +185,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const withdrawMutation = useWithdrawMutation();
   const { approvalStatus, needsApproval, approve, resetApproval } =
     useTokenAllowance(walletAddress);
+  
+  // Transaction confirmation modal
+  const confirmation = useTransactionConfirmation();
 
   const { isOnline } = useNetworkStatus();
   const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
@@ -319,6 +323,32 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
 
     try {
+      // Build transaction summary and request user confirmation before signing
+      const contractAddress = networkConfig.contractId;
+      let summary;
+      
+      if (actionType === "deposit") {
+        summary = buildDepositSummary({
+          amount: value,
+          feeXlm,
+          contractAddress,
+        });
+      } else {
+        summary = buildWithdrawalSummary({
+          amount: value,
+          feeXlm,
+          contractAddress,
+        });
+      }
+
+      // Show confirmation modal and wait for user response
+      const confirmed = await confirmation.requestConfirmation(summary);
+      if (!confirmed) {
+        // User cancelled the confirmation
+        return;
+      }
+
+      // Proceed with the transaction after user confirmed
       if (actionType === "deposit") {
         await depositMutation.mutateAsync({ walletAddress, amount: value });
         
@@ -404,6 +434,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   return (
     <div className="vault-dashboard gap-lg">
+      {/* Transaction Confirmation Modal - shown for all sensitive actions */}
+      {confirmation.modal}
+      
       <div className="vault-dashboard-stats" aria-busy={delayedLoading}>
         <div className="glass-panel vault-stats-panel">
           {error && (
