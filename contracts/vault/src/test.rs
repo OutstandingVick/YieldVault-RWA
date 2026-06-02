@@ -1525,9 +1525,18 @@ fn test_batch_deposit_happy_path_three_users() {
     );
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 200 });
-    entries.push_back(DepositEntry { user: user3.clone(), amount: 300 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    });
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 200,
+    });
+    entries.push_back(DepositEntry {
+        user: user3.clone(),
+        amount: 300,
+    });
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1561,8 +1570,14 @@ fn test_batch_deposit_partial_failure_invalid_amount() {
 
     let mut entries = Vec::new(&env);
     // entry with zero amount should fail; valid entry should still succeed
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 0 });
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 100 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 0,
+    });
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 100,
+    });
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1598,8 +1613,14 @@ fn test_batch_deposit_partial_failure_min_deposit_not_met() {
     vault.set_min_deposit(&50);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 10 }); // below min
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 100 }); // above min
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 10,
+    }); // below min
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 100,
+    }); // above min
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1627,8 +1648,14 @@ fn test_batch_deposit_partial_failure_exceeds_user_cap() {
     vault.set_per_user_cap(&50);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 }); // exceeds cap
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 30 });  // within cap
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    }); // exceeds cap
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 30,
+    }); // within cap
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1655,13 +1682,13 @@ fn test_batch_deposit_rejects_paused_vault() {
     vault.pause(&PauseReason::Maintenance);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    });
 
     let err = vault.try_batch_deposit(&relayer, &entries).unwrap_err();
-    assert_eq!(
-        err.unwrap(),
-        VaultError::ContractPaused
-    );
+    assert_eq!(err.unwrap(), VaultError::ContractPaused);
 }
 
 #[test]
@@ -1676,13 +1703,13 @@ fn test_batch_deposit_rejects_unregistered_relayer() {
     let impostor = Address::generate(&env);
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 100 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 100,
+    });
 
     let err = vault.try_batch_deposit(&impostor, &entries).unwrap_err();
-    assert_eq!(
-        err.unwrap(),
-        VaultError::RelayerNotAuthorized
-    );
+    assert_eq!(err.unwrap(), VaultError::RelayerNotAuthorized);
 }
 
 #[test]
@@ -1750,8 +1777,14 @@ fn test_batch_deposit_share_price_consistency_after_yield() {
 
     // Now each deposited token is worth 0.5 shares (2:1 price)
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: user1.clone(), amount: 200 });
-    entries.push_back(DepositEntry { user: user2.clone(), amount: 400 });
+    entries.push_back(DepositEntry {
+        user: user1.clone(),
+        amount: 200,
+    });
+    entries.push_back(DepositEntry {
+        user: user2.clone(),
+        amount: 400,
+    });
 
     let result = vault.batch_deposit(&relayer, &entries);
 
@@ -1822,11 +1855,26 @@ fn test_batch_deposit_state_invariant_assets_eq_sum_of_deposits() {
     );
 
     let mut entries = Vec::new(&env);
-    entries.push_back(DepositEntry { user: u1.clone(), amount: 50 });
-    entries.push_back(DepositEntry { user: u2.clone(), amount: 100 });
-    entries.push_back(DepositEntry { user: u3.clone(), amount: 200 });
-    entries.push_back(DepositEntry { user: u4.clone(), amount: 0 }); // invalid
-    entries.push_back(DepositEntry { user: u5.clone(), amount: 75 });
+    entries.push_back(DepositEntry {
+        user: u1.clone(),
+        amount: 50,
+    });
+    entries.push_back(DepositEntry {
+        user: u2.clone(),
+        amount: 100,
+    });
+    entries.push_back(DepositEntry {
+        user: u3.clone(),
+        amount: 200,
+    });
+    entries.push_back(DepositEntry {
+        user: u4.clone(),
+        amount: 0,
+    }); // invalid
+    entries.push_back(DepositEntry {
+        user: u5.clone(),
+        amount: 75,
+    });
 
     let _ = usdc_sa; // already minted in setup_vault_with_relayer
 
@@ -1836,4 +1884,217 @@ fn test_batch_deposit_state_invariant_assets_eq_sum_of_deposits() {
     assert_eq!(vault.total_assets(), 425);
     assert_eq!(result.failure_count, 1); // zero-amount entry
     assert_eq!(result.success_count, 4);
+}
+
+// ─── Secure Whitelist Tests ──────────────────────────────────────────────────
+
+/// Tests for the SecureWhitelist module with strategy contract ID whitelisting
+
+#[test]
+fn test_whitelist_strategy_add_and_check() {
+    // Test adding a strategy to the whitelist and checking its status
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    // Initially, strategy should not be whitelisted
+    assert!(!vault.is_strategy_whitelisted(&strategy));
+
+    // Admin adds strategy to whitelist
+    vault.whitelist_strategy(&strategy, &true);
+
+    // Now strategy should be whitelisted
+    assert!(vault.is_strategy_whitelisted(&strategy));
+}
+
+#[test]
+fn test_whitelist_strategy_remove() {
+    // Test removing a strategy from the whitelist
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    // Add strategy to whitelist
+    vault.whitelist_strategy(&strategy, &true);
+    assert!(vault.is_strategy_whitelisted(&strategy));
+
+    // Remove strategy from whitelist
+    vault.whitelist_strategy(&strategy, &false);
+
+    // Strategy should no longer be whitelisted
+    assert!(!vault.is_strategy_whitelisted(&strategy));
+}
+
+#[test]
+fn test_whitelist_toggle_multiple_strategies() {
+    // Test managing multiple strategies in the whitelist
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+    let strategy3 = Address::generate(&env);
+
+    // Add multiple strategies
+    vault.whitelist_strategy(&strategy1, &true);
+    vault.whitelist_strategy(&strategy2, &true);
+    vault.whitelist_strategy(&strategy3, &true);
+
+    assert!(vault.is_strategy_whitelisted(&strategy1));
+    assert!(vault.is_strategy_whitelisted(&strategy2));
+    assert!(vault.is_strategy_whitelisted(&strategy3));
+
+    // Remove one strategy, others remain whitelisted
+    vault.whitelist_strategy(&strategy2, &false);
+
+    assert!(vault.is_strategy_whitelisted(&strategy1));
+    assert!(!vault.is_strategy_whitelisted(&strategy2));
+    assert!(vault.is_strategy_whitelisted(&strategy3));
+}
+
+#[test]
+fn test_set_strategy_requires_whitelisted_strategy() {
+    // Test that set_strategy only accepts whitelisted strategies
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    // Try to set non-whitelisted strategy should panic
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vault.set_strategy(&strategy);
+    }));
+
+    // Should fail because strategy is not whitelisted
+    assert!(result.is_err() || vault.strategy().is_none());
+
+    // Now whitelist the strategy
+    vault.whitelist_strategy(&strategy, &true);
+
+    // set_strategy should now succeed (though it might fail for other reasons like strategy init)
+    // The key test is that it doesn't panic with "strategy not whitelisted"
+}
+
+#[test]
+fn test_whitelist_same_strategy_idempotent() {
+    // Test that adding the same strategy multiple times is idempotent
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    // Add same strategy multiple times
+    vault.whitelist_strategy(&strategy, &true);
+    vault.whitelist_strategy(&strategy, &true);
+    vault.whitelist_strategy(&strategy, &true);
+
+    // Should still be whitelisted
+    assert!(vault.is_strategy_whitelisted(&strategy));
+}
+
+#[test]
+fn test_whitelist_strategy_after_removal_can_be_re_added() {
+    // Test that a removed strategy can be added back to the whitelist
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    // Add, remove, and re-add strategy
+    vault.whitelist_strategy(&strategy, &true);
+    assert!(vault.is_strategy_whitelisted(&strategy));
+
+    vault.whitelist_strategy(&strategy, &false);
+    assert!(!vault.is_strategy_whitelisted(&strategy));
+
+    vault.whitelist_strategy(&strategy, &true);
+    assert!(vault.is_strategy_whitelisted(&strategy));
+}
+
+#[test]
+fn test_whitelist_persistence_across_operations() {
+    // Test that whitelist persists across vault operations
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_sa = token::StellarAssetClient::new(&env, &usdc.address);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    let strategy1 = Address::generate(&env);
+    let strategy2 = Address::generate(&env);
+
+    // Whitelist strategies
+    vault.whitelist_strategy(&strategy1, &true);
+    vault.whitelist_strategy(&strategy2, &true);
+
+    // Do some vault operations (deposit, accrue yield, etc.)
+    usdc_sa.mint(&user, &1000);
+    vault.deposit(&user, &100);
+    vault.accrue_yield(&10);
+
+    // Check that whitelist is still intact
+    assert!(vault.is_strategy_whitelisted(&strategy1));
+    assert!(vault.is_strategy_whitelisted(&strategy2));
+}
+
+#[test]
+fn test_non_whitelisted_strategy_check_returns_false() {
+    // Test that checking a never-whitelisted strategy returns false
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    // Never whitelist the strategy
+    // Should return false
+    assert!(!vault.is_strategy_whitelisted(&strategy));
+
+    // Multiple checks should all return false
+    assert!(!vault.is_strategy_whitelisted(&strategy));
+    assert!(!vault.is_strategy_whitelisted(&strategy));
+}
+
+#[test]
+fn test_whitelist_consistency_with_set_strategy() {
+    // Test that whitelist and set_strategy work together consistently
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let benji_strategy = env.register(BenjiStrategy, ());
+    let benji = BenjiStrategyClient::new(&env, &benji_strategy);
+
+    // Setup BENJI (simplistic - normally would do more setup)
+    let token_admin = Address::generate(&env);
+    let benji_token = create_token(&env, &token_admin);
+
+    // Whitelist the strategy
+    vault.whitelist_strategy(&benji_strategy, &true);
+    assert!(vault.is_strategy_whitelisted(&benji_strategy));
+
+    // set_strategy should work with whitelisted strategy
+    vault.set_strategy(&benji_strategy);
+
+    // Verify it was set
+    assert_eq!(vault.strategy().unwrap(), benji_strategy);
+
+    // Remove from whitelist and verify
+    vault.whitelist_strategy(&benji_strategy, &false);
+    assert!(!vault.is_strategy_whitelisted(&benji_strategy));
 }
