@@ -1,5 +1,6 @@
 import React from "react";
 import { Wallet, Layers, TrendingUp } from "./icons";
+import { useTranslation } from "../i18n";
 import "./OnboardingPanel.css";
 
 interface OnboardingStep {
@@ -25,31 +26,33 @@ const OnboardingPanel: React.FC<OnboardingPanelProps> = ({
   onReviewVault,
   onDeposit,
 }) => {
+  const { t } = useTranslation();
+
   const steps: OnboardingStep[] = [
     {
       step: 1,
       icon: <Wallet size={24} />,
-      title: "Connect Your Wallet",
-      description: "Link your Freighter wallet to get started with YieldVault.",
-      actionLabel: walletConnected ? "Connected ✓" : "Connect Wallet",
+      title: t("onboarding.step1.title"),
+      description: t("onboarding.step1.description"),
+      actionLabel: walletConnected ? t("onboarding.step1.connected") : t("onboarding.step1.action"),
       onAction: onConnectWallet,
       completed: walletConnected,
     },
     {
       step: 2,
       icon: <Layers size={24} />,
-      title: "Review Vault Details",
-      description: "Explore APY, strategy, and TVL before committing funds.",
-      actionLabel: "View Vault",
+      title: t("onboarding.step2.title"),
+      description: t("onboarding.step2.description"),
+      actionLabel: t("onboarding.step2.action"),
       onAction: onReviewVault,
       completed: false,
     },
     {
       step: 3,
       icon: <TrendingUp size={24} />,
-      title: "Make Your First Deposit",
-      description: "Deposit USDC to start earning yield backed by real-world assets.",
-      actionLabel: "Deposit Now",
+      title: t("onboarding.step3.title"),
+      description: t("onboarding.step3.description"),
+      actionLabel: t("onboarding.step3.action"),
       onAction: onDeposit,
       completed: false,
     },
@@ -58,15 +61,15 @@ const OnboardingPanel: React.FC<OnboardingPanelProps> = ({
   const activeStep = walletConnected ? 1 : 0;
 
   return (
-    <div className="onboarding-panel" role="region" aria-label="Getting started guide">
+    <div className="onboarding-panel" role="region" aria-label={t("onboarding.ariaLabel")}>
       <div className="onboarding-panel-header">
-        <h2 className="onboarding-panel-title">Get Started with YieldVault</h2>
+        <h2 className="onboarding-panel-title">{t("onboarding.title")}</h2>
         <p className="onboarding-panel-subtitle">
-          Follow these steps to start earning institutional-grade yield on your USDC.
+          {t("onboarding.subtitle")}
         </p>
       </div>
 
-      <ol className="onboarding-steps" aria-label="Onboarding steps">
+      <ol className="onboarding-steps" aria-label={t("onboarding.stepsAria")}>
         {steps.map((s, idx) => {
           const isActive = idx === activeStep;
           const isPast = s.completed;

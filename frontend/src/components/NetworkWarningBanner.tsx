@@ -1,6 +1,7 @@
 import React from "react";
 import { AlertTriangle } from "./icons";
 import { useWalletNetwork } from "../hooks/useWalletNetwork";
+import { useTranslation } from "../i18n";
 
 interface NetworkWarningBannerProps {
   walletAddress: string | null;
@@ -8,6 +9,7 @@ interface NetworkWarningBannerProps {
 
 const NetworkWarningBanner: React.FC<NetworkWarningBannerProps> = ({ walletAddress }) => {
   const { isMismatch, walletNetwork, expectedNetwork } = useWalletNetwork(walletAddress);
+  const { t } = useTranslation();
 
   if (!isMismatch) return null;
 
@@ -36,11 +38,12 @@ const NetworkWarningBanner: React.FC<NetworkWarningBannerProps> = ({ walletAddre
     >
       <AlertTriangle size={18} style={{ flexShrink: 0 }} />
       <span>
-        <strong>Wrong network:</strong> your wallet is on{" "}
-        <strong>{walletNetwork}</strong>, but this app requires{" "}
+        <strong>{t("networkWarning.wrongNetwork")}</strong>{" "}
+        {t("networkWarning.walletOn")}{" "}
+        <strong>{walletNetwork}</strong>,{" "}
+        {t("networkWarning.appRequires")}{" "}
         <strong>{expectedNetwork}</strong>.{" "}
-        Open Freighter → Settings → Network and switch to{" "}
-        <strong>{expectedNetwork}</strong> to continue.
+        {t("networkWarning.switchInstructions").replace("{{network}}", expectedNetwork ?? "")}
       </span>
     </div>
   );

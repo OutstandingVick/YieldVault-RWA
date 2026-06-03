@@ -1,5 +1,6 @@
 import React from "react";
 import { Wallet, ShieldCheck, DollarSign, ChevronRight } from "./icons";
+import { useTranslation } from "../i18n";
 import "./FirstTimePortfolioPanel.css";
 
 interface Step {
@@ -25,31 +26,33 @@ const FirstTimePortfolioPanel: React.FC<FirstTimePortfolioPanelProps> = ({
   onReviewVault,
   onDeposit,
 }) => {
+  const { t } = useTranslation();
+
   const steps: Step[] = [
     {
       number: 1,
       icon: <Wallet size={24} />,
-      title: "Connect Your Wallet",
-      description: "Link your Freighter wallet to access the vault and manage your positions securely on Stellar.",
-      actionLabel: walletConnected ? "Connected" : "Connect Wallet",
+      title: t("firstDeposit.step1.title"),
+      description: t("firstDeposit.step1.description"),
+      actionLabel: walletConnected ? t("firstDeposit.step1.connected") : t("firstDeposit.step1.action"),
       onAction: onConnectWallet,
       completed: walletConnected,
     },
     {
       number: 2,
       icon: <ShieldCheck size={24} />,
-      title: "Review Vault Details",
-      description: "Explore the vault strategy, current APY, TVL, and risk profile before committing funds.",
-      actionLabel: "View Vault",
+      title: t("firstDeposit.step2.title"),
+      description: t("firstDeposit.step2.description"),
+      actionLabel: t("firstDeposit.step2.action"),
       onAction: onReviewVault,
       completed: false,
     },
     {
       number: 3,
       icon: <DollarSign size={24} />,
-      title: "Make Your First Deposit",
-      description: "Deposit USDC to receive yvUSDC shares and start earning yield from tokenized real-world assets.",
-      actionLabel: "Deposit Now",
+      title: t("firstDeposit.step3.title"),
+      description: t("firstDeposit.step3.description"),
+      actionLabel: t("firstDeposit.step3.action"),
       onAction: onDeposit,
       completed: false,
     },
@@ -58,15 +61,13 @@ const FirstTimePortfolioPanel: React.FC<FirstTimePortfolioPanelProps> = ({
   const activeStep = steps.findIndex((s) => !s.completed);
 
   return (
-    <div className="ftp-panel" role="region" aria-label="Getting started guide">
+    <div className="ftp-panel" role="region" aria-label={t("firstDeposit.ariaLabel")}>
       <div className="ftp-header">
-        <h2 className="ftp-title">Get Started with YieldVault</h2>
-        <p className="ftp-subtitle">
-          Follow these three steps to start earning yield on your USDC.
-        </p>
+        <h2 className="ftp-title">{t("firstDeposit.title")}</h2>
+        <p className="ftp-subtitle">{t("firstDeposit.subtitle")}</p>
       </div>
 
-      <ol className="ftp-steps" aria-label="Onboarding steps">
+      <ol className="ftp-steps" aria-label={t("firstDeposit.stepsAria")}>
         {steps.map((step, index) => {
           const isActive = index === activeStep;
           const isPast = step.completed;
@@ -102,7 +103,9 @@ const FirstTimePortfolioPanel: React.FC<FirstTimePortfolioPanelProps> = ({
                   className={`btn ftp-step-btn ${isPast ? "btn-outline" : isActive ? "btn-primary" : "btn-outline"}`}
                   onClick={step.onAction}
                   disabled={isPast || isFuture}
-                  aria-label={`${step.actionLabel} — step ${step.number}`}
+                  aria-label={t("firstDeposit.stepAria")
+                    .replace("{{action}}", step.actionLabel)
+                    .replace("{{number}}", String(step.number))}
                 >
                   {step.actionLabel}
                   {isActive && <ChevronRight size={16} aria-hidden="true" />}

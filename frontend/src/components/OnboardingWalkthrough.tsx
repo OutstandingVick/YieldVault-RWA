@@ -1,37 +1,22 @@
 import React, { useState } from "react";
 import { X, ChevronRight, ChevronLeft } from "lucide-react";
-
-interface Step {
-  title: string;
-  copy: string;
-}
-
-const STEPS: Step[] = [
-  {
-    title: "Welcome to YieldVault!",
-    copy: "Earn institutional yields backed by Real-World Assets.",
-  },
-  {
-    title: "Connect Wallet",
-    copy: "Connect your Freighter wallet using the 'Connect Wallet' button in the top right to get started.",
-  },
-  {
-    title: "Input Amount",
-    copy: "Enter the amount of USDC you'd like to deposit in the Vault Dashboard.",
-  },
-  {
-    title: "Deposit & Earn",
-    copy: "Approve the spend and click Deposit to start earning daily yield!",
-  },
-];
+import { useTranslation } from "../i18n";
 
 const LOCAL_STORAGE_KEY = "hasSeenWalkthrough";
 
 const OnboardingWalkthrough: React.FC = () => {
+  const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(
     () => !localStorage.getItem(LOCAL_STORAGE_KEY),
   );
   const [currentStep, setCurrentStep] = useState(0);
+
+  const STEPS = [
+    { title: t("walkthrough.steps.welcome.title"), copy: t("walkthrough.steps.welcome.copy") },
+    { title: t("walkthrough.steps.connectWallet.title"), copy: t("walkthrough.steps.connectWallet.copy") },
+    { title: t("walkthrough.steps.inputAmount.title"), copy: t("walkthrough.steps.inputAmount.copy") },
+    { title: t("walkthrough.steps.depositEarn.title"), copy: t("walkthrough.steps.depositEarn.copy") },
+  ];
 
   const handleDismiss = () => {
     localStorage.setItem(LOCAL_STORAGE_KEY, "true");
@@ -96,7 +81,7 @@ const OnboardingWalkthrough: React.FC = () => {
             alignItems: "center",
             justifyContent: "center",
           }}
-          aria-label="Close walkthrough"
+          aria-label={t("walkthrough.closeAria")}
         >
           <X size={20} />
         </button>
@@ -162,7 +147,7 @@ const OnboardingWalkthrough: React.FC = () => {
                   gap: "4px",
                 }}
               >
-                <ChevronLeft size={16} /> Back
+                <ChevronLeft size={16} /> {t("walkthrough.back")}
               </button>
             )}
             <button
@@ -179,7 +164,7 @@ const OnboardingWalkthrough: React.FC = () => {
                 fontWeight: 600,
               }}
             >
-              {currentStep === STEPS.length - 1 ? "Finish" : "Next"}
+              {currentStep === STEPS.length - 1 ? t("walkthrough.finish") : t("walkthrough.next")}
               {currentStep < STEPS.length - 1 && <ChevronRight size={16} />}
             </button>
           </div>

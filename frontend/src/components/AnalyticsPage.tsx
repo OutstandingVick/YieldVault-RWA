@@ -1,40 +1,43 @@
 import { Activity, BarChart3, Landmark, PieChart } from 'lucide-react';
-
-const metricCards = [
-  {
-    icon: Landmark,
-    label: 'Total Value Locked',
-    value: '$12,450,800',
-    detail: 'Across sovereign debt allocations and daily yield accrual.',
-  },
-  {
-    icon: Activity,
-    label: 'Current APY',
-    value: '8.45%',
-    detail: 'Net blended return from the active BENJI Strategy sleeve.',
-  },
-  {
-    icon: PieChart,
-    label: 'Vault Exchange Rate',
-    value: '1 yvUSDC = 1.084 USDC',
-    detail: 'Share price reflects auto-compounded yield in the live vault.',
-  },
-  {
-    icon: BarChart3,
-    label: 'Network Fee',
-    value: '~0.00001 XLM',
-    detail: 'Estimated Stellar submission cost for standard user actions.',
-  },
-];
+import { useTranslation } from '../i18n';
 
 function AnalyticsPage() {
+  const { t } = useTranslation();
+
+  const metricCards = [
+    {
+      icon: Landmark,
+      label: t('analytics.metrics.tvl.label'),
+      value: '$12,450,800',
+      detail: t('analytics.metrics.tvl.detail'),
+    },
+    {
+      icon: Activity,
+      label: t('analytics.metrics.apy.label'),
+      value: '8.45%',
+      detail: t('analytics.metrics.apy.detail'),
+    },
+    {
+      icon: PieChart,
+      label: t('analytics.metrics.exchangeRate.label'),
+      value: '1 yvUSDC = 1.084 USDC',
+      detail: t('analytics.metrics.exchangeRate.detail'),
+    },
+    {
+      icon: BarChart3,
+      label: t('analytics.metrics.networkFee.label'),
+      value: '~0.00001 XLM',
+      detail: t('analytics.metrics.networkFee.detail'),
+    },
+  ];
+
   return (
     <section className="flex flex-col gap-lg">
       <header className="glass-panel analytics-header">
         <span className="tag cyan" style={{ marginBottom: '16px' }}>
-          Live Analytics
+          {t('analytics.tag')}
         </span>
-        <h2 style={{ fontSize: '2.4rem', marginBottom: '12px' }}>Project Analytics</h2>
+        <h2 style={{ fontSize: '2.4rem', marginBottom: '12px' }}>{t('analytics.title')}</h2>
         <p
           style={{
             color: 'var(--text-secondary)',
@@ -42,8 +45,7 @@ function AnalyticsPage() {
             maxWidth: '720px',
           }}
         >
-          Track the vault&apos;s live performance, strategy efficiency, and user-facing settlement
-          costs from a single monitoring view.
+          {t('analytics.description')}
         </p>
       </header>
 
