@@ -18,6 +18,7 @@ export const en = {
     vaults: "Vaults",
     portfolio: "Portfolio",
     analytics: "Analytics",
+    transactions: "Transactions",
   },
   theme: {
     toggleToDark: "Toggle to dark mode",

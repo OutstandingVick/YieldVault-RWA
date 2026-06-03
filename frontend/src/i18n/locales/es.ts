@@ -17,7 +17,8 @@ export const es = {
     },
     vaults: "Bóvedas",
     portfolio: "Portafolio",
-    analytics: "Analítica",
+    analytics: "Analica",
+    transactions: "Transacciones",
   },
   theme: {
     toggleToDark: "Cambiar al modo oscuro",

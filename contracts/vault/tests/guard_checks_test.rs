@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod guard_checks_test {
     // Integration test imports
-    use vault::{YieldVault, VaultError};
-    use soroban_sdk::{Env, testutils::Address as TestAddress, testutils::Ledger};
+    use soroban_sdk::{testutils::Address as TestAddress, testutils::Ledger, Env};
+    use vault::{VaultError, YieldVault};
 
     fn create_env() -> Env {
         let env = Env::default();
@@ -39,7 +39,9 @@ mod guard_checks_test {
         let deposit_amount: i128 = 1_000_000;
         let _ = YieldVault::deposit(env, user.clone(), deposit_amount).unwrap();
         // Advance ledger sequence
-        env.ledger().with_mut(|li| { li.sequence_number += 1; });
+        env.ledger().with_mut(|li| {
+            li.sequence_number += 1;
+        });
         // Withdraw
         let shares = YieldVault::balance(env, user.clone());
         let result = YieldVault::withdraw(env, user.clone(), shares);

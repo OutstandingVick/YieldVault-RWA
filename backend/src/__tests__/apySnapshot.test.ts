@@ -54,9 +54,9 @@ describe('APY Snapshot – getApyHistory()', () => {
     }
   });
 
-  it('clamps days to 365 maximum', async () => {
+  it('clamps days to 90 maximum', async () => {
     const history = await getApyHistory(999);
-    expect(history.length).toBeLessThanOrEqual(365);
+    expect(history.length).toBeLessThanOrEqual(90);
   });
 
   it('clamps days to 1 minimum', async () => {
