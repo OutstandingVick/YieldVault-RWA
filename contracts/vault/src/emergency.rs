@@ -27,6 +27,10 @@ pub struct EmergencyProposal {
     pub initiator: Address,
     pub confirmed: bool,
     pub executed: bool,
+    pub cancelled: bool,
+    /// Ledger timestamp after which the secondary approver may confirm.
+    /// The admin may cancel the proposal before this deadline passes.
+    pub dispute_deadline: u64,
 }
 
 pub fn read_proposal(env: &Env, id: u32) -> Option<EmergencyProposal> {
