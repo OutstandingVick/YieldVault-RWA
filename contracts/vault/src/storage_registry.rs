@@ -158,6 +158,10 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
         name: symbol_short!("EmrgProp"),
         parameterized: true,
     });
+    keys.push_back(scalar(
+        StorageNamespace::Emergency,
+        "EmergencyDisputeWindow",
+    ));
 
     keys
 }

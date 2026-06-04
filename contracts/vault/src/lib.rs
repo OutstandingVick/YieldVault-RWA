@@ -199,6 +199,8 @@ pub enum DataKey {
     RelayerWhitelist(Address),
     // Maximum entries allowed in a single batch_deposit call
     MaxBatchSize,
+    // Dispute window duration in seconds for emergency proposals (default 3600 = 1 hour)
+    EmergencyDisputeWindow,
 }
 
 #[contracttype]
@@ -296,6 +298,12 @@ pub enum VaultError {
     BatchTooLarge = 16,
     /// Caller is not a registered relayer and cannot submit batch deposits.
     RelayerNotAuthorized = 17,
+    /// Emergency proposal is still within the dispute window and cannot be confirmed yet.
+    DisputeWindowActive = 18,
+    /// Emergency proposal has been cancelled and cannot be confirmed or executed.
+    ProposalCancelled = 19,
+    /// Dispute window has already closed; the proposal can no longer be cancelled.
+    DisputeWindowClosed = 20,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -548,6 +556,10 @@ impl YieldVault {
     }
 
     /// Primary approver initiates a dual-approval emergency action.
+    ///
+    /// A dispute window starts immediately. The admin may call
+    /// `cancel_emergency_action` before the window closes. The secondary
+    /// approver can only confirm after the dispute window has elapsed.
     pub fn propose_emergency_action(
         env: Env,
         initiator: Address,
@@ -560,6 +572,17 @@ impl YieldVault {
         let primary = emergency::primary_approver(&env).expect("primary approver not set");
         assert!(initiator == primary, "only primary approver can initiate");
 
+        let window_secs: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EmergencyDisputeWindow)
+            .unwrap_or(3_600u64);
+        let dispute_deadline = env
+            .ledger()
+            .timestamp()
+            .checked_add(window_secs)
+            .expect("overflow");
+
         let proposal_id = emergency::next_proposal_id(&env);
         let proposal = emergency::EmergencyProposal {
             kind,
@@ -569,15 +592,20 @@ impl YieldVault {
             initiator: initiator.clone(),
             confirmed: false,
             executed: false,
+            cancelled: false,
+            dispute_deadline,
         };
         emergency::write_proposal(&env, proposal_id, &proposal);
         env.events()
-            .publish((symbol_short!("emrgprop"),), (proposal_id, kind as u32));
+            .publish((symbol_short!("emrgprop"),), (proposal_id, kind as u32, dispute_deadline));
         proposal_id
     }
 
     /// Secondary approver confirms and executes a pending emergency action.
-    pub fn confirm_emergency_action(env: Env, confirmer: Address, proposal_id: u32) {
+    ///
+    /// Confirmation is only allowed after the dispute window has closed and the
+    /// proposal has not been cancelled.
+    pub fn confirm_emergency_action(env: Env, confirmer: Address, proposal_id: u32) -> Result<(), VaultError> {
         confirmer.require_auth();
         let secondary = emergency::secondary_approver(&env).expect("secondary approver not set");
         assert!(
@@ -592,6 +620,13 @@ impl YieldVault {
             proposal.initiator != confirmer,
             "confirmer must differ from initiator"
         );
+
+        if proposal.cancelled {
+            return Err(VaultError::ProposalCancelled);
+        }
+        if env.ledger().timestamp() < proposal.dispute_deadline {
+            return Err(VaultError::DisputeWindowActive);
+        }
 
         proposal.confirmed = true;
         emergency::write_proposal(&env, proposal_id, &proposal);
@@ -620,6 +655,52 @@ impl YieldVault {
             (symbol_short!("emrgexec"),),
             (proposal_id, proposal.kind as u32),
         );
+        Ok(())
+    }
+
+    /// Admin cancels an emergency proposal during its dispute window.
+    ///
+    /// Once the dispute window closes the proposal can no longer be cancelled
+    /// and must proceed through secondary confirmation.
+    pub fn cancel_emergency_action(env: Env, proposal_id: u32) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let mut proposal = emergency::read_proposal(&env, proposal_id).expect("proposal not found");
+        assert!(!proposal.executed, "proposal already executed");
+
+        if proposal.cancelled {
+            return Err(VaultError::ProposalCancelled);
+        }
+        if env.ledger().timestamp() >= proposal.dispute_deadline {
+            return Err(VaultError::DisputeWindowClosed);
+        }
+
+        proposal.cancelled = true;
+        emergency::write_proposal(&env, proposal_id, &proposal);
+        env.events()
+            .publish((symbol_short!("emrgcncl"),), (proposal_id,));
+        Ok(())
+    }
+
+    /// Sets the dispute window duration (in seconds) for new emergency proposals.
+    ///
+    /// Only the admin may configure this. Defaults to `3600` (1 hour) if never set.
+    pub fn set_emergency_dispute_window(env: Env, seconds: u64) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        assert!(seconds > 0, "dispute window must be positive");
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyDisputeWindow, &seconds);
+    }
+
+    /// Returns the configured dispute window in seconds (default 3600).
+    pub fn emergency_dispute_window(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyDisputeWindow)
+            .unwrap_or(3_600u64)
     }
 
     pub fn emergency_proposal(env: Env, proposal_id: u32) -> Option<emergency::EmergencyProposal> {
