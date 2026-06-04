@@ -99,6 +99,7 @@ const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> 
   onDismiss,
 }) => {
   const { status, elapsedSeconds, errorMessage } = useTransactionTimeline({ txHash });
+  const { t } = useTranslation();
 
   return (
     <div
@@ -112,12 +113,12 @@ const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> 
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
         <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-secondary)" }}>
-          Live Status
+          {t("txHistory.liveStatus")}
         </span>
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss timeline"
+          aria-label={t("txHistory.dismissTimeline")}
           style={{
             background: "none",
             border: "none",
@@ -155,7 +156,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const columns: DataTableColumn<Transaction>[] = React.useMemo(() => [
     {
       id: "type",
-      header: "Type",
+      header: t("txHistory.typeHeader"),
       sortable: true,
       cell: (row) => (
         <Badge variant="status" color={row.type === "deposit" ? "cyan" : "error"}>
@@ -165,7 +166,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     },
     {
       id: "status",
-      header: "Status",
+      header: t("txHistory.statusHeader"),
       sortable: true,
       cell: (row) => (
         <button
@@ -179,7 +180,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             padding: 0,
             cursor: row.status === "pending" ? "pointer" : "default",
           }}
-          title={row.status === "pending" ? "Click to track live status" : undefined}
+          title={row.status === "pending" ? t("txHistory.clickToTrack") : undefined}
           aria-expanded={row.status === "pending" ? selectedPendingHash === row.transactionHash : undefined}
         >
           <Badge
@@ -194,25 +195,25 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     },
     {
       id: "amount",
-      header: "Amount",
+      header: t("txHistory.amountHeader"),
       sortable: true,
       cell: (row) => <span>{formatAmount(row.amount, row.asset)}</span>,
     },
     {
       id: "asset",
-      header: "Asset",
+      header: t("txHistory.assetHeader"),
       sortable: false,
       cell: (row) => <span>{row.asset ?? "—"}</span>,
     },
     {
       id: "date",
-      header: "Date",
+      header: t("txHistory.dateHeader"),
       sortable: true,
       cell: (row) => <span>{formatTimestamp(row.timestamp)}</span>,
     },
     {
       id: "hash",
-      header: "Transaction Hash",
+      header: t("txHistory.hashHeader"),
       sortable: false,
       cell: (row) => (
         <a
@@ -462,8 +463,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       title={hasActiveFilters ? "No transactions found" : "No transactions yet"}
       description={
         hasActiveFilters
-          ? "No transactions match your current filters."
-          : "Once you make a deposit or withdrawal, it will appear here."
+          ? t("txHistory.noResults.desc")
+          : t("txHistory.noTransactions.desc")
       }
       icon={<Activity size={24} />}
       action={
@@ -482,11 +483,12 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       <PageHeader
         title={
           <>
-            Transaction <span className="text-gradient">History</span>
+            {t("txHistory.pageTitle").replace("Transaction ", "Transaction ")}{" "}
+            <span className="text-gradient">History</span>
           </>
         }
-        description="View all your past deposits and withdrawals."
-        breadcrumbs={[{ label: "Home", href: "/" }, { label: "Transactions" }]}
+        description={t("txHistory.pageDesc")}
+        breadcrumbs={[{ label: "Home", href: "/" }, { label: t("txHistory.pageTitle") }]}
         statusChips={
           walletAddress
             ? [
@@ -495,7 +497,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                   variant: "cyan",
                 },
                 {
-                  label: isLoading ? "Loading..." : "Up to date",
+                  label: isLoading ? t("txHistory.loadingLabel") : t("txHistory.upToDateLabel"),
                   variant: isLoading ? "warning" : "success",
                 },
               ]

@@ -161,6 +161,73 @@ npm run dev
 
 Thank you for your contributions!
 
+## Internationalization (i18n)
+
+The frontend uses a lightweight custom i18n system located in `frontend/src/i18n/`.
+
+### How it works
+
+- `frontend/src/i18n/index.ts` — exports `t(key)`, `useTranslation()`, `setLocale()`, and `getLocale()`.
+- `frontend/src/i18n/locales/en.ts` — English baseline catalog (source of truth).
+- `frontend/src/i18n/locales/es.ts` — Spanish catalog (mirrors the same nested key structure).
+- All visible UI strings must go through `t("some.key")` — no hardcoded strings in JSX.
+
+### Adding a new locale
+
+1. **Create the catalog file** — copy `frontend/src/i18n/locales/en.ts` to `frontend/src/i18n/locales/<code>.ts` (e.g. `fr.ts`). Translate every leaf string. Keep the same nested key structure; do not add or remove keys.
+
+2. **Register the locale** in `frontend/src/i18n/index.ts`:
+   - Import your catalog: `import { fr } from "./locales/fr";`
+   - Add it to `catalogs`: `fr: fr as MessageTree,`
+   - Extend the `LocaleCode` union: `export type LocaleCode = "en" | "es" | "fr";`
+   - Add it to the `setLocale` guard: `if (code === "en" || code === "es" || code === "fr") { ... }`
+
+3. **Add the locale to `LanguageSwitcher`** in `frontend/src/components/LanguageSwitcher.tsx`:
+   ```ts
+   const LOCALES: { code: LocaleCode; flag: string }[] = [
+     { code: "en", flag: "🇺🇸" },
+     { code: "es", flag: "🇪🇸" },
+     { code: "fr", flag: "🇫🇷" }, // ← add your entry
+   ];
+   ```
+
+4. **Add display labels** for the new locale in both `en.ts` and your new file:
+   ```ts
+   // en.ts
+   langSwitch: { en: "English", es: "Español", fr: "Français" }
+
+   // fr.ts
+   langSwitch: { en: "English", es: "Español", fr: "Français" }
+   ```
+
+5. **Verify** by switching to the new locale in Settings → Language & Region → App Language.
+
+### Interpolation
+
+Strings with dynamic values use `{{placeholder}}` syntax. Call `.replace()` at the call site:
+
+```ts
+t("session.warning.message").replace("{{minutes}}", String(minutesLeft))
+```
+
+### Using translations in components
+
+```tsx
+import { useTranslation } from "../i18n";
+
+function MyComponent() {
+  const { t, locale, setLocale } = useTranslation();
+  return <p>{t("some.key")}</p>;
+}
+```
+
+For non-React contexts, import the standalone `t` function:
+
+```ts
+import { t } from "../i18n";
+const label = t("some.key");
+```
+
 ## Issue Triage and PR Review Process
 
 For details on how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged, see [TRIAGE_AND_REVIEW.md](./TRIAGE_AND_REVIEW.md).

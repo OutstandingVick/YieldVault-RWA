@@ -1,5 +1,6 @@
 import React from "react";
 import { X } from "./icons";
+import { useTranslation } from "../i18n";
 
 interface WithdrawalConfirmationModalProps {
   isOpen: boolean;
@@ -18,6 +19,8 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
   onCancel,
   isProcessing = false,
 }) => {
+  const { t } = useTranslation();
+
   if (!isOpen) return null;
 
   const totalAmount = amount + estimatedFee;
@@ -89,7 +92,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
             fontWeight: 700,
           }}
         >
-          Confirm Withdrawal
+          {t("withdrawal.title")}
         </h2>
         <p
           style={{
@@ -98,7 +101,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
             marginBottom: "24px",
           }}
         >
-          Please review the details before confirming your withdrawal.
+          {t("withdrawal.subtitle")}
         </p>
 
         {/* Divider */}
@@ -121,7 +124,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
             }}
           >
             <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-              Withdrawal Amount
+              {t("withdrawal.amountLabel")}
             </span>
             <span
               style={{
@@ -143,7 +146,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
             }}
           >
             <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-              Estimated Network Fee
+              {t("withdrawal.feeLabel")}
             </span>
             <span
               style={{
@@ -172,7 +175,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
             }}
           >
             <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-              Total Deducted
+              {t("withdrawal.totalLabel")}
             </span>
             <span
               style={{
@@ -204,9 +207,8 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
               lineHeight: "1.5",
             }}
           >
-            <strong style={{ color: "var(--text-primary)" }}>Note:</strong> This
-            action will immediately withdraw your funds from the vault. Your
-            shares will be burned and cannot be recovered.
+            <strong style={{ color: "var(--text-primary)" }}>{t("withdrawal.notePrefix")}</strong>{" "}
+            {t("withdrawal.noteText")}
           </p>
         </div>
 
@@ -244,7 +246,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
                 "transparent";
             }}
           >
-            Cancel
+            {t("withdrawal.cancel")}
           </button>
           <button
             onClick={onConfirm}
@@ -270,7 +272,7 @@ const WithdrawalConfirmationModal: React.FC<WithdrawalConfirmationModalProps> = 
               (e.currentTarget as HTMLButtonElement).style.opacity = "1";
             }}
           >
-            {isProcessing ? "Processing..." : "Confirm Withdrawal"}
+            {isProcessing ? t("withdrawal.processing") : t("withdrawal.confirm")}
           </button>
         </div>
       </div>

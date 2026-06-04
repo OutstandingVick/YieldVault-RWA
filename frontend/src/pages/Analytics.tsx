@@ -1,5 +1,6 @@
 import React from "react";
 import { Activity, LineChart } from "../components/icons";
+import { useTranslation } from "../i18n";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import PageHeader from "../components/PageHeader";
 import { useVault } from "../context/VaultContext";
@@ -13,6 +14,7 @@ import { useStaleIndicator } from "../hooks/useStaleIndicator";
 
 const Analytics: React.FC = () => {
     const { formattedTvl, tvl, summary, error, isLoading, lastUpdate, refresh } = useVault();
+    const { t } = useTranslation();
     const polling = usePolling(refresh, { interval: 30000, pauseOnHidden: true, pauseOnOffline: true });
     const { isStale, ageText } = useStaleIndicator(lastUpdate);
     const navigate = useNavigate();
@@ -29,15 +31,15 @@ const Analytics: React.FC = () => {
             {error && <ApiStatusBanner error={error} />}
 
             <PageHeader
-                title={<span className="text-gradient">Project Analytics</span>}
-                description="Historical performance and pool health metrics."
+                title={<span className="text-gradient">{t("analytics.staticTitle")}</span>}
+                description={t("analytics.staticDescription")}
                 breadcrumbs={[
-                    { label: "Home", href: "/" },
-                    { label: "Analytics" },
+                    { label: t("analytics.homeLabel"), href: "/" },
+                    { label: t("nav.analytics") },
                 ]}
                 statusChips={[
                     {
-                        label: isLoading ? "Syncing" : "Live",
+                        label: isLoading ? t("analytics.syncingLabel") : t("analytics.liveLabel"),
                         variant: isLoading ? "warning" : "success",
                     },
                 ]}
@@ -113,10 +115,10 @@ const Analytics: React.FC = () => {
                 /* Empty state: loading done, no TVL / no historical data */
                 <EmptyState
                     kind="no-data"
-                    title="No data to display."
-                    description="Performance metrics will appear here once your assets start generating yield."
+                    title={t("analytics.emptyTitle")}
+                    description={t("analytics.emptyDesc")}
                     icon={<LineChart />}
-                    actionLabel="Deposit Now"
+                    actionLabel={t("txHistory.depositNow")}
                     onAction={() => navigate("/")}
                 />
             )}

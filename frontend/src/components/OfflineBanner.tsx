@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { queryClient } from "../lib/queryClient";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useRetryState } from "../hooks/useRetryState";
+import { useTranslation } from "../i18n";
 
 interface OfflineBannerProps {
   lastKnownTvl?: number;
@@ -28,6 +29,7 @@ type BannerState = "hidden" | "offline" | "retrying" | "online_success";
 export default function OfflineBanner({ lastKnownTvl, lastKnownBalance }: OfflineBannerProps) {
   const { isOnline } = useNetworkStatus();
   const { isRetrying, secondsUntilRetry } = useRetryState();
+  const { t } = useTranslation();
   
   const [bannerState, setBannerState] = useState<BannerState>(
     !isOnline ? "offline" : "hidden"
@@ -97,13 +99,13 @@ export default function OfflineBanner({ lastKnownTvl, lastKnownBalance }: Offlin
             {isOffline ? "⚠️" : isSuccess ? "✅" : "🔄"}
           </span>
           <span>
-            {isOffline 
-              ? "You are offline. Polling is paused."
+            {isOffline
+              ? t("offline.offline")
               : isSuccess
-              ? "Connection restored! Updating dashboard..."
+              ? t("offline.restored")
               : showRetrying && secondsUntilRetry !== null
-              ? `Reconnecting… retrying in ${secondsUntilRetry}s`
-              : "Reconnecting…"
+              ? t("offline.retrying").replace("{{seconds}}", String(secondsUntilRetry))
+              : t("offline.reconnecting")
             }
           </span>
           {isOffline && (lastKnownTvl !== undefined || lastKnownBalance !== undefined) && (
@@ -119,7 +121,7 @@ export default function OfflineBanner({ lastKnownTvl, lastKnownBalance }: Offlin
             type="button" 
             className="offline-banner__dismiss"
             onClick={dismissBanner}
-            aria-label="Dismiss banner"
+            aria-label={t("offline.dismissAria")}
           >
             ✕
           </button>

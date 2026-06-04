@@ -1,6 +1,7 @@
 import React from "react";
 import { Lock, Wallet, Home } from "lucide-react";
 import { Modal } from "./Modal";
+import { useTranslation } from "../i18n";
 
 interface SessionExpiredModalProps {
   intendedPath: string;
@@ -13,6 +14,7 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
   onReconnect,
   onDismiss,
 }) => {
+  const { t } = useTranslation();
   return (
     <Modal
       isOpen={true}
@@ -52,7 +54,7 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
           className="text-gradient"
           style={{ fontSize: "1.8rem", marginBottom: "12px", marginTop: 0 }}
         >
-          Session Expired
+          {t("sessionExpired.title")}
         </h1>
         <p
           id="session-expired-desc"
@@ -64,8 +66,7 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
             marginTop: 0,
           }}
         >
-          Your wallet session is no longer authorised. Please reconnect
-          Freighter to continue where you left off.
+          {t("sessionExpired.message")}
         </p>
         {intendedPath && intendedPath !== "/" && (
           <p
@@ -99,7 +100,7 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
             style={{ width: "100%", padding: "14px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
             <Wallet size={18} />
-            Reconnect Wallet
+            {t("sessionExpired.reconnect")}
           </button>
 
           <button
@@ -108,7 +109,7 @@ const SessionExpiredModal: React.FC<SessionExpiredModalProps> = ({
             style={{ width: "100%", padding: "14px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
             <Home size={18} />
-            Go to Home
+            {t("sessionExpired.goHome")}
           </button>
         </div>
       </div>

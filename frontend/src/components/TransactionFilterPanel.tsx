@@ -1,23 +1,28 @@
 import React, { useState, useEffect, useCallback, useId } from "react";
 import type { TransactionFilters, TxType, TxStatus } from "../hooks/useTransactionFilters";
 import { VALID_TX_TYPES, VALID_TX_STATUSES } from "../hooks/useTransactionFilters";
+import { useTranslation, t as tStatic } from "../i18n";
 
 // ---------------------------------------------------------------------------
-// Labels
+// Labels — resolved lazily via t() so they update on locale change
 // ---------------------------------------------------------------------------
 
-const TYPE_LABELS: Record<TxType, string> = {
-  deposit: "Deposit",
-  withdrawal: "Withdrawal",
-  transfer: "Transfer",
-  trade: "Trade",
-};
+function getTypeLabels(): Record<TxType, string> {
+  return {
+    deposit: tStatic("txFilter.type.deposit"),
+    withdrawal: tStatic("txFilter.type.withdrawal"),
+    transfer: tStatic("txFilter.type.transfer"),
+    trade: tStatic("txFilter.type.trade"),
+  };
+}
 
-const STATUS_LABELS: Record<TxStatus, string> = {
-  pending: "Pending",
-  completed: "Completed",
-  failed: "Failed",
-};
+function getStatusLabels(): Record<TxStatus, string> {
+  return {
+    pending: tStatic("txFilter.status.pending"),
+    completed: tStatic("txFilter.status.completed"),
+    failed: tStatic("txFilter.status.failed"),
+  };
+}
 
 const STATUS_COLORS: Record<TxStatus, string> = {
   pending: "var(--text-warning)",
@@ -128,6 +133,7 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
   hasActiveFilters,
 }) => {
   const uid = useId();
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
 
   // ---------------------------------------------------------------------------
@@ -204,10 +210,10 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
       <div className="tx-filter-header">
         <div className="tx-filter-header-left">
           <span className="tx-filter-icon" aria-hidden="true">⚡</span>
-          <span className="tx-filter-title">Filters</span>
+          <span className="tx-filter-title">{t("txFilter.title")}</span>
           {hasActiveFilters && (
-            <span className="tx-filter-badge" aria-label="Filters active">
-              Active
+            <span className="tx-filter-badge" aria-label={t("txFilter.active")}>
+              {t("txFilter.active")}
             </span>
           )}
         </div>
@@ -219,9 +225,9 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
               id={`${uid}-clear`}
               className="tx-filter-clear-btn"
               onClick={handleClearAll}
-              aria-label="Clear all filters"
+              aria-label={t("txFilter.clearFiltersAria")}
             >
-              ✕ Clear Filters
+              {t("txFilter.clearFilters")}
             </button>
           )}
           <button
@@ -230,7 +236,7 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
             aria-expanded={isExpanded}
             aria-controls={`${uid}-body`}
             onClick={() => setIsExpanded((p) => !p)}
-            aria-label={isExpanded ? "Collapse filters" : "Expand filters"}
+            aria-label={isExpanded ? t("txFilter.collapseAria") : t("txFilter.expandAria")}
           >
             <span
               className="tx-filter-chevron"
@@ -259,14 +265,14 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                 htmlFor={`${uid}-search`}
                 className="tx-filter-field-label"
               >
-                Search
+                {t("txFilter.search")}
                 <button
                   type="button"
                   className="tx-filter-reset-small"
                   onClick={() => handleResetField(() => onSearchChange(""))}
-                  aria-label="Reset search"
+                  aria-label={t("txFilter.resetSearchAria")}
                 >
-                  Reset
+                  {t("txFilter.reset")}
                 </button>
               </label>
               <div className="tx-filter-input-wrapper">
@@ -275,10 +281,10 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                   id={`${uid}-search`}
                   type="search"
                   className="tx-filter-input"
-                  placeholder="Hash, description, counterparty…"
+                  placeholder={t("txFilter.searchPlaceholder")}
                   value={localSearch}
                   onChange={(e) => setLocalSearch(e.target.value)}
-                  aria-label="Search transactions"
+                  aria-label={t("txFilter.searchAria")}
                   autoComplete="off"
                 />
                 {localSearch && (
@@ -286,7 +292,7 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                     type="button"
                     className="tx-filter-input-clear"
                     onClick={() => setLocalSearch("")}
-                    aria-label="Clear search"
+                    aria-label={t("txFilter.searchClearAria")}
                   >
                     ✕
                   </button>
@@ -300,14 +306,14 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                 htmlFor={`${uid}-date-from`}
                 className="tx-filter-field-label"
               >
-                From date
+                {t("txFilter.fromDate")}
                 <button
                   type="button"
                   className="tx-filter-reset-small"
                   onClick={() => handleResetField(() => onDateFromChange(""))}
-                  aria-label="Reset from date"
+                  aria-label={t("txFilter.resetDateFromAria")}
                 >
-                  Reset
+                  {t("txFilter.reset")}
                 </button>
               </label>
               <div className="tx-filter-input-wrapper">
@@ -329,14 +335,14 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                 htmlFor={`${uid}-date-to`}
                 className="tx-filter-field-label"
               >
-                To date
+                {t("txFilter.toDate")}
                 <button
                   type="button"
                   className="tx-filter-reset-small"
                   onClick={() => handleResetField(() => onDateToChange(""))}
-                  aria-label="Reset to date"
+                  aria-label={t("txFilter.resetDateToAria")}
                 >
-                  Reset
+                  {t("txFilter.reset")}
                 </button>
               </label>
               <div className="tx-filter-input-wrapper">
@@ -358,14 +364,14 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
             {/* Asset select */}
             <div className="tx-filter-field">
               <label htmlFor={`${uid}-asset`} className="tx-filter-field-label">
-                Asset
+                {t("txFilter.asset")}
                 <button
                   type="button"
                   className="tx-filter-reset-small"
-                  onClick={() => handleResetField(() => onAssetChange?.("") )}
-                  aria-label="Reset asset"
+                  onClick={() => handleResetField(() => onAssetChange?.(""))}
+                  aria-label={t("txFilter.resetAssetAria")}
                 >
-                  Reset
+                  {t("txFilter.reset")}
                 </button>
               </label>
               <div className="tx-filter-input-wrapper">
@@ -375,7 +381,7 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                   value={filters.asset}
                   onChange={(e) => onAssetChange?.(e.target.value)}
                 >
-                  <option value="">All assets</option>
+                  <option value="">{t("txFilter.allAssets")}</option>
                   {assets?.map((a) => (
                     <option key={a} value={a}>{a}</option>
                   ))}
@@ -387,14 +393,14 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                 htmlFor={`${uid}-amount-min`}
                 className="tx-filter-field-label"
               >
-                Min amount
+                {t("txFilter.minAmount")}
                 <button
                   type="button"
                   className="tx-filter-reset-small"
                   onClick={() => handleResetField(() => onAmountMinChange(""))}
-                  aria-label="Reset min amount"
+                  aria-label={t("txFilter.resetAmountMinAria")}
                 >
-                  Reset
+                  {t("txFilter.reset")}
                 </button>
               </label>
               <div className="tx-filter-input-wrapper">
@@ -418,14 +424,14 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                 htmlFor={`${uid}-amount-max`}
                 className="tx-filter-field-label"
               >
-                Max amount
+                {t("txFilter.maxAmount")}
                 <button
                   type="button"
                   className="tx-filter-reset-small"
                   onClick={() => handleResetField(() => onAmountMaxChange(""))}
-                  aria-label="Reset max amount"
+                  aria-label={t("txFilter.resetAmountMaxAria")}
                 >
-                  Reset
+                  {t("txFilter.reset")}
                 </button>
               </label>
               <div className="tx-filter-input-wrapper">
@@ -449,18 +455,18 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
           <div className="tx-filter-row tx-filter-row--checks">
             <CheckGroup
               id={`${uid}-types`}
-              label="Type"
+              label={t("txFilter.types")}
               options={VALID_TX_TYPES}
               selected={filters.types}
-              labelMap={TYPE_LABELS}
+              labelMap={getTypeLabels()}
               onChange={(v) => onTypesChange(v as TxType[])}
             />
             <CheckGroup
               id={`${uid}-statuses`}
-              label="Status"
+              label={t("txFilter.statuses")}
               options={VALID_TX_STATUSES}
               selected={filters.statuses}
-              labelMap={STATUS_LABELS}
+              labelMap={getStatusLabels()}
               colorMap={STATUS_COLORS}
               onChange={(v) => onStatusesChange(v as TxStatus[])}
             />
@@ -469,17 +475,17 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                 type="button"
                 className="tx-filter-reset-btn"
                 onClick={() => onTypesChange([])}
-                aria-label="Reset types"
+                aria-label={t("txFilter.resetTypes")}
               >
-                Reset types
+                {t("txFilter.resetTypes")}
               </button>
               <button
                 type="button"
                 className="tx-filter-reset-btn"
                 onClick={() => onStatusesChange([])}
-                aria-label="Reset statuses"
+                aria-label={t("txFilter.resetStatuses")}
               >
-                Reset statuses
+                {t("txFilter.resetStatuses")}
               </button>
             </div>
           </div>

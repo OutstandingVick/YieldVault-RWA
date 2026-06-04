@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, Check, Copy } from "./icons";
 import { useToast } from "../context/ToastContext";
 import { copyTextToClipboard } from "../lib/clipboard";
+import { useTranslation } from "../i18n";
 
 interface CopyButtonProps {
   value: string;
@@ -29,6 +30,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   errorDescription,
 }) => {
   const toast = useToast();
+  const { t } = useTranslation();
   const [status, setStatus] = useState<CopyStatus>("idle");
   const timeoutRef = useRef<number | null>(null);
 
@@ -58,24 +60,25 @@ const CopyButton: React.FC<CopyButtonProps> = ({
       await copyTextToClipboard(value);
       showFeedback("success");
       toast.success({
-        title: successTitle ?? `${toSentenceCase(label)} copied`,
-        description:
-          successDescription ?? `The ${label} is ready to paste anywhere.`,
+        title: successTitle ?? t("copyButton.defaultSuccessTitle").replace("{{label}}", toSentenceCase(label)),
+        description: successDescription ?? t("copyButton.defaultSuccessDesc").replace("{{label}}", label),
       });
     } catch (error) {
       console.error("Clipboard copy failed:", error);
       showFeedback("error");
       toast.error({
-        title: errorTitle ?? `Unable to copy ${label}`,
-        description:
-          errorDescription ??
-          "Your browser blocked clipboard access. Please copy it manually.",
+        title: errorTitle ?? t("copyButton.defaultErrorTitle").replace("{{label}}", label),
+        description: errorDescription ?? t("copyButton.defaultErrorDesc"),
       });
     }
   };
 
   const feedbackText =
-    status === "success" ? "Copied" : status === "error" ? "Copy failed" : "";
+    status === "success"
+      ? t("copyButton.copied")
+      : status === "error"
+      ? t("copyButton.copyFailed")
+      : "";
 
   return (
     <span className="copy-action">
@@ -83,7 +86,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
         type="button"
         className="copy-button"
         onClick={handleCopy}
-        aria-label={`Copy ${label}`}
+        aria-label={t("copyButton.copyAria").replace("{{label}}", label)}
         data-status={status}
       >
         {status === "success" ? (
