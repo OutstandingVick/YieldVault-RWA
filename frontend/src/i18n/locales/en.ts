@@ -488,11 +488,5 @@ export const en = {
     homeLabel: "Home",
     emptyTitle: "No analytics data yet",
     emptyDesc: "Vault analytics will appear once the first deposit is made.",
-    apyComparison: {
-      title: "APY Comparison",
-      description:
-        "Compare vault yield against benchmarks with confidence badges derived from data recency and completeness.",
-      listLabel: "APY comparison cards",
-    },
   },
 } as const;
