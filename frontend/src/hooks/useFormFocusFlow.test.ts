@@ -22,7 +22,9 @@ describe("useFormFocusFlow", () => {
     );
 
     act(() => {
-      result.current.containerRef.current = document.getElementById("container");
+      result.current.containerRef.current = document.getElementById(
+        "container",
+      ) as HTMLDivElement | null;
       result.current.focusFirstError();
     });
 
