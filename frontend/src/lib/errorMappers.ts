@@ -60,14 +60,20 @@ export function mapServerError(
     const err = error as ServerErrorResponse;
 
     // Check if this is a field-level error
-    if (err.details?.field && err.message) {
+    if (err.details?.field) {
+      const fieldMessage =
+        typeof err.details.message === "string" ? err.details.message : err.message;
       fieldErrors.push({
         fieldName: err.details.field,
-        message: sanitizeErrorMessage(err.message),
+        message: sanitizeErrorMessage(fieldMessage),
       });
     } else if (err.message) {
       // General error message
       generalError = sanitizeErrorMessage(err.message);
+    }
+
+    if (fieldErrors.length === 0 && !generalError) {
+      generalError = "An error occurred. Please try again.";
     }
 
     return { fieldErrors, generalError };

@@ -69,8 +69,16 @@ function parseIsoDate(raw: string | null): string {
   if (!raw) return "";
   // Must match YYYY-MM-DD and be a valid date
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return "";
+  const [year, month, day] = raw.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return "";
+  }
   return raw;
 }
 

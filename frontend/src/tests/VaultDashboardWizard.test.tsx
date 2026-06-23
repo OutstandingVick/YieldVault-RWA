@@ -1,7 +1,39 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PreferencesProvider } from "../context/PreferencesContext";
 import VaultDashboard from "../components/VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
+import * as vaultDataHooks from "../hooks/useVaultData";
+import type { UseQueryResult } from "@tanstack/react-query";
+import type { VaultSummary } from "../lib/vaultApi";
+
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
+
+const mockSummary: VaultSummary = {
+  tvl: 12450800,
+  depositCap: 15000000,
+  apy: 8.45,
+  participantCount: 1248,
+  monthlyGrowthPct: 12.5,
+  strategyStabilityPct: 99.9,
+  assetLabel: "Sovereign Debt",
+  exchangeRate: 1.084,
+  networkFeeEstimate: "~0.00001 XLM",
+  updatedAt: "2026-03-25T10:00:00.000Z",
+  contractPaused: false,
+  strategy: {
+    id: "stellar-benji",
+    name: "Franklin BENJI Connector",
+    issuer: "Franklin Templeton",
+    network: "Stellar",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    status: "active",
+    description: "Connector strategy.",
+  },
+};
 import { ToastProvider } from "../context/ToastContext";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,6 +47,14 @@ vi.mock("../hooks/useVaultMutations", () => ({
   useWithdrawMutation: () => ({
     mutateAsync: vi.fn().mockResolvedValue({}),
     isPending: false,
+  }),
+}));
+
+vi.mock("../hooks/useTransactionConfirmation", () => ({
+  useTransactionConfirmation: () => ({
+    requestConfirmation: vi.fn().mockResolvedValue(true),
+    modal: null,
+    isOpen: false,
   }),
 }));
 
@@ -44,9 +84,11 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <BrowserRouter>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <VaultProvider>
-          {children}
-        </VaultProvider>
+        <PreferencesProvider>
+          <VaultProvider>
+            {children}
+          </VaultProvider>
+        </PreferencesProvider>
       </ToastProvider>
     </QueryClientProvider>
   </BrowserRouter>
@@ -55,6 +97,27 @@ const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 describe("VaultDashboard Wizard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(mockSummary), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: mockSummary,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<VaultSummary, Error>);
+    vi.mocked(vaultDataHooks.useVaultHistory).mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
   });
 
   it("navigates through the deposit wizard steps", async () => {
@@ -88,8 +151,8 @@ describe("VaultDashboard Wizard", () => {
     // Go to Review again
     fireEvent.click(screen.getByText("Review Transaction"));
     
-    // Confirm
-    const confirmBtn = screen.getByText("Confirm deposit");
+    // Confirm review step, then modal
+    const confirmBtn = screen.getByRole("button", { name: /Confirm deposit/i });
     fireEvent.click(confirmBtn);
 
     // Step 3: Result
@@ -101,7 +164,9 @@ describe("VaultDashboard Wizard", () => {
     fireEvent.click(doneBtn);
 
     // Reset to Step 1
-    expect(screen.getByText("Amount to deposit")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Deposit amount")).toBeInTheDocument();
+      expect(screen.getByLabelText("Deposit amount")).toHaveValue("");
+    });
   });
 });

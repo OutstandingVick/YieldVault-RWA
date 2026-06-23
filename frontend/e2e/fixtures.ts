@@ -174,7 +174,6 @@ export async function interceptApiRoutes(page: Page) {
  */
 export async function stubFreighterConnected(page: Page, address: string) {
   await page.addInitScript((addr) => {
-    // Stateful stub — tests can call window.__freighterStub.disconnect()
     const stub = { connected: true };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 
@@ -191,7 +190,7 @@ export async function stubFreighterConnected(page: Page, address: string) {
 
       let response: Record<string, unknown> = {
         source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
-        messagedId: messageId, // note: the library uses "messagedId" (typo in source)
+        messagedId: messageId,
       };
 
       switch (type) {
@@ -203,6 +202,67 @@ export async function stubFreighterConnected(page: Page, address: string) {
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
         case 'REQUEST_ACCESS':
+          response = { ...response, publicKey: stub.connected ? addr : '' };
+          break;
+        case 'REQUEST_CONNECTION_STATUS':
+          response = { ...response, isConnected: stub.connected };
+          break;
+        case 'REQUEST_NETWORK_DETAILS':
+          response = {
+            ...response,
+            networkDetails: {
+              network: 'TESTNET',
+              networkName: 'Test SDF Network',
+              networkUrl: 'https://horizon-testnet.stellar.org',
+              networkPassphrase: 'Test SDF Network ; September 2015',
+              sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+            },
+          };
+          break;
+        default:
+          return;
+      }
+
+      window.postMessage(response, window.location.origin);
+    });
+  }, address);
+}
+
+/**
+ * Starts disconnected; flips to connected after SET_ALLOWED_STATUS / REQUEST_ACCESS
+ * so deposit-flow e2e can exercise the real Connect Freighter button.
+ */
+export async function stubFreighterManualConnect(page: Page, address: string) {
+  await page.addInitScript((addr) => {
+    const stub = { connected: false };
+    (window as unknown as Record<string, unknown>).__freighterStub = stub;
+
+    window.addEventListener('message', (event) => {
+      if (
+        event.source !== window ||
+        !event.data ||
+        event.data.source !== 'FREIGHTER_EXTERNAL_MSG_REQUEST'
+      ) {
+        return;
+      }
+
+      const { messageId, type } = event.data as { messageId: number; type: string };
+
+      let response: Record<string, unknown> = {
+        source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
+        messagedId: messageId,
+      };
+
+      switch (type) {
+        case 'SET_ALLOWED_STATUS':
+        case 'REQUEST_ACCESS':
+          stub.connected = true;
+          response = { ...response, isAllowed: true, publicKey: addr };
+          break;
+        case 'REQUEST_ALLOWED_STATUS':
+          response = { ...response, isAllowed: stub.connected };
+          break;
+        case 'REQUEST_PUBLIC_KEY':
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
         case 'REQUEST_CONNECTION_STATUS':

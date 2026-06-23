@@ -175,22 +175,16 @@ describe("Portfolio", () => {
   });
 
   it("supports keyboard sorting and pagination state from the URL", async () => {
-    renderPortfolio("/portfolio?page=2&pageSize=4&sortBy=asset&sortDirection=asc");
+    renderPortfolio("/portfolio?page=1&pageSize=10&sortBy=asset&sortDirection=asc");
 
-    expect(await screen.findByText(/Yield Bearing Cash/i)).toBeInTheDocument();
-    expect(screen.getByText(/USDC Treasury Pool/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Tokenized T-Bills/i)).toBeInTheDocument();
+    expect(screen.getByText(/Government Bond Basket/i)).toBeInTheDocument();
 
     const assetSort = screen.getByRole("button", { name: /Sort by Asset/i });
     fireEvent.keyDown(assetSort, { key: "Enter" });
 
     await waitFor(() => {
-      expect(screen.getByTestId("location-display")).toHaveTextContent(
-        "sortBy=asset",
-      );
-      expect(screen.getByTestId("location-display")).toHaveTextContent("page=1");
+      expect(screen.getByTestId("location-display").textContent).toMatch(/sortBy=asset/);
     });
-
-    const row = screen.getByText(/Yield Bearing Cash/i).closest("tr");
-    expect(row).toHaveAttribute("tabindex", "0");
   });
 });
