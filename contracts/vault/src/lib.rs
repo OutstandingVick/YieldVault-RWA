@@ -742,7 +742,7 @@ impl YieldVault {
     }
 
     pub fn set_per_user_cap(env: Env, cap: i128) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         env.storage().instance().set(&DataKey::PerUserCap, &cap);
     }

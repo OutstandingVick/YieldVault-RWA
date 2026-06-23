@@ -2035,6 +2035,7 @@ fn test_whitelist_persistence_across_operations() {
 
     // Do some vault operations (deposit, accrue yield, etc.)
     usdc_sa.mint(&user, &1000);
+    usdc_sa.mint(&admin, &100);
     vault.deposit(&user, &100);
     vault.accrue_yield(&10);
 
