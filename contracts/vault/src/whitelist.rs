@@ -1,13 +1,6 @@
 //! # Secure Whitelist Module
 //!
 //! Manages approved strategy contract IDs for allocation operations.
-//!
-//! ## Features
-//! - Add/remove strategy from whitelist
-//! - Check if strategy is whitelisted
-//! - Query whitelist status
-//! - Admin-only access control
-//! - Storage-backed persistence
 
 use soroban_sdk::{Address, Env};
 
@@ -25,25 +18,25 @@ pub enum WhitelistError {
     OperationFailed,
 }
 
-/// Whitelist management for strategy contract IDs
-///
-/// This module provides secure operations for maintaining an approved list
-/// of strategy contract addresses. Only the vault admin can modify the whitelist.
+/// Whitelist management for strategy contract IDs.
 pub struct SecureWhitelist;
 
 impl SecureWhitelist {
+    fn ensure_admin(caller: &Address, env: &Env) -> Result<(), WhitelistError> {
+        let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
+        if caller != &admin {
+            return Err(WhitelistError::Unauthorized);
+        }
+        Ok(())
+    }
+
     /// Adds a strategy address to the whitelist.
     pub fn add_strategy(
         env: &Env,
         caller: &Address,
         strategy: &Address,
     ) -> Result<(), WhitelistError> {
-        let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
-        if caller != &admin {
-            caller.require_auth();
-            return Err(WhitelistError::Unauthorized);
-        }
-        admin.require_auth();
+        Self::ensure_admin(caller, env)?;
 
         env.storage()
             .instance()
@@ -58,12 +51,7 @@ impl SecureWhitelist {
         caller: &Address,
         strategy: &Address,
     ) -> Result<(), WhitelistError> {
-        let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
-        if caller != &admin {
-            caller.require_auth();
-            return Err(WhitelistError::Unauthorized);
-        }
-        admin.require_auth();
+        Self::ensure_admin(caller, env)?;
 
         env.storage()
             .instance()
@@ -92,27 +80,10 @@ impl SecureWhitelist {
         strategy: &Address,
         approved: bool,
     ) -> Result<(), WhitelistError> {
-        let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
-        if caller != &admin {
-            caller.require_auth();
-            return Err(WhitelistError::Unauthorized);
-        }
-        admin.require_auth();
-
         if approved {
-            Self::add_strategy(env, caller, strategy)?;
+            Self::add_strategy(env, caller, strategy)
         } else {
-            Self::remove_strategy(env, caller, strategy)?;
+            Self::remove_strategy(env, caller, strategy)
         }
-
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_whitelist_documentation_exists() {
-        // Actual enforcement is tested in lib.rs via integration tests.
     }
 }

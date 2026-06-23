@@ -2112,6 +2112,35 @@ fn test_set_strategy_heartbeat() {
 }
 
 #[test]
+fn test_zero_strategy_heartbeat_disables_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &100);
+
+    let benji_token = create_token(&env, &token_admin);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+    vault.set_strategy_heartbeat(&0);
+    vault.deposit(&user, &100);
+
+    vault.invest(&60);
+    assert_eq!(usdc.balance(&strategy_id), 60);
+}
+
+#[test]
 fn test_record_strategy_heartbeat_stores_timestamp() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
