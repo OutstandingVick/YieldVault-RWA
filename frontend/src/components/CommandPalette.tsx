@@ -38,8 +38,10 @@ const CommandPalette: React.FC = () => {
   // Reset state when palette opens
   useEffect(() => {
     if (isPaletteOpen) {
-      setQuery('');
-      setActiveIndex(0);
+      queueMicrotask(() => {
+        setQuery('');
+        setActiveIndex(0);
+      });
       // Focus input after portal renders
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -47,7 +49,9 @@ const CommandPalette: React.FC = () => {
 
   // Keep activeIndex in bounds when filtered list changes
   useEffect(() => {
-    setActiveIndex((i) => Math.min(i, Math.max(filtered.length - 1, 0)));
+    queueMicrotask(() => {
+      setActiveIndex((i) => Math.min(i, Math.max(filtered.length - 1, 0)));
+    });
   }, [filtered.length]);
 
   // Scroll active item into view

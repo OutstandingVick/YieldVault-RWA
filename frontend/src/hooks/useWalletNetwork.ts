@@ -22,7 +22,7 @@ export function useWalletNetwork(walletAddress: string | null): WalletNetworkSta
 
   useEffect(() => {
     if (!walletAddress) {
-      setWalletNetwork(null);
+      queueMicrotask(() => setWalletNetwork(null));
       return;
     }
 

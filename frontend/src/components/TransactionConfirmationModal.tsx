@@ -1,7 +1,6 @@
 import React from "react";
 import { Modal } from "./Modal";
-import { AlertTriangle, ShieldAlert, Check, Loader2, Copy } from "./icons";
-import { useTranslation } from "../i18n";
+import { AlertTriangle, Check, Loader2, Copy } from "./icons";
 import type { TransactionSummary } from "../types/transaction";
 import { copyTextToClipboard } from "../lib/clipboard";
 
@@ -43,8 +42,6 @@ export const TransactionConfirmationModal: React.FC<TransactionConfirmationModal
   isLoading = false,
   summary,
 }) => {
-  const { t } = useTranslation();
-
   // Determine if confirm button should use warning style
   const hasWarnings = summary.isUnusualAmount || summary.isUnusualFee || summary.isUnknownContract;
   const confirmButtonLabel = hasWarnings ? "Confirm Anyway" : "Confirm";
@@ -74,7 +71,7 @@ export const TransactionConfirmationModal: React.FC<TransactionConfirmationModal
               gap: "12px",
             }}
           >
-            <ShieldAlert color="var(--text-warning)" size={24} style={{ flexShrink: 0 }} />
+            <AlertTriangle color="var(--text-warning)" size={24} style={{ flexShrink: 0 }} />
             <div>
               <div style={{ fontWeight: 600, color: "var(--text-warning)", marginBottom: "4px" }}>
                 Review Transaction Details

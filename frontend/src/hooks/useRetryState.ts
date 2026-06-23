@@ -48,7 +48,7 @@ export function useRetryState() {
             lastErrorTimeRef.current = Date.now();
 
             // Get retry delay from query's meta or use default exponential backoff
-            const meta = query.meta as any;
+            const meta = query.meta as { retryDelay?: number } | undefined;
             const retryDelay = meta?.retryDelay || computeExponentialBackoff(state.dataUpdateCount);
             retryDelayRef.current = retryDelay;
 
@@ -75,7 +75,7 @@ export function useRetryState() {
   // Update countdown every second
   useEffect(() => {
     if (!isRetrying) {
-      setSecondsUntilRetry(null);
+      queueMicrotask(() => setSecondsUntilRetry(null));
       return;
     }
 
