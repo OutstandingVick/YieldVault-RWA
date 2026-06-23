@@ -125,6 +125,8 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
   onSearchChange,
   onTypesChange,
   onStatusesChange,
+  assets,
+  onAssetChange,
   onDateFromChange,
   onDateToChange,
   onAmountMinChange,
