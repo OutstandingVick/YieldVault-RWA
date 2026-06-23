@@ -34,6 +34,8 @@ import {
   recordExportJob,
   resolveExportGeneratedBy,
 } from './exportJobs';
+import { tenantGuard } from './middleware/tenantGuard';
+import { createTimeoutFor } from './middleware/timeoutMiddleware';
 
 const router = Router();
 const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
@@ -676,7 +678,15 @@ export function buildVaultHistoryResponse(
  *                 pagination:
  *                   $ref: '#/components/schemas/PaginationMeta'
  */
-router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Request, res: Response) => {
+router.get('/transactions', 
+  cacheMiddleware({ ttl: CACHE_TTL_MS }),
+  tenantGuard({ 
+    walletParamPath: 'query.walletAddress', 
+    allowAdminBypass: true, 
+    adminBypassPermission: Permission.ADMIN_READ 
+  }),
+  createTimeoutFor.read(),
+  (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, TRANSACTION_PAGINATION_CONFIG);
     const response = buildTransactionsResponse({
@@ -707,7 +717,10 @@ router.get('/transactions', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reques
   }
 });
 
-router.get('/vault/transactions/export', authenticateTransactionExport, async (req: Request, res: Response) => {
+router.get('/vault/transactions/export', 
+  authenticateTransactionExport, 
+  createTimeoutFor.export(), 
+  async (req: Request, res: Response) => {
   const exportReq = req as ExportRequest;
   const format = resolveExportFormat(req.query.format);
   if (!format) {
@@ -814,7 +827,15 @@ router.get('/vault/transactions/export', authenticateTransactionExport, async (r
  *       200:
  *         description: List of holdings
  */
-router.get('/portfolio/holdings', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Request, res: Response) => {
+router.get('/portfolio/holdings', 
+  cacheMiddleware({ ttl: CACHE_TTL_MS }),
+  tenantGuard({ 
+    walletParamPath: 'query.walletAddress', 
+    allowAdminBypass: true, 
+    adminBypassPermission: Permission.ADMIN_READ 
+  }),
+  createTimeoutFor.read(),
+  (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, PORTFOLIO_PAGINATION_CONFIG);
     const response = buildPortfolioHoldingsResponse({
@@ -855,7 +876,10 @@ router.get('/portfolio/holdings', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: 
  *       200:
  *         description: Vault history points
  */
-router.get('/vault/history', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Request, res: Response) => {
+router.get('/vault/history', 
+  cacheMiddleware({ ttl: CACHE_TTL_MS }), 
+  createTimeoutFor.read(), 
+  (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, VAULT_HISTORY_PAGINATION_CONFIG);
     const response = buildVaultHistoryResponse({
@@ -916,7 +940,10 @@ router.get('/vault/history', cacheMiddleware({ ttl: CACHE_TTL_MS }), (req: Reque
  *                 days: { type: integer }
  *                 count: { type: integer }
  */
-router.get('/vault/apy/history', cacheMiddleware({ ttl: parseInt(process.env.CACHE_TTL_MS || '60000', 10) }), async (req: Request, res: Response) => {
+router.get('/vault/apy/history', 
+  cacheMiddleware({ ttl: parseInt(process.env.CACHE_TTL_MS || '60000', 10) }), 
+  createTimeoutFor.read(), 
+  async (req: Request, res: Response) => {
   try {
     const rawDays = parseInt((req.query.days as string) || '30', 10);
     const days = Number.isFinite(rawDays) ? rawDays : 30;

@@ -15,6 +15,7 @@ import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
 import { validate, VaultOperationSchema } from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
+import { createTimeoutFor } from './middleware/timeoutMiddleware';
 import crypto from 'crypto';
 // crypto is still used below for generateFingerprint and body.id generation.
 import { tryAcquireWalletLock } from './walletLock';
@@ -334,6 +335,7 @@ router.post(
   requireSignedWalletAction('deposit'),
   allowlistMiddleware,
   validate({ body: VaultOperationSchema }),
+  createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 
@@ -350,6 +352,7 @@ router.post(
   allowlistMiddleware,
   validate({ body: VaultOperationSchema }),
   withdrawalDailyLimitMiddleware(),
+  createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
 );
 
