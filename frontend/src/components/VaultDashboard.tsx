@@ -358,6 +358,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     setValues({ amount: "" });
     dashboardUrl.setStep("amount");
     dashboardUrl.setAmount("");
+    clearVaultFormDraft();
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
