@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
@@ -56,9 +57,14 @@ function makeManyTransactions(count: number): Transaction[] {
 }
 
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <MemoryRouter initialEntries={initialEntries}>
-      <TransactionHistory walletAddress={walletAddress} />
+      <QueryClientProvider client={queryClient}>
+        <TransactionHistory walletAddress={walletAddress} />
+      </QueryClientProvider>
     </MemoryRouter>,
   );
 }
