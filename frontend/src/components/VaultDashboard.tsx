@@ -41,6 +41,8 @@ import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation";
+import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
+import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 
 /**
@@ -220,6 +222,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
+  const activeTab = dashboardUrl.state.tab;
+  const activeStep = dashboardUrl.state.step;
+  const amountFieldId = `vault-${activeTab}-amount`;
+
+  const formFocus = useFormFocusFlow({
+    fields: [
+      { id: amountFieldId, hasError: Boolean(touched.amount && errors.amount) },
+      { id: `vault-${activeTab}-max` },
+      { id: `vault-${activeTab}-review` },
+    ],
+    focusKey: `${activeTab}:${activeStep}`,
+    autoFocusOnKeyChange: activeStep === "amount",
+  });
 
   // Handle deep link parameters
   useEffect(() => {
@@ -255,10 +270,14 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         title: "Please fix validation errors",
         description: errors.amount || "Please enter a valid amount",
       });
+      formFocus.focusFirstError();
       return;
     }
 
     dashboardUrl.setStep("review");
+    window.setTimeout(() => {
+      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
+    }, 0);
   };
 
   useEffect(() => {
@@ -760,7 +779,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
                   <div style={{ minHeight: "380px", display: "flex", flexDirection: "column" }}>
                     {dashboardUrl.state.step === "amount" && (
-                      <div className="animate-in fade-in duration-300">
+                      <div
+                        ref={formFocus.containerRef}
+                        className="animate-in fade-in duration-300"
+                        onKeyDown={formFocus.handleFormKeyDown}
+                      >
                         <div style={{ marginBottom: "24px" }}>
                           <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
                             <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
@@ -774,6 +797,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           <FormField
                             label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
                             name="amount"
+                            id={tab === activeTab ? amountFieldId : `vault-${tab}-amount`}
                             type="number"
                             step="any"
                             placeholder="0.00"
@@ -823,6 +847,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             </div>
                             <button
                               type="button"
+                              id={`vault-${tab}-max`}
                               className="btn-max"
                               onClick={() => {
                                 setValues({ amount: availableBalance.toFixed(2) });
@@ -870,6 +895,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         </div>
 
                         <button
+                          id={`vault-${tab}-review`}
                           className="btn btn-primary"
                           style={{ width: "100%", padding: "16px" }}
                           type="button"
@@ -1114,6 +1140,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           </button>
                           <button
                             type="button"
+                            id={`vault-${tab}-confirm`}
                             className="btn btn-primary"
                             style={{ flex: 2 }}
                             onClick={() => void handleTransaction(tab)}
