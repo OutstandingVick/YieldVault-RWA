@@ -26,7 +26,7 @@ const VaultPerformanceTooltip = ({
   payload,
   label,
   locale,
-}: TooltipContentProps<ValueType, NameType>) => {
+}: TooltipContentProps<ValueType, NameType> & { locale: string }) => {
   if (active && payload && payload.length) {
     const raw = payload[0]?.value;
     const value = typeof raw === "number" ? raw : undefined;
@@ -180,7 +180,7 @@ const VaultPerformanceChart: React.FC = () => {
                   tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                   tickFormatter={createChartNumberTickFormatter(locale, true)}
                 />
-                <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
+                <Tooltip content={(props: TooltipContentProps<ValueType, NameType>) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                 <Area 
                   type="monotone" 
                   dataKey="value" 
@@ -218,7 +218,7 @@ const VaultPerformanceChart: React.FC = () => {
                     tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                     tickFormatter={createChartNumberTickFormatter(locale, true)}
                   />
-                  <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
+                  <Tooltip content={(props: TooltipContentProps<ValueType, NameType>) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                   <Area 
                     type="monotone" 
                     dataKey="value" 
