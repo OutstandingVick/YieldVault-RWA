@@ -1,29 +1,21 @@
-import React from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Analytics from "./Analytics";
 import { VaultProvider } from "../context/VaultContext";
-import { PreferencesProvider } from "../context/PreferencesContext";
 import * as vaultDataHooks from "../hooks/useVaultData";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { VaultSummary } from "../lib/vaultApi";
+
+// ── Mocks ──────────────────────────────────────────────────────────────────
 
 vi.mock("../hooks/useVaultData", () => ({
   useVaultSummary: vi.fn(),
   useVaultHistory: vi.fn(),
 }));
 
-vi.mock("recharts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("recharts")>();
-  return {
-    ...actual,
-    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="responsive-container">{children}</div>
-    ),
-  };
-});
+// ── Shared mock data ───────────────────────────────────────────────────────
 
 const mockSummary: VaultSummary = {
   tvl: 12450800,
@@ -48,6 +40,8 @@ const mockSummary: VaultSummary = {
   },
 };
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 function renderAnalytics() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -55,20 +49,19 @@ function renderAnalytics() {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <PreferencesProvider>
-          <VaultProvider>
-            <Analytics />
-          </VaultProvider>
-        </PreferencesProvider>
+        <VaultProvider>
+          <Analytics />
+        </VaultProvider>
       </QueryClientProvider>
     </MemoryRouter>,
   );
 }
 
+// ── Tests ──────────────────────────────────────────────────────────────────
+
 describe("Analytics — empty state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv("NODE_ENV", "test");
     vi.mocked(vaultDataHooks.useVaultHistory).mockReturnValue({
       data: [],
       isLoading: false,
@@ -87,9 +80,11 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.getByText("No analytics data yet")).toBeInTheDocument();
+    expect(screen.getByText("No data to display.")).toBeInTheDocument();
     expect(
-      screen.getByText(/Vault analytics will appear once the first deposit is made\./i),
+      screen.getByText(
+        /Performance metrics will appear here once your assets start generating yield\./i,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -116,7 +111,7 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.queryByText("No analytics data yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No data to display.")).not.toBeInTheDocument();
   });
 
   it("does NOT show the empty state when TVL is non-zero", () => {
@@ -129,11 +124,12 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.queryByText("No analytics data yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No data to display.")).not.toBeInTheDocument();
+    // Metric cards should be visible
     expect(screen.getByText("Total Value Locked")).toBeInTheDocument();
   });
 
-  it("shows APY comparison cards when data is present", () => {
+  it("shows the 'Advanced Analytics Coming Soon' placeholder when data is present", () => {
     vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
       data: mockSummary,
       isLoading: false,
@@ -143,7 +139,8 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.getByRole("heading", { name: /apy comparison/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /apy trend/i })).toBeInTheDocument();
+    expect(
+      screen.getByText("Advanced Analytics Coming Soon"),
+    ).toBeInTheDocument();
   });
 });

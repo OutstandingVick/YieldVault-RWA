@@ -44,6 +44,9 @@ function isConflictResponseBody(value: unknown): value is ConflictResponseBody {
   return value !== null && typeof value === "object";
 }
 
+/**
+ * Map an API error payload to a transaction conflict, if applicable.
+ */
 export function parseTransactionConflict(error: unknown): TransactionConflictError | null {
   if (error instanceof TransactionConflictError) {
     return error;

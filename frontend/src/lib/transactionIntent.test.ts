@@ -15,7 +15,9 @@ describe("transactionIntent", () => {
   });
 
   it("generates unique idempotency keys", () => {
-    expect(generateIdempotencyKey()).not.toBe(generateIdempotencyKey());
+    const first = generateIdempotencyKey();
+    const second = generateIdempotencyKey();
+    expect(first).not.toBe(second);
   });
 
   it("stores and retrieves intents from session storage", () => {
@@ -27,6 +29,7 @@ describe("transactionIntent", () => {
     });
 
     storeTransactionIntent(intent);
+
     expect(getStoredTransactionIntent("GABC123", "deposit")).toEqual(intent);
   });
 
@@ -51,7 +54,9 @@ describe("transactionIntent", () => {
     });
 
     const rotated = rotateIdempotencyKey(intent);
+
     expect(rotated.idempotencyKey).not.toBe(intent.idempotencyKey);
+    expect(rotated.amount).toBe(intent.amount);
     expect(getStoredTransactionIntent("GABC123", "deposit")?.idempotencyKey).toBe(
       rotated.idempotencyKey,
     );

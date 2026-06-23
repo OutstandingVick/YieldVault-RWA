@@ -39,4 +39,27 @@ describe("staleSubmissionDetection", () => {
       "availableBalance",
     ]);
   });
+
+  it("detects fee and vault cap changes", () => {
+    const current = captureFormSnapshot({
+      action: "deposit",
+      amount: 100,
+      availableBalance: 500,
+      feeXlm: 0.08,
+      isCapReached: true,
+      slippage: 0.5,
+    });
+
+    const result = detectStaleSubmission(baseSnapshot, current);
+
+    expect(result.isStale).toBe(true);
+    expect(result.changes.map((change) => change.field)).toContain("feeXlm");
+    expect(result.changes.map((change) => change.field)).toContain("isCapReached");
+  });
+
+  it("builds a stable snapshot hash", () => {
+    const hash = snapshotHashFromForm(baseSnapshot);
+    expect(hash).toContain("deposit");
+    expect(hash).toContain("100");
+  });
 });
