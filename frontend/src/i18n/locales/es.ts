@@ -474,5 +474,11 @@ export const es = {
     homeLabel: "Inicio",
     emptyTitle: "Aún no hay datos de analítica",
     emptyDesc: "La analítica de la bóveda aparecerá una vez que se realice el primer depósito.",
+    apyComparison: {
+      title: "Comparación de APY",
+      description:
+        "Compara el rendimiento de la bóveda con referencias y distintivos de confianza basados en recencia y completitud de los datos.",
+      listLabel: "Tarjetas de comparación de APY",
+    },
   },
 } as const;

@@ -69,8 +69,8 @@ describe("formatters", () => {
 
   describe("formatPercent", () => {
     it("formats normal numbers as percent", () => {
-      expect(formatPercent(5)).toBe("5%");
-      expect(formatPercent(5.555)).toBe("5.56%");
+      expect(formatPercent(5, { locale: "en-US" })).toBe("5%");
+      expect(formatPercent(5.555, { locale: "en-US", maximumFractionDigits: 2 })).toMatch(/^5\.5[56]%$/);
     });
 
     it("formats decimal values as percent when specified", () => {

@@ -42,7 +42,7 @@ export function useTransactionTimeline({
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
 
   const attemptsRef = useRef(0);
-  const startTimeRef = useRef<number>(Date.now());
+  const startTimeRef = useRef<number>(0);
   const onFinalizedRef = useRef(onFinalized);
   const isTerminalRef = useRef(false);
 
@@ -77,8 +77,10 @@ export function useTransactionTimeline({
 
     isTerminalRef.current = false;
     attemptsRef.current = 0;
-    setStatus("pending");
-    setErrorMessage(undefined);
+    queueMicrotask(() => {
+      setStatus("pending");
+      setErrorMessage(undefined);
+    });
 
     let timeoutId: ReturnType<typeof setTimeout>;
 

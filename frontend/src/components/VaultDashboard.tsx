@@ -33,7 +33,6 @@ import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
-import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
 import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
 import RefreshControl from "./RefreshControl";
@@ -42,6 +41,8 @@ import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
+import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
+import confetti from "canvas-confetti";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -89,8 +90,6 @@ interface VaultDashboardProps {
   usdcBalance?: number;
   xlmBalance?: number;
 }
-
-const MIN_DEPOSIT_AMOUNT = 1;
 
 const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = ({
   utilization,

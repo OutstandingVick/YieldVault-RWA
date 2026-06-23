@@ -7,6 +7,7 @@ import { useVault } from "../context/VaultContext";
 import Skeleton from "../components/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import APYTrendChart from "../components/APYTrendChart";
+import ApyComparisonCards from "../components/ApyComparisonCards";
 import { useNavigate } from "react-router-dom";
 import RefreshControl from "../components/RefreshControl";
 import { usePolling } from "../hooks/usePolling";
@@ -105,6 +106,10 @@ const Analytics: React.FC = () => {
                             </div>
                             <div className="text-caption" style={{ color: 'var(--accent-cyan)', marginTop: '8px' }}>Tracking Sovereign Bonds</div>
                         </div>
+                    </div>
+
+                    <div style={{ marginTop: "32px" }}>
+                        <ApyComparisonCards />
                     </div>
 
                     <div style={{ marginTop: "32px" }}>

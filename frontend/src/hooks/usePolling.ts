@@ -101,11 +101,11 @@ export function usePolling(
 
   useEffect(() => {
     if (!shouldPoll || interval <= 0) {
-      setIsPolling(false);
+      queueMicrotask(() => setIsPolling(false));
       return;
     }
 
-    setIsPolling(true);
+    queueMicrotask(() => setIsPolling(true));
 
     const pollInterval = setInterval(() => {
       doRefetch();

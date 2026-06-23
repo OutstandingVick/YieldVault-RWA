@@ -12,10 +12,10 @@ import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent";
 import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
-import Skeleton, { ChartSkeleton } from "./Skeleton";
+import { ChartSkeleton } from "./Skeleton";
 import { type TimeRange, getNow, getCutoffDate } from "../lib/dateUtils";
 import { usePreferencesContext } from "../context/PreferencesContext";
-import { formatDate, formatNumber } from "../lib/formatters";
+import { formatDate } from "../lib/formatters";
 import { formatChartNumber, createChartNumberTickFormatter } from "../lib/chartFormatters";
 import RefreshControl from "./RefreshControl";
 import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPolling";
@@ -26,7 +26,7 @@ const VaultPerformanceTooltip = ({
   payload,
   label,
   locale,
-}: TooltipContentProps<ValueType, NameType>) => {
+}: TooltipContentProps<ValueType, NameType> & { locale: string }) => {
   if (active && payload && payload.length) {
     const raw = payload[0]?.value;
     const value = typeof raw === "number" ? raw : undefined;
@@ -180,7 +180,7 @@ const VaultPerformanceChart: React.FC = () => {
                   tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                   tickFormatter={createChartNumberTickFormatter(locale, true)}
                 />
-                <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
+                <Tooltip content={(props: TooltipContentProps<ValueType, NameType>) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                 <Area 
                   type="monotone" 
                   dataKey="value" 
@@ -218,7 +218,7 @@ const VaultPerformanceChart: React.FC = () => {
                     tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                     tickFormatter={createChartNumberTickFormatter(locale, true)}
                   />
-                  <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
+                  <Tooltip content={(props: TooltipContentProps<ValueType, NameType>) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                   <Area 
                     type="monotone" 
                     dataKey="value" 

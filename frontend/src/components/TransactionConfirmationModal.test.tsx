@@ -265,7 +265,6 @@ describe('TransactionConfirmationModal', () => {
 
   describe('Focus Management', () => {
     it('traps focus within modal', async () => {
-      const user = userEvent.setup();
       render(<TransactionConfirmationModal {...defaultProps} />);
       
       const dialog = screen.getByRole('dialog');

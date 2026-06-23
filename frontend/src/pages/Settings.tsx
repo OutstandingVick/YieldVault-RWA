@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { usePreferencesContext } from '../context/PreferencesContext';
-import type { Theme, Locale, Currency, NotificationPreferences, Precision } from '../hooks/usePreferences';
+import type { Theme, Locale, Currency, NotificationPreferences } from '../hooks/usePreferences';
 import { useTranslation } from '../i18n';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
