@@ -4,7 +4,6 @@
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import { TransactionConfirmationModal } from './TransactionConfirmationModal';
 import type { TransactionSummary } from '../types/transaction';
@@ -240,8 +239,6 @@ describe('TransactionConfirmationModal', () => {
     });
 
     it('allows copying contract address', async () => {
-      const user = userEvent.setup();
-      
       // Mock clipboard API
       Object.assign(navigator, {
         clipboard: {
@@ -251,7 +248,7 @@ describe('TransactionConfirmationModal', () => {
 
       render(<TransactionConfirmationModal {...defaultProps} />);
       const copyBtn = screen.getByRole('button', { name: /Copy contract address/ });
-      await user.click(copyBtn);
+      fireEvent.click(copyBtn);
       
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(mockSummary.contractAddress);
     });
