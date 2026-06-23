@@ -20,6 +20,7 @@ import { formatChartNumber, createChartNumberTickFormatter } from "../lib/chartF
 import RefreshControl from "./RefreshControl";
 import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
+import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
 
 const VaultPerformanceTooltip = ({
   active,
@@ -58,7 +59,7 @@ const VaultPerformanceChart: React.FC = () => {
   const { query, polling, lastUpdated } = useQueryWithPolling(historyQuery, {
     interval: POLLING_INTERVALS.slow,
   });
-  const { data: rawData = [], isLoading, isFetching } = query;
+  const { data: rawData = [], isLoading, isFetching, error, refetch } = query;
   const { isStale, ageText } = useStaleIndicator(lastUpdated);
   const { preferences } = usePreferencesContext();
   const [timeRange, setTimeRange] = useState<TimeRange>("ALL");
@@ -154,7 +155,22 @@ const VaultPerformanceChart: React.FC = () => {
           </div>
 
           <div style={{ flex: 1, minHeight: "260px", position: "relative" }}>
-            {isTest ? (
+            {error ? (
+              <ChartWidgetPlaceholder
+                variant="error"
+                title="Unable to load performance data"
+                description="We could not fetch vault performance history. Please try again."
+                height={260}
+                onRetry={() => void refetch()}
+              />
+            ) : filteredData.length === 0 ? (
+              <ChartWidgetPlaceholder
+                variant="empty"
+                title="No performance data yet"
+                description="Vault performance history will appear after the first data points are recorded."
+                height={260}
+              />
+            ) : isTest ? (
               <AreaChart data={filteredData} width={400} height={260} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
