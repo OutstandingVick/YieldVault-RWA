@@ -12,21 +12,22 @@ import type { TooltipContentProps } from "recharts/types/component/Tooltip";
 import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent";
 import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
-import Skeleton, { ChartSkeleton } from "./Skeleton";
+import { ChartSkeleton } from "./Skeleton";
 import { type TimeRange, getNow, getCutoffDate } from "../lib/dateUtils";
 import { usePreferencesContext } from "../context/PreferencesContext";
-import { formatDate, formatNumber } from "../lib/formatters";
+import { formatDate } from "../lib/formatters";
 import { formatChartNumber, createChartNumberTickFormatter } from "../lib/chartFormatters";
 import RefreshControl from "./RefreshControl";
 import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
+import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
 
 const VaultPerformanceTooltip = ({
   active,
   payload,
   label,
   locale,
-}: TooltipContentProps<ValueType, NameType>) => {
+}: TooltipContentProps<ValueType, NameType> & { locale: string }) => {
   if (active && payload && payload.length) {
     const raw = payload[0]?.value;
     const value = typeof raw === "number" ? raw : undefined;
@@ -58,7 +59,7 @@ const VaultPerformanceChart: React.FC = () => {
   const { query, polling, lastUpdated } = useQueryWithPolling(historyQuery, {
     interval: POLLING_INTERVALS.slow,
   });
-  const { data: rawData = [], isLoading, isFetching } = query;
+  const { data: rawData = [], isLoading, isFetching, error, refetch } = query;
   const { isStale, ageText } = useStaleIndicator(lastUpdated);
   const { preferences } = usePreferencesContext();
   const [timeRange, setTimeRange] = useState<TimeRange>("ALL");
@@ -154,7 +155,22 @@ const VaultPerformanceChart: React.FC = () => {
           </div>
 
           <div style={{ flex: 1, minHeight: "260px", position: "relative" }}>
-            {isTest ? (
+            {error ? (
+              <ChartWidgetPlaceholder
+                variant="error"
+                title="Unable to load performance data"
+                description="We could not fetch vault performance history. Please try again."
+                height={260}
+                onRetry={() => void refetch()}
+              />
+            ) : filteredData.length === 0 ? (
+              <ChartWidgetPlaceholder
+                variant="empty"
+                title="No performance data yet"
+                description="Vault performance history will appear after the first data points are recorded."
+                height={260}
+              />
+            ) : isTest ? (
               <AreaChart data={filteredData} width={400} height={260} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
@@ -180,7 +196,7 @@ const VaultPerformanceChart: React.FC = () => {
                   tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                   tickFormatter={createChartNumberTickFormatter(locale, true)}
                 />
-                <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
+                <Tooltip content={(props: TooltipContentProps<ValueType, NameType>) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                 <Area 
                   type="monotone" 
                   dataKey="value" 
@@ -218,7 +234,7 @@ const VaultPerformanceChart: React.FC = () => {
                     tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                     tickFormatter={createChartNumberTickFormatter(locale, true)}
                   />
-                  <Tooltip content={(props) => <VaultPerformanceTooltip {...props} locale={locale} />} />
+                  <Tooltip content={(props: TooltipContentProps<ValueType, NameType>) => <VaultPerformanceTooltip {...props} locale={locale} />} />
                   <Area 
                     type="monotone" 
                     dataKey="value" 

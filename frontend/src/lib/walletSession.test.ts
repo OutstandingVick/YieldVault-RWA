@@ -81,7 +81,7 @@ describe("walletSession provider availability", () => {
 
   it("returns false when window is undefined", async () => {
     const originalWindow = global.window;
-    // @ts-ignore
+    // @ts-expect-error - simulating non-browser environment
     delete global.window;
     const result = await isProviderAvailable("freighter");
     global.window = originalWindow;

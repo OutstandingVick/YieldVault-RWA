@@ -21,6 +21,10 @@ import { idempotencyStore } from './idempotency';
 import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
 import { recordAdminAuditLog } from './adminAudit';
 import {
+  recordAdminConfigChange, listAdminConfigChanges, getActorFromRequest
+} from './adminConfigChangeAudit';
+import { featureFlags } from './featureFlags';
+import {
   startImpersonationSession,
   endImpersonationSession,
   validateImpersonationSession,
@@ -40,6 +44,7 @@ import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/ca
 import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
 import { tieredJsonBodyParser } from './middleware/payloadLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
+import { timeoutMiddleware, createTimeoutFor } from './middleware/timeoutMiddleware';
 import {
   setWithdrawalLimitOverride,
   listWithdrawalLimitAuditEntries,
@@ -467,6 +472,9 @@ app.use(correlationIdMiddleware);
 
 // Structured logging with correlation IDs
 app.use(structuredLoggingMiddleware);
+
+// Global timeout middleware (30 seconds default)
+app.use(timeoutMiddleware());
 
 // Metrics middleware to track HTTP requests
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -992,6 +1000,17 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
 
   const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
 
+  await recordAdminConfigChange({
+    configType: 'maintenance',
+    action: 'toggle',
+    actor,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent'),
+    preChangeSnapshot: previous as Record<string, unknown>,
+    postChangeSnapshot: next as Record<string, unknown>,
+    metadata: { receiptId: '' },
+  });
+
   const receipt = await generateAdminReceipt({
     action: 'maintenance.toggle',
     actor,
@@ -1026,6 +1045,163 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
     timestamp: new Date().toISOString(),
     receipt,
   });
+});
+
+/**
+ * GET /admin/config-changes - List admin configuration changes
+ * Requires API key authentication
+ */
+app.get('/admin/config-changes', validateApiKey, async (req: Request, res: Response) => {
+  const { configType, actor, start, end, limit } = req.query;
+  const configChanges = await listAdminConfigChanges({
+    configType: typeof configType === 'string' ? configType : undefined,
+    actor: typeof actor === 'string' ? actor : undefined,
+    start: typeof start === 'string' ? start : undefined,
+    end: typeof end === 'string' ? end : undefined,
+    limit: typeof limit === 'string' ? parseInt(limit, 10) : 100,
+  });
+
+  res.json({
+    data: configChanges,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/feature-flags/overrides - List active feature flag overrides
+ * Requires API key authentication
+ */
+app.get('/admin/feature-flags/overrides', validateApiKey, async (_req: Request, res: Response) => {
+  const overrides = await featureFlags.listActiveOverrides();
+  res.json({
+    data: overrides,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/feature-flags/overrides - Create a new feature flag override
+ * Requires API key authentication
+ * Body: {
+ *   flagName: string,
+ *   enabled: boolean,
+ *   scopeType: "wallet" | "environment",
+ *   scopeValue?: string,
+ *   expiresAt: string (ISO 8601)
+ * }
+ */
+app.post('/admin/feature-flags/overrides', validateApiKey, async (req: Request, res: Response) => {
+  const { flagName, enabled, scopeType, scopeValue, expiresAt } = req.body;
+
+  if (!flagName || typeof flagName !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`flagName` (string) is required'
+    });
+    return;
+  }
+
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`enabled` (boolean) is required'
+    });
+    return;
+  }
+
+  if (!scopeType || !['wallet', 'environment'].includes(scopeType)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeType` must be "wallet" or "environment"'
+    });
+    return;
+  }
+
+  if (scopeType === 'wallet' && (!scopeValue || typeof scopeValue !== 'string')) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeValue` (string) is required for wallet scope'
+    });
+    return;
+  }
+
+  if (scopeType === 'environment' && (!scopeValue || typeof scopeValue !== 'string')) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeValue` (string) is required for environment scope'
+    });
+    return;
+  }
+
+  if (!expiresAt || typeof expiresAt !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`expiresAt` (ISO 8601 string) is required'
+    });
+    return;
+  }
+
+  const expiresAtDate = new Date(expiresAt);
+  if (isNaN(expiresAtDate.getTime()) || expiresAtDate <= new Date()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`expiresAt` must be a valid future date in ISO 8601 format'
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const override = await featureFlags.createOverride(
+    flagName,
+    enabled,
+    scopeType as 'wallet' | 'environment',
+    scopeValue,
+    expiresAtDate,
+    actor
+  );
+
+  res.status(201).json({
+    message: 'Feature flag override created successfully',
+    data: override,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/feature-flags/overrides/:id - Delete a feature flag override
+ * Requires API key authentication
+ */
+app.delete('/admin/feature-flags/overrides/:id', validateApiKey, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'Override ID is required'
+    });
+    return;
+  }
+
+  try {
+    await featureFlags.deleteOverride(id);
+    res.status(200).json({
+      message: 'Feature flag override deleted successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Feature flag override not found'
+    });
+  }
 });
 
 /**

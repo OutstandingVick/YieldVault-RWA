@@ -44,6 +44,10 @@ import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation"
 import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
+import {
+  clearVaultFormDraft,
+  saveVaultFormDraft,
+} from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
@@ -233,6 +237,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
+
+  useEffect(() => {
+    if (!walletAddress) return;
+    if (!amount.trim() && dashboardUrl.state.step === "amount") return;
+
+    saveVaultFormDraft({
+      tab: dashboardUrl.state.tab,
+      step: dashboardUrl.state.step,
+      amount,
+    });
+  }, [
+    walletAddress,
+    dashboardUrl.state.tab,
+    dashboardUrl.state.step,
+    amount,
+  ]);
 
   // Handle deep link parameters
   useEffect(() => {

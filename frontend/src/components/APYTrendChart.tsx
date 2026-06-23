@@ -16,6 +16,7 @@ import { type TimeRange, getCutoffDate, getNow } from "../lib/dateUtils";
 import RefreshControl from "./RefreshControl";
 import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
+import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -339,7 +340,14 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
 
       {/* Chart */}
       <div style={{ height: "240px", position: "relative" }}>
-        {isTest ? (
+        {baseData.length === 0 ? (
+          <ChartWidgetPlaceholder
+            variant="empty"
+            title="No APY data available"
+            description="APY history will appear here once yield data is available."
+            height={240}
+          />
+        ) : isTest ? (
           <LineChart {...sharedChartProps} width={400} height={240}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
             <XAxis
@@ -357,10 +365,10 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
               tickFormatter={(v: number) => `${v.toFixed(1)}%`}
               domain={["auto", "auto"]}
             />
-            <Tooltip content={(props) => <APYTooltip {...props} locale={locale} />} />
+            <Tooltip content={(props: TooltipProps) => <APYTooltip {...props} locale={locale} />} />
             <Legend
               wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
-              formatter={(value) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
+              formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
             />
             {renderLines()}
           </LineChart>
@@ -383,10 +391,10 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
                 tickFormatter={(v: number) => `${v.toFixed(1)}%`}
                 domain={["auto", "auto"]}
               />
-              <Tooltip content={(props) => <APYTooltip {...props} locale={locale} />} />
+              <Tooltip content={(props: TooltipProps) => <APYTooltip {...props} locale={locale} />} />
               <Legend
                 wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
-                formatter={(value) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
+                formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
               />
               {renderLines()}
             </LineChart>

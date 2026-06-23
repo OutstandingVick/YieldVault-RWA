@@ -198,6 +198,20 @@ export const en = {
     reconnect: "Reconnect Wallet",
     goHome: "Go to Home",
   },
+  walletRecovery: {
+    title: "Wallet Disconnected",
+    description:
+      "Your wallet disconnected unexpectedly. You can reconnect and restore your in-progress transaction draft.",
+    draftLabel: "Saved draft",
+    noAmount: "No amount entered",
+    reconnect: "Reconnect Wallet",
+    restore: "Restore Draft",
+    discard: "Discard Draft",
+    tab: {
+      deposit: "Deposit",
+      withdraw: "Withdraw",
+    },
+  },
   onboarding: {
     title: "Get Started with YieldVault",
     subtitle: "Follow these steps to start earning institutional-grade yield on your USDC.",

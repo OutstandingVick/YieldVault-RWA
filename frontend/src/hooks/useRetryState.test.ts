@@ -1,4 +1,4 @@
-import { renderHook, act } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useRetryState } from "./useRetryState";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

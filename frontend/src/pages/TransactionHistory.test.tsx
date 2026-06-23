@@ -86,7 +86,7 @@ describe("TransactionHistory", () => {
   it("renders connect-wallet prompt when walletAddress is null", () => {
     renderPage(null);
 
-    expect(screen.getByText(/Please connect your wallet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connect your wallet/i)).toBeInTheDocument();
     expect(mockGetTransactions).not.toHaveBeenCalled();
   });
 

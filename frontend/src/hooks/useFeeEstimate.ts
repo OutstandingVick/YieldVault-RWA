@@ -38,8 +38,10 @@ export function useFeeEstimate(
   useEffect(() => {
     const enteredAmount = Number(amount);
     if (!walletAddress || isNaN(enteredAmount) || enteredAmount <= 0) {
-      setFeeXlm(0);
-      setFeeUsd(0);
+      queueMicrotask(() => {
+        setFeeXlm(0);
+        setFeeUsd(0);
+      });
       return;
     }
 
