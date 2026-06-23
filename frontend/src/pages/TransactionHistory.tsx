@@ -27,7 +27,6 @@ import { useTransactionFilters } from "../hooks/useTransactionFilters";
 import { useTransactionHistory } from "../hooks/useTransactionData";
 import { getStellarExplorerUrl } from "../lib/security";
 import { networkConfig } from "../config/network";
-import { useTranslation } from "../i18n";
 
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 
@@ -145,7 +144,6 @@ const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> 
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
-  const { t } = useTranslation();
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
   const transactions = React.useMemo(
@@ -232,7 +230,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         </a>
       ),
     },
-  ], [selectedPendingHash, t]);
+  ], [selectedPendingHash]);
 
   const error = queryError 
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 

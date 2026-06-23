@@ -8,6 +8,9 @@ import {
   formatNumber,
   formatCurrency,
   formatPercent,
+  type NumberFormatOptions,
+  type CurrencyFormatOptions,
+  type PercentFormatOptions,
 } from "./formatters";
 
 /**

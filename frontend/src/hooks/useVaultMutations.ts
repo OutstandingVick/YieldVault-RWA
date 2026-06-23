@@ -9,6 +9,7 @@ interface MutationParams {
   walletAddress: string;
   amount: number;
   referralCode?: string;
+  idempotencyKey?: string;
 }
 
 interface OptimisticSnapshot {
@@ -59,14 +60,17 @@ export function useDepositMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ walletAddress, amount, referralCode }: MutationParams) => {
-      await submitDeposit({
-        walletAddress,
-        amount: amount.toString(),
-        asset: "USDC",
-        referralCode,
-      });
-      return { walletAddress, amount, referralCode };
+    mutationFn: async ({ walletAddress, amount, referralCode, idempotencyKey }: MutationParams) => {
+      await submitDeposit(
+        {
+          walletAddress,
+          amount: amount.toString(),
+          asset: "USDC",
+          referralCode,
+        },
+        { idempotencyKey },
+      );
+      return { walletAddress, amount, referralCode, idempotencyKey };
     },
     onMutate: async ({ walletAddress, amount }) => {
       const balanceKey = queryKeys.balance.usdc(walletAddress);
@@ -150,14 +154,17 @@ export function useWithdrawMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ walletAddress, amount }: MutationParams) => {
+    mutationFn: async ({ walletAddress, amount, idempotencyKey }: MutationParams) => {
       const shares = Math.max(1, Math.round(amount));
-      await submitWithdrawal({
-        walletAddress,
-        shares,
-        asset: "USDC",
-      });
-      return { walletAddress, amount };
+      await submitWithdrawal(
+        {
+          walletAddress,
+          shares,
+          asset: "USDC",
+        },
+        { idempotencyKey },
+      );
+      return { walletAddress, amount, idempotencyKey };
     },
     onMutate: async ({ walletAddress, amount }) => {
       const balanceKey = queryKeys.balance.usdc(walletAddress);
