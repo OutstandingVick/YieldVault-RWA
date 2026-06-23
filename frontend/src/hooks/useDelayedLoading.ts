@@ -20,7 +20,9 @@ export function useDelayedLoading(isLoading: boolean, delayMs: number = 100): bo
         setDelayedLoading(true);
       }, delayMs);
     } else {
-      setDelayedLoading(false);
+      queueMicrotask(() => {
+        setDelayedLoading(false);
+      });
     }
 
     return () => {

@@ -14,6 +14,9 @@ import {
 import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
 import { buildTransactionsResponse } from './listEndpoints';
 import { cacheMiddleware } from './middleware/cache';
+import { tenantGuard } from './middleware/tenantGuard';
+import { Permission } from './middleware/rbac';
+import { createTimeoutFor } from './middleware/timeoutMiddleware';
 
 const router = Router();
 const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
@@ -34,7 +37,15 @@ const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000'
  * 
  * Response: Paginated list of transactions with total count and no duplicate results across pages
  */
-router.get('/', cacheMiddleware({ ttl: CACHE_TTL_MS }), async (req: Request, res: Response) => {
+router.get('/', 
+  cacheMiddleware({ ttl: CACHE_TTL_MS }),
+  tenantGuard({ 
+    walletParamPath: 'query.walletAddress', 
+    allowAdminBypass: true, 
+    adminBypassPermission: Permission.ADMIN_READ 
+  }),
+  createTimeoutFor.read(),
+  async (req: Request, res: Response) => {
   const traceId = getCurrentTraceId();
 
   return await withSpan('transactions.list', async (span) => {

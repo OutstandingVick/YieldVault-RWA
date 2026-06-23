@@ -33,7 +33,6 @@ import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
-import { useTranslation } from "../i18n";
 import { networkConfig } from "../config/network";
 import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
 import RefreshControl from "./RefreshControl";
@@ -43,7 +42,12 @@ import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation";
 import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
+import {
+  clearVaultFormDraft,
+  saveVaultFormDraft,
+} from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
+import confetti from "canvas-confetti";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -91,8 +95,6 @@ interface VaultDashboardProps {
   usdcBalance?: number;
   xlmBalance?: number;
 }
-
-const MIN_DEPOSIT_AMOUNT = 1;
 
 const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = ({
   utilization,
@@ -236,6 +238,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     autoFocusOnKeyChange: activeStep === "amount",
   });
 
+  useEffect(() => {
+    if (!walletAddress) return;
+    if (!amount.trim() && dashboardUrl.state.step === "amount") return;
+
+    saveVaultFormDraft({
+      tab: dashboardUrl.state.tab,
+      step: dashboardUrl.state.step,
+      amount,
+    });
+  }, [
+    walletAddress,
+    dashboardUrl.state.tab,
+    dashboardUrl.state.step,
+    amount,
+  ]);
+
   // Handle deep link parameters
   useEffect(() => {
     const action = dashboardUrl.state.tab;
@@ -262,6 +280,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     dashboardUrl.setStep("amount");
     dashboardUrl.setAmount("");
     setTransactionResult(null);
+    clearVaultFormDraft();
   };
 
   const goToReview = () => {

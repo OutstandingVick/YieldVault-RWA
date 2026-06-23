@@ -1,5 +1,5 @@
 /**
- * Self-hosted feature flag service.
+ * Self-hosted feature flag service with override support.
  *
  * Flags are loaded from FEATURE_FLAGS_PATH (JSON file) or from the
  * FEATURE_FLAGS env var (inline JSON). The file is re-read on every
@@ -16,10 +16,12 @@
  * Environment variables:
  *   FEATURE_FLAGS_PATH  – path to the JSON flags file
  *   FEATURE_FLAGS       – inline JSON (used when no file path is set)
+ *   NODE_ENV            – environment name for scope "environment"
  */
 
 import fs from 'fs';
 import type { Request, Response, NextFunction } from 'express';
+import { getPrismaClient } from './prismaClient';
 
 interface FlagDefinition {
   enabled: boolean;
@@ -53,13 +55,46 @@ function loadFlags(): FlagMap {
 
 export class FeatureFlagService {
   /**
-   * Evaluates a flag for an optional wallet address.
+   * Evaluates a flag for an optional wallet address, checking for overrides first.
    * Evaluation time is O(allowlist size) and typically < 1 ms.
    *
    * @param flag          - Flag name
    * @param walletAddress - Optional wallet address for per-wallet targeting
    */
-  isEnabled(flag: string, walletAddress?: string): boolean {
+  async isEnabled(flag: string, walletAddress?: string): Promise<boolean> {
+    const prisma = getPrismaClient();
+    const now = new Date();
+
+    // Check for wallet-specific override first
+    if (walletAddress) {
+      const walletOverride = await prisma.featureFlagOverride.findFirst({
+        where: {
+          flagName: flag,
+          scopeType: 'wallet',
+          scopeValue: walletAddress,
+          expiresAt: { gte: now }
+        }
+      });
+      if (walletOverride) {
+        return walletOverride.enabled;
+      }
+    }
+
+    // Check for environment-specific override
+    const environment = process.env.NODE_ENV || 'development';
+    const envOverride = await prisma.featureFlagOverride.findFirst({
+      where: {
+        flagName: flag,
+        scopeType: 'environment',
+        scopeValue: environment,
+        expiresAt: { gte: now }
+      }
+    });
+    if (envOverride) {
+      return envOverride.enabled;
+    }
+
+    // Fall back to base flag definition
     const flags = loadFlags();
     const def = flags[flag];
     if (!def || !def.enabled) return false;
@@ -71,6 +106,50 @@ export class FeatureFlagService {
     }
 
     return true;
+  }
+
+  /**
+   * Creates a new feature flag override
+   */
+  async createOverride(
+    flagName: string,
+    enabled: boolean,
+    scopeType: 'wallet' | 'environment',
+    scopeValue: string | null,
+    expiresAt: Date,
+    actor: string
+  ) {
+    const prisma = getPrismaClient();
+    return prisma.featureFlagOverride.create({
+      data: {
+        flagName,
+        enabled,
+        scopeType,
+        scopeValue,
+        expiresAt,
+        actor
+      }
+    });
+  }
+
+  /**
+   * Lists all active (non-expired) feature flag overrides
+   */
+  async listActiveOverrides() {
+    const prisma = getPrismaClient();
+    const now = new Date();
+    return prisma.featureFlagOverride.findMany({
+      where: { expiresAt: { gte: now } },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  /**
+   * Deletes a feature flag override
+   */
+  async deleteOverride(id: string) {
+    const prisma = getPrismaClient();
+    return prisma.featureFlagOverride.delete({ where: { id } });
   }
 }
 
@@ -87,12 +166,12 @@ export const featureFlags = new FeatureFlagService();
  * the x-wallet-address header for per-wallet targeting.
  */
 export function requireFlag(flag: string) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const wallet =
       (req.headers['x-wallet-address'] as string | undefined) ||
       (req.body?.walletAddress as string | undefined);
 
-    if (!featureFlags.isEnabled(flag, wallet)) {
+    if (!await featureFlags.isEnabled(flag, wallet)) {
       res.status(404).json({ error: 'Not Found', status: 404, message: 'Endpoint not available' });
       return;
     }

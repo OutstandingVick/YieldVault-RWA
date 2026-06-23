@@ -125,6 +125,8 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
   onSearchChange,
   onTypesChange,
   onStatusesChange,
+  assets,
+  onAssetChange,
   onDateFromChange,
   onDateToChange,
   onAmountMinChange,
@@ -146,15 +148,15 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
 
   // Sync local state when URL changes externally (e.g. back/forward, clearAll)
   useEffect(() => {
-    setLocalSearch(filters.search);
+    queueMicrotask(() => setLocalSearch(filters.search));
   }, [filters.search]);
 
   useEffect(() => {
-    setLocalAmountMin(filters.amountMin);
+    queueMicrotask(() => setLocalAmountMin(filters.amountMin));
   }, [filters.amountMin]);
 
   useEffect(() => {
-    setLocalAmountMax(filters.amountMax);
+    queueMicrotask(() => setLocalAmountMax(filters.amountMax));
   }, [filters.amountMax]);
 
   // ---------------------------------------------------------------------------

@@ -282,3 +282,36 @@ model WebhookDeadLetter {
   @@index([createdAt])
   @@index([status])
 }
+
+model AdminConfigChange {
+  id                 String   @id @default(uuid())
+  configType         String
+  action             String
+  actor              String
+  ipAddress          String?
+  userAgent          String?
+  preChangeSnapshot  String
+  postChangeSnapshot String
+  metadata           String
+  createdAt          DateTime @default(now())
+
+  @@index([configType])
+  @@index([createdAt])
+  @@index([actor])
+}
+
+model FeatureFlagOverride {
+  id        String   @id @default(uuid())
+  flagName  String
+  enabled   Boolean
+  scopeType String   // "wallet" or "environment"
+  scopeValue String?  // wallet address or environment name
+  expiresAt DateTime
+  actor     String
+  createdAt DateTime @default(now())
+
+  @@index([flagName])
+  @@index([scopeType, scopeValue])
+  @@index([expiresAt])
+  @@index([actor])
+}

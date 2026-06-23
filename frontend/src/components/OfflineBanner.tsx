@@ -36,18 +36,19 @@ export default function OfflineBanner({ lastKnownTvl, lastKnownBalance }: Offlin
   );
 
   useEffect(() => {
-    let timeoutId: number;
+    let timeoutId: number | undefined;
 
     if (!isOnline) {
-      // Device went offline
-      window.clearTimeout(timeoutId);
-      setBannerState("offline");
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+      queueMicrotask(() => setBannerState("offline"));
     } else if (isRetrying) {
       // Online but queries are retrying
-      setBannerState("retrying");
+      queueMicrotask(() => setBannerState("retrying"));
     } else if (bannerState === "offline") {
       // Transitioned from offline to online
-      setBannerState("online_success");
+      queueMicrotask(() => setBannerState("online_success"));
       
       // Instantly trigger fresh HTTP requests for all active dashboard widgets
       queryClient.invalidateQueries();
@@ -64,7 +65,9 @@ export default function OfflineBanner({ lastKnownTvl, lastKnownBalance }: Offlin
     }
 
     return () => {
-      window.clearTimeout(timeoutId);
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [isOnline, isRetrying, bannerState]);
 

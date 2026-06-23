@@ -27,6 +27,7 @@ import { useTransactionFilters } from "../hooks/useTransactionFilters";
 import { useTransactionHistory } from "../hooks/useTransactionData";
 import { getStellarExplorerUrl } from "../lib/security";
 import { networkConfig } from "../config/network";
+import { useTranslation } from "../i18n";
 
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 
@@ -144,6 +145,7 @@ const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> 
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
+  const { t } = useTranslation();
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
   const transactions = React.useMemo(
@@ -230,7 +232,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         </a>
       ),
     },
-  ], [selectedPendingHash]);
+  ], [selectedPendingHash, t]);
 
   const error = queryError 
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
@@ -365,12 +367,12 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
   // Update hasMoreItems when the data or visibleCount changes
   useEffect(() => {
-    setHasMoreItems(visibleCount < sortedRows.length);
+    queueMicrotask(() => setHasMoreItems(visibleCount < sortedRows.length));
   }, [visibleCount, sortedRows.length]);
 
   // Reset visible count when filters/search/sort change
   useEffect(() => {
-    setVisibleCount(INFINITE_SCROLL_BATCH_SIZE);
+    queueMicrotask(() => setVisibleCount(INFINITE_SCROLL_BATCH_SIZE));
   }, [
     state.search,
     state.sortBy,
