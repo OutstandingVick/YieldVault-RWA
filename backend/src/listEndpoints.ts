@@ -448,7 +448,7 @@ export function buildTransactionsResponse(
     to: normalizedDateRange.normalizedEnd ?? undefined,
   });
   if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
+    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['timestamp', 'id']);
   }
 
   const paginated = pagination.page
@@ -587,7 +587,7 @@ export function buildPortfolioHoldingsResponse(
 
   let filtered = filterPortfolioHoldings(MOCK_PORTFOLIO_HOLDINGS, filters);
   if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
+    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['valueUsd', 'id']);
   }
 
   const paginated = paginateWithCursor(filtered, pagination, (holding) =>
@@ -617,7 +617,7 @@ export function buildVaultHistoryResponse(
     to: normalizedDateRange.normalizedEnd?.slice(0, 10),
   });
   if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
+    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['date']);
   }
 
   const paginated = paginateWithCursor(filtered, pagination, (point) =>

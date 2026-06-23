@@ -3,6 +3,8 @@ import app from '../index';
 import { registerApiKey } from '../middleware/apiKeyAuth';
 import { resetWebhookState } from '../webhookDelivery';
 import { resetAuditLogs } from '../auditLog';
+import { resetTransactionBackfillJobsForTests } from '../transactionBackfill';
+import { resetExportManifestsForTests } from '../exportManifest';
 
 describe('Admin backend features', () => {
   const adminKey = 'admin-feature-test-key';
@@ -15,6 +17,8 @@ describe('Admin backend features', () => {
   beforeEach(async () => {
     await resetWebhookState();
     resetAuditLogs();
+    resetTransactionBackfillJobsForTests();
+    resetExportManifestsForTests();
   });
 
   it('registers webhook endpoint and records delivery for transaction events', async () => {
@@ -161,5 +165,84 @@ describe('Admin backend features', () => {
 
     expect(dashboardResponse.status).toBe(200);
     expect(dashboardResponse.text).toContain('Background Job Monitoring');
+  });
+
+  it('starts controlled transaction backfill and supports idempotent resume', async () => {
+    const first = await request(app)
+      .post('/admin/transactions/backfill')
+      .set(authHeader)
+      .send({
+        startLedger: 10,
+        endLedger: 15,
+        batchSize: 2,
+        dryRun: true,
+        rpcUrl: 'https://example-rpc.invalid',
+        contractId: 'CBACKFILLCONTRACT',
+      });
+
+    expect(first.status).toBe(202);
+    expect(first.body.job).toHaveProperty('id');
+    expect(first.body.job).toHaveProperty('status', 'completed');
+    expect(first.body.job.progress).toHaveProperty('totalLedgers', 6);
+
+    const second = await request(app)
+      .post('/admin/transactions/backfill')
+      .set(authHeader)
+      .send({
+        startLedger: 10,
+        endLedger: 15,
+        batchSize: 2,
+        dryRun: true,
+        rpcUrl: 'https://example-rpc.invalid',
+        contractId: 'CBACKFILLCONTRACT',
+      });
+
+    expect(second.status).toBe(202);
+    expect(second.body.job.id).toBe(first.body.job.id);
+
+    const listed = await request(app)
+      .get('/admin/transactions/backfill')
+      .set(authHeader);
+    expect(listed.status).toBe(200);
+    expect(listed.body.data.length).toBeGreaterThan(0);
+
+    const detail = await request(app)
+      .get(`/admin/transactions/backfill/${first.body.job.id}`)
+      .set(authHeader);
+    expect(detail.status).toBe(200);
+    expect(detail.body.job.id).toBe(first.body.job.id);
+  });
+
+  it('stores immutable export manifest records for generated reporting files', async () => {
+    const created = await request(app)
+      .post('/admin/reports/exports')
+      .set(authHeader)
+      .send({
+        reportType: 'transactions',
+        filters: {
+          status: 'completed',
+          from: '2026-01-01',
+          to: '2026-01-31',
+        },
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.manifest).toHaveProperty('id');
+    expect(created.body.manifest).toHaveProperty('requester');
+    expect(created.body.manifest).toHaveProperty('checksum');
+    expect(created.body.manifest).toHaveProperty('generatedAt');
+
+    const list = await request(app)
+      .get('/admin/reports/exports/manifests')
+      .set(authHeader);
+    expect(list.status).toBe(200);
+    expect(list.body.data.length).toBeGreaterThan(0);
+
+    const manifestId = created.body.manifest.id;
+    const detail = await request(app)
+      .get(`/admin/reports/exports/manifests/${manifestId}`)
+      .set(authHeader);
+    expect(detail.status).toBe(200);
+    expect(detail.body.manifest.id).toBe(manifestId);
   });
 });
