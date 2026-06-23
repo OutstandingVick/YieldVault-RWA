@@ -40,6 +40,11 @@ import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation";
+import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
+import {
+  clearVaultFormDraft,
+  saveVaultFormDraft,
+} from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import confetti from "canvas-confetti";
@@ -220,6 +225,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const amount = values.amount;
 
+  useEffect(() => {
+    if (!walletAddress) return;
+    if (!amount.trim() && dashboardUrl.state.step === "amount") return;
+
+    saveVaultFormDraft({
+      tab: dashboardUrl.state.tab,
+      step: dashboardUrl.state.step,
+      amount,
+    });
+  }, [
+    walletAddress,
+    dashboardUrl.state.tab,
+    dashboardUrl.state.step,
+    amount,
+  ]);
+
   // Handle deep link parameters
   useEffect(() => {
     const action = dashboardUrl.state.tab;
@@ -246,6 +267,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     dashboardUrl.setStep("amount");
     dashboardUrl.setAmount("");
     setTransactionResult(null);
+    clearVaultFormDraft();
   };
 
   const goToReview = () => {
