@@ -263,11 +263,18 @@ export function formatDate(
     return "";
   }
 
-  const options =
-    "formatOptions" in formatOptionsOrOptions || "locale" in formatOptionsOrOptions
-      ? formatOptionsOrOptions
-      : { formatOptions: formatOptionsOrOptions, locale };
+  const isWrappedOptions =
+    typeof formatOptionsOrOptions === "object" &&
+    formatOptionsOrOptions !== null &&
+    "formatOptions" in formatOptionsOrOptions;
 
-  const resolvedLocale = resolveLocale(options.locale, options.fallbackLocale);
-  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions).format(normalizedDate);
+  if (isWrappedOptions) {
+    const opts = formatOptionsOrOptions as DateFormatOptions;
+    const resolvedLocale = resolveLocale(opts.locale, opts.fallbackLocale);
+    return new Intl.DateTimeFormat(resolvedLocale, opts.formatOptions).format(normalizedDate);
+  }
+
+  const resolvedLocale = resolveLocale(locale);
+  const formatOpts = formatOptionsOrOptions as Intl.DateTimeFormatOptions;
+  return new Intl.DateTimeFormat(resolvedLocale, formatOpts).format(normalizedDate);
 }
