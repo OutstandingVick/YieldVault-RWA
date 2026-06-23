@@ -1,5 +1,6 @@
 import type { Response, NextFunction, RequestHandler } from 'express';
 import type { CorrelationIdRequest } from './correlationId';
+import { getActiveRequestId, getActiveCorrelationId } from '../requestContext';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -7,6 +8,7 @@ export interface LogEntry {
   timestamp: string;
   level: LogLevel;
   message: string;
+  requestId?: string;
   correlationId?: string;
   method?: string;
   url?: string;
@@ -42,6 +44,8 @@ class Logger {
       timestamp: new Date().toISOString(),
       level,
       message,
+      requestId: fields?.requestId ?? getActiveRequestId(),
+      correlationId: fields?.correlationId ?? getActiveCorrelationId(),
       ...fields,
     };
 
@@ -69,6 +73,7 @@ export const structuredLoggingMiddleware: RequestHandler = (
           : 'info';
 
     logger.log(level, `${req.method} ${req.path}`, {
+      requestId: req.requestId,
       correlationId: req.correlationId,
       method: req.method,
       url: req.originalUrl,
@@ -79,3 +84,4 @@ export const structuredLoggingMiddleware: RequestHandler = (
 
   next();
 };
+

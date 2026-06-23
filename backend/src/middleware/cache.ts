@@ -101,9 +101,10 @@ export const responseCache = new LruCacheStore();
 export function buildCacheKey(req: Request): string {
   const query = req.query as Record<string, string | string[]>;
   const keys = Object.keys(query).sort();
+  const fullPath = req.baseUrl + req.path;
 
   if (keys.length === 0) {
-    return `${req.method}:${req.path}`;
+    return `${req.method}:${fullPath}`;
   }
 
   const pairs = keys.map((k) => {
@@ -112,7 +113,7 @@ export function buildCacheKey(req: Request): string {
     return `${k}=${values.join(',')}`;
   });
 
-  return `${req.method}:${req.path}:${pairs.join('&')}`;
+  return `${req.method}:${fullPath}:${pairs.join('&')}`;
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
