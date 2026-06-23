@@ -222,7 +222,13 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
                 tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
                 tickFormatter={createChartCurrencyTickFormatter(currency, locale, true)}
               />
-              <Tooltip content={(props) => <YieldTooltip {...props} locale={locale} currency={currency} />} />
+              <Tooltip
+                content={(props: {
+                  active?: boolean;
+                  payload?: ReadonlyArray<{ value?: number }>;
+                  label?: string;
+                }) => <YieldTooltip {...props} locale={locale} currency={currency} />}
+              />
               <Line
                 type="monotone"
                 dataKey="yield"
