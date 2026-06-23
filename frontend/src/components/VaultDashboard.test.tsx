@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
@@ -213,7 +213,7 @@ describe("VaultDashboard", () => {
     vi.mocked(vaultMutations.useDepositMutation).mockReturnValue({
       mutateAsync,
       isPending: false,
-    } as ReturnType<typeof vaultMutations.useDepositMutation>);
+    } as unknown as ReturnType<typeof vaultMutations.useDepositMutation>);
     
     renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
