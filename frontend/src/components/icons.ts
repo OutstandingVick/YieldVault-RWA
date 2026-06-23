@@ -23,6 +23,7 @@ export {
   Wallet,
   X,
   DollarSign,
+  ExternalLink,
   Percent,
   Briefcase,
   Share2,

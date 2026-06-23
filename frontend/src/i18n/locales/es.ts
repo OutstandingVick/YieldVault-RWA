@@ -83,6 +83,7 @@ export const es = {
     previous: "Anterior",
     next: "Siguiente",
     sortBy: "Ordenar por",
+    viewRowDetails: "Ver detalles de la fila",
   },
   shortcuts: {
     title: "Atajos de teclado",
@@ -413,6 +414,14 @@ export const es = {
     liveStatus: "Estado en vivo",
     dismissTimeline: "Descartar línea de tiempo",
     tableCaption: "Historial de transacciones",
+  },
+  txDetail: {
+    title: "Detalles de la transacción",
+    description: "Revisa los detalles completos de esta transacción.",
+    viewReceipt: "Ver recibo",
+    hashLabel: "hash de transacción",
+    viewOnExplorer: "Ver en Stellar Explorer",
+    liveStatusSection: "Estado en vivo",
   },
   portfolio: {
     pageTitle: "Portafolio",
