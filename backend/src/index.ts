@@ -101,6 +101,7 @@ import {
 import { latencyMonitoringService } from './latencyMonitoring';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
+import { getPrismaClient } from './prismaClient';
 import {
   verifyWebhookEndpoint,
   registerWebhookEndpoint,
@@ -146,7 +147,6 @@ import {
   getTransactionBackfillJob,
   listTransactionBackfillJobs,
 } from './transactionBackfill';
-import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
 import {
   createExportManifest,
   getExportManifestById,
