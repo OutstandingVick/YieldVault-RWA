@@ -367,12 +367,12 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
   // Update hasMoreItems when the data or visibleCount changes
   useEffect(() => {
-    setHasMoreItems(visibleCount < sortedRows.length);
+    queueMicrotask(() => setHasMoreItems(visibleCount < sortedRows.length));
   }, [visibleCount, sortedRows.length]);
 
   // Reset visible count when filters/search/sort change
   useEffect(() => {
-    setVisibleCount(INFINITE_SCROLL_BATCH_SIZE);
+    queueMicrotask(() => setVisibleCount(INFINITE_SCROLL_BATCH_SIZE));
   }, [
     state.search,
     state.sortBy,

@@ -80,7 +80,7 @@ export function usePreferences(walletAddress?: string | null) {
   );
 
   useEffect(() => {
-    setPreferencesState(loadPreferences(walletAddress));
+    queueMicrotask(() => setPreferencesState(loadPreferences(walletAddress)));
   }, [walletAddress]);
 
   const setPreferences = useCallback((updater: Partial<UserPreferences> | ((prev: UserPreferences) => UserPreferences)) => {

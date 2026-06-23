@@ -3,7 +3,7 @@
  * Covers summary construction, unusual value detection, and contract mapping.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   buildTransactionSummary,
   buildDepositSummary,
@@ -127,7 +127,6 @@ describe('transactionConfirmationBuilder', () => {
     });
 
     it('detects unknown contracts', () => {
-      const knownAddress = 'CBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
       const unknownAddress = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
       const summary = buildTransactionSummary({
