@@ -60,12 +60,13 @@ function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+
   return render(
-    <MemoryRouter initialEntries={initialEntries}>
-      <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>
         <TransactionHistory walletAddress={walletAddress} />
-      </QueryClientProvider>
-    </MemoryRouter>,
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -440,11 +441,7 @@ describe("TransactionHistory", () => {
   it("Clear Filters button hides itself after clearing active filters", async () => {
     mockGetTransactions.mockResolvedValue([makeTransaction()]);
 
-    render(
-      <MemoryRouter initialEntries={["/?search=USDC"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?search=USDC"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -470,11 +467,7 @@ describe("TransactionHistory", () => {
       makeTransaction({ id: "1", status: "completed" }),
     ]);
 
-    render(
-      <MemoryRouter initialEntries={["/?statuses=failed"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?statuses=failed"]);
 
     await waitFor(() =>
       expect(screen.getByText("No transactions found")).toBeInTheDocument(),
@@ -580,11 +573,7 @@ describe("TransactionHistory — amount range filter", () => {
       }),
     ]);
 
-    render(
-      <MemoryRouter initialEntries={["/?amountMin=100"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?amountMin=100"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -613,11 +602,7 @@ describe("TransactionHistory — amount range filter", () => {
       }),
     ]);
 
-    render(
-      <MemoryRouter initialEntries={["/?amountMax=150"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?amountMax=150"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -663,11 +648,7 @@ describe("TransactionHistory — status filter", () => {
       }),
     ]);
 
-    render(
-      <MemoryRouter initialEntries={["/?statuses=pending"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?statuses=pending"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -699,11 +680,7 @@ describe("TransactionHistory — URL shareability", () => {
   it("restores date range inputs from URL on mount", async () => {
     mockGetTransactions.mockResolvedValue([]);
 
-    render(
-      <MemoryRouter initialEntries={["/?dateFrom=2026-01-01&dateTo=2026-06-30"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?dateFrom=2026-01-01&dateTo=2026-06-30"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -717,11 +694,7 @@ describe("TransactionHistory — URL shareability", () => {
   it("restores amount range inputs from URL on mount", async () => {
     mockGetTransactions.mockResolvedValue([]);
 
-    render(
-      <MemoryRouter initialEntries={["/?amountMin=10&amountMax=500"]}>
-        <TransactionHistory walletAddress={WALLET} />
-      </MemoryRouter>,
-    );
+    renderPage(WALLET, ["/?amountMin=10&amountMax=500"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -730,5 +703,34 @@ describe("TransactionHistory — URL shareability", () => {
 
     expect(amountMinInput).toHaveValue(10);
     expect(amountMaxInput).toHaveValue(500);
+  });
+});
+
+describe("TransactionHistory — virtualized rendering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses virtualized table body for large transaction histories", async () => {
+    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "50");
+    mockGetTransactions.mockResolvedValue(makeManyTransactions(60));
+
+    renderPage(WALLET);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("virtualized-table-body")).toBeInTheDocument(),
+    );
+
+    const renderedRows = screen
+      .getAllByRole("row")
+      .filter((row) => row.classList.contains("data-table-row"));
+    expect(renderedRows.length).toBeLessThan(60);
   });
 });

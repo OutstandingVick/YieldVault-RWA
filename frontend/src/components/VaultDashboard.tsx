@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import confetti from "canvas-confetti";
 import {
   Activity,
   AlertCircle,
@@ -41,13 +42,22 @@ import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useTransactionConfirmation } from "../hooks/useTransactionConfirmation";
 import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
+import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
+import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
+import { useTransactionIntent } from "../hooks/useTransactionIntent";
 import {
   clearVaultFormDraft,
   saveVaultFormDraft,
 } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
-import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import confetti from "canvas-confetti";
+import TransactionConflictResolver from "./TransactionConflictResolver";
+import {
+  isTransactionConflict,
+  type TransactionConflictDetails,
+  type TransactionConflictResolution,
+} from "../lib/transactionConflict";
+import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -182,6 +192,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     message: string;
     txHash?: string
   } | null>(null);
+  const [activeConflict, setActiveConflict] = useState<{
+    conflict: TransactionConflictDetails;
+    staleChanges?: StaleFieldChange[];
+  } | null>(null);
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false);
 
   const { isOffline, countdown } = useOfflineRetryCountdown();
 
@@ -224,6 +239,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
+  const activeTab = dashboardUrl.state.tab;
+  const activeStep = dashboardUrl.state.step;
+  const amountFieldId = `vault-${activeTab}-amount`;
+
+  const formFocus = useFormFocusFlow({
+    fields: [
+      { id: amountFieldId, hasError: Boolean(touched.amount && errors.amount) },
+      { id: `vault-${activeTab}-max` },
+      { id: `vault-${activeTab}-review` },
+    ],
+    focusKey: `${activeTab}:${activeStep}`,
+    autoFocusOnKeyChange: activeStep === "amount",
+  });
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -276,10 +304,14 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         title: "Please fix validation errors",
         description: errors.amount || "Please enter a valid amount",
       });
+      formFocus.focusFirstError();
       return;
     }
 
     dashboardUrl.setStep("review");
+    window.setTimeout(() => {
+      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
+    }, 0);
   };
 
   useEffect(() => {
@@ -331,10 +363,53 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     !amount ||
     (dashboardUrl.state.tab === "deposit" && isCapReached);
 
+  const staleGuard = useStaleSubmissionGuard({
+    action: dashboardUrl.state.tab,
+    amount: enteredAmount,
+    availableBalance,
+    feeXlm,
+    isCapReached,
+    slippage,
+  });
 
-  const handleTransaction = async (actionType: TransactionTab) => {
+  const transactionIntent = useTransactionIntent({
+    walletAddress,
+    action: dashboardUrl.state.tab,
+    amount: enteredAmount,
+    snapshotHash: staleGuard.snapshotHash,
+  });
+
+  const resetWizard = () => {
+    setValues({ amount: "" });
+    dashboardUrl.setStep("amount");
+    dashboardUrl.setAmount("");
+    setTransactionResult(null);
+    setActiveConflict(null);
+    staleGuard.clearReviewSnapshot();
+    if (walletAddress) {
+      transactionIntent.clearIntent();
+    }
+  };
+
+  const goToReview = () => {
+    if (Object.keys(errors).length > 0) {
+      toast.warning({
+        title: "Please fix validation errors",
+        description: errors.amount || "Please enter a valid amount",
+      });
+      return;
+    }
+
+    staleGuard.captureReviewSnapshot();
+    dashboardUrl.setStep("review");
+  };
+
+  const executeTransaction = async (
+    actionType: TransactionTab,
+    options: { skipStaleCheck?: boolean } = {},
+  ) => {
     const value = Number(amount);
-    
+
     if (!walletAddress) {
       toast.warning({
         title: "Wallet required",
@@ -343,11 +418,38 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       return;
     }
 
+    if (!options.skipStaleCheck) {
+      const staleResult = staleGuard.checkStaleSubmission();
+      if (staleResult.isStale) {
+        setActiveConflict({
+          conflict: {
+            type: "stale-form",
+            message:
+              "Transaction details changed since you started reviewing this submission.",
+          },
+          staleChanges: staleResult.changes,
+        });
+        return;
+      }
+
+      if (transactionIntent.intentIsStale) {
+        setActiveConflict({
+          conflict: {
+            type: "stale-form",
+            message:
+              "Your transaction intent is stale. Refresh the review details or start a new intent.",
+          },
+        });
+        return;
+      }
+    }
+
+    setActiveConflict(null);
+
     try {
-      // Build transaction summary and request user confirmation before signing
       const contractAddress = networkConfig.contractId;
       let summary;
-      
+
       if (actionType === "deposit") {
         summary = buildDepositSummary({
           amount: value,
@@ -362,17 +464,21 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         });
       }
 
-      // Show confirmation modal and wait for user response
       const confirmed = await confirmation.requestConfirmation(summary);
       if (!confirmed) {
-        // User cancelled the confirmation
         return;
       }
 
-      // Proceed with the transaction after user confirmed
+      const intent = transactionIntent.ensureIntent();
+      const mutationParams = {
+        walletAddress,
+        amount: value,
+        idempotencyKey: intent?.idempotencyKey,
+      };
+
       if (actionType === "deposit") {
-        await depositMutation.mutateAsync({ walletAddress, amount: value });
-        
+        await depositMutation.mutateAsync(mutationParams);
+
         try {
           const depositKey = `has_deposited_${walletAddress}`;
           const alreadyDeposited = localStorage.getItem(depositKey);
@@ -399,8 +505,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           }
         }
       } else {
-        await withdrawMutation.mutateAsync({ walletAddress, amount: value });
+        await withdrawMutation.mutateAsync(mutationParams);
       }
+
+      transactionIntent.clearIntent();
+      staleGuard.refreshSnapshot();
 
       setTransactionResult({
         success: true,
@@ -409,7 +518,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
       });
       dashboardUrl.setStep("result");
-      
+
       toast.success({
         title: actionType === "deposit" ? "Deposit Successful" : "Withdrawal Successful",
         description:
@@ -418,20 +527,25 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
       });
     } catch (err: unknown) {
-      // Map server errors to form field errors
+      if (isTransactionConflict(err)) {
+        setActiveConflict({
+          conflict: err.conflict,
+        });
+        dashboardUrl.setStep("review");
+        return;
+      }
+
       const mappedError = mapServerError(err);
-      
+
       if (mappedError.fieldErrors.length > 0) {
-        // Set field-level errors
         mappedError.fieldErrors.forEach(({ fieldName, message }) => {
           setFieldError(fieldName as keyof { amount: string }, message);
         });
         dashboardUrl.setStep("amount");
       }
 
-      // Get error message for display
       let errorMessage = "An error occurred during the transaction.";
-      
+
       if (isValidationError(err)) {
         errorMessage = err.details?.[0]?.message || errorMessage;
       } else if (err instanceof Error) {
@@ -445,12 +559,58 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         message: errorMessage,
       });
       dashboardUrl.setStep("result");
-      
+
       toast.error({
         title: "Transaction Failed",
         description: errorMessage,
       });
     }
+  };
+
+  const handleConflictResolution = async (
+    resolution: TransactionConflictResolution,
+  ) => {
+    if (!activeConflict) {
+      return;
+    }
+
+    setIsResolvingConflict(true);
+
+    try {
+      if (resolution === "dismiss") {
+        setActiveConflict(null);
+        return;
+      }
+
+      if (resolution === "update-values") {
+        staleGuard.refreshSnapshot();
+        transactionIntent.refreshIntent();
+        setActiveConflict(null);
+        return;
+      }
+
+      if (resolution === "new-intent") {
+        transactionIntent.rotateIntent();
+        setActiveConflict(null);
+        await executeTransaction(dashboardUrl.state.tab, { skipStaleCheck: true });
+        return;
+      }
+
+      if (
+        resolution === "proceed-anyway" ||
+        resolution === "retry" ||
+        resolution === "retry-same"
+      ) {
+        setActiveConflict(null);
+        await executeTransaction(dashboardUrl.state.tab, { skipStaleCheck: true });
+      }
+    } finally {
+      setIsResolvingConflict(false);
+    }
+  };
+
+  const handleTransaction = async (actionType: TransactionTab) => {
+    await executeTransaction(actionType);
   };
 
   return (
@@ -781,7 +941,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
                   <div style={{ minHeight: "380px", display: "flex", flexDirection: "column" }}>
                     {dashboardUrl.state.step === "amount" && (
-                      <div className="animate-in fade-in duration-300">
+                      <div
+                        ref={formFocus.containerRef}
+                        className="animate-in fade-in duration-300"
+                        onKeyDown={formFocus.handleFormKeyDown}
+                      >
                         <div style={{ marginBottom: "24px" }}>
                           <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
                             <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
@@ -795,6 +959,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           <FormField
                             label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
                             name="amount"
+                            id={tab === activeTab ? amountFieldId : `vault-${tab}-amount`}
                             type="number"
                             step="any"
                             placeholder="0.00"
@@ -844,6 +1009,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             </div>
                             <button
                               type="button"
+                              id={`vault-${tab}-max`}
                               className="btn-max"
                               onClick={() => {
                                 setValues({ amount: availableBalance.toFixed(2) });
@@ -891,6 +1057,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         </div>
 
                         <button
+                          id={`vault-${tab}-review`}
                           className="btn btn-primary"
                           style={{ width: "100%", padding: "16px" }}
                           type="button"
@@ -1121,6 +1288,17 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               )}
                             </div>
                           )}
+
+                          {activeConflict && (
+                            <TransactionConflictResolver
+                              conflict={activeConflict.conflict}
+                              staleChanges={activeConflict.staleChanges}
+                              onResolve={(resolution) => {
+                                void handleConflictResolution(resolution);
+                              }}
+                              isResolving={isResolvingConflict}
+                            />
+                          )}
                         </div>
 
                         <div className="flex gap-md" style={{ marginTop: "auto" }}>
@@ -1128,13 +1306,17 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             type="button"
                             className="btn btn-outline"
                             style={{ flex: 1 }}
-                            onClick={() => dashboardUrl.setStep("amount")}
+                            onClick={() => {
+                              staleGuard.clearReviewSnapshot();
+                              dashboardUrl.setStep("amount");
+                            }}
                             disabled={isBusy}
                           >
                             Back
                           </button>
                           <button
                             type="button"
+                            id={`vault-${tab}-confirm`}
                             className="btn btn-primary"
                             style={{ flex: 2 }}
                             onClick={() => void handleTransaction(tab)}

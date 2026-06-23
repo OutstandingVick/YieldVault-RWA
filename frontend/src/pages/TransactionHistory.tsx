@@ -3,6 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
+import {
+  VirtualizedDataTable,
+  shouldVirtualizeTransactionList,
+} from "../components/VirtualizedDataTable";
 import PageHeader from "../components/PageHeader";
 import { SkeletonText } from "../components/Skeleton";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
@@ -27,9 +31,9 @@ import { useTransactionFilters } from "../hooks/useTransactionFilters";
 import { useTransactionHistory } from "../hooks/useTransactionData";
 import { getStellarExplorerUrl } from "../lib/security";
 import { networkConfig } from "../config/network";
-import { useTranslation } from "../i18n";
 
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
+import { useTranslation } from "../i18n";
 
 interface TransactionHistoryProps {
   walletAddress: string | null;
@@ -479,6 +483,21 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
   // Determine which rows to show based on view mode
   const displayRows = viewMode === "infinite" ? infiniteScrollRows : rows;
+  const useVirtualizedTable = shouldVirtualizeTransactionList(displayRows.length);
+  const TransactionTable = useVirtualizedTable ? VirtualizedDataTable : DataTable;
+
+  const sharedTableProps = {
+    caption: "Transaction history",
+    columns,
+    rows: displayRows,
+    rowKey: (row: Transaction) => row.id,
+    emptyMessage,
+    isLoading: delayedLoading,
+    skeletonRows: state.pageSize,
+    sortBy: state.sortBy,
+    sortDirection: state.sortDirection,
+    onSortChange: setSort,
+  } as const;
 
   return (
     <div className="glass-panel" style={{ padding: "32px" }}>
@@ -639,18 +658,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             {viewMode === "infinite" ? (
               /* Infinite Scroll View */
               <div className="infinite-scroll-container">
-                <DataTable
-                  caption="Transaction history"
-                  columns={columns}
-                  rows={displayRows}
-                  rowKey={(row) => row.id}
-                  emptyMessage={emptyMessage}
-                  isLoading={delayedLoading}
-                  skeletonRows={state.pageSize}
-                  sortBy={state.sortBy}
-                  sortDirection={state.sortDirection}
-                  onSortChange={setSort}
-                />
+                <TransactionTable {...sharedTableProps} />
 
                 {/* Infinite scroll sentinel & status */}
                 {sortedRows.length > 0 && (
@@ -696,17 +704,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               </div>
             ) : (
               /* Paginated View (original) */
-              <DataTable
-                caption="Transaction history"
-                columns={columns}
-                rows={displayRows}
-                rowKey={(row) => row.id}
-                emptyMessage={emptyMessage}
-                isLoading={delayedLoading}
-                skeletonRows={state.pageSize}
-                sortBy={state.sortBy}
-                sortDirection={state.sortDirection}
-                onSortChange={setSort}
+              <TransactionTable
+                {...sharedTableProps}
                 pagination={{
                   page,
                   pageSize: state.pageSize,
