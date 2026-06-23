@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
+import { PreferencesProvider } from "../context/PreferencesContext";
 import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -65,15 +66,17 @@ function renderDashboard(
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <VaultProvider>
-            <VaultDashboard
-              walletAddress={walletAddress}
-              usdcBalance={usdcBalance}
-              xlmBalance={xlmBalance}
-            />
-          </VaultProvider>
-        </ToastProvider>
+        <PreferencesProvider>
+          <ToastProvider>
+            <VaultProvider>
+              <VaultDashboard
+                walletAddress={walletAddress}
+                usdcBalance={usdcBalance}
+                xlmBalance={xlmBalance}
+              />
+            </VaultProvider>
+          </ToastProvider>
+        </PreferencesProvider>
       </QueryClientProvider>
     </MemoryRouter>,
   );
