@@ -2,6 +2,8 @@ import { Contract, rpc, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sd
 import { networkConfig } from "../config/network";
 import { apiClient } from "./apiClient";
 import { validate, VaultHistoryQuerySchema, DepositRequestSchema, WithdrawalRequestSchema } from "./api";
+import { isApiError } from "./api/error";
+import { parseTransactionConflict } from "./transactionConflict";
 
 // ─── Share Price Error ────────────────────────────────────────────────────────
 
@@ -174,14 +176,62 @@ export async function getVaultHistory(params?: unknown): Promise<VaultHistoryPoi
   return MOCK_VAULT_HISTORY;
 }
 
-export async function submitDeposit(params: unknown) {
-  validate(DepositRequestSchema, params, "DepositRequest");
-  return new Promise<void>((resolve) => setTimeout(resolve, 2000));
+export interface VaultSubmitOptions {
+  idempotencyKey?: string;
 }
 
-export async function submitWithdrawal(params: unknown) {
-  validate(WithdrawalRequestSchema, params, "WithdrawalRequest");
-  return new Promise<void>((resolve) => setTimeout(resolve, 2000));
+async function submitVaultOperation(
+  path: string,
+  body: object,
+  options: VaultSubmitOptions = {},
+): Promise<void> {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  if (!apiBaseUrl) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+    return;
+  }
+
+  const headers: Record<string, string> = {};
+  if (options.idempotencyKey) {
+    headers["Idempotency-Key"] = options.idempotencyKey;
+  }
+
+  try {
+    await apiClient.post(path, {
+      body,
+      headers,
+      retry: false,
+    });
+  } catch (error) {
+    const conflict = parseTransactionConflict(
+      isApiError(error)
+        ? { status: error.status, message: error.message, details: error.details }
+        : error,
+    );
+
+    if (conflict) {
+      throw conflict;
+    }
+
+    throw error;
+  }
+}
+
+export async function submitDeposit(
+  params: unknown,
+  options: VaultSubmitOptions = {},
+) {
+  const payload = validate(DepositRequestSchema, params, "DepositRequest");
+  await submitVaultOperation("/api/v1/vault/deposits", payload, options);
+}
+
+export async function submitWithdrawal(
+  params: unknown,
+  options: VaultSubmitOptions = {},
+) {
+  const payload = validate(WithdrawalRequestSchema, params, "WithdrawalRequest");
+  await submitVaultOperation("/api/v1/vault/withdrawals", payload, options);
 }
 
 export async function getXlmPrice(): Promise<number> {
