@@ -144,7 +144,7 @@ describe('YieldVault Smoke Tests', () => {
   });
 
   it('should navigate to deposit flow', () => {
-    cy.contains('[role="tab"]', 'Deposit').click({ force: true });
+    cy.contains('button', 'Deposit').click({ force: true });
     cy.get('body', { timeout: 10000 }).should(($body) => {
       const text = $body.text();
       const hasDepositForm = text.includes('Amount to deposit');
@@ -154,7 +154,7 @@ describe('YieldVault Smoke Tests', () => {
   });
 
   it('should navigate to withdrawal flow', () => {
-    cy.contains('[role="tab"]', 'Withdraw').click({ force: true });
+    cy.contains('button', 'Withdraw').click({ force: true });
     cy.get('body', { timeout: 10000 }).should(($body) => {
       const text = $body.text();
       const hasWithdrawForm = text.includes('Amount to withdraw');
