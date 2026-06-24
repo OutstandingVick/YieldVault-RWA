@@ -239,6 +239,29 @@ export async function waitForMockUsdcBalance(page: Page) {
   });
 }
 
+export function vaultActionTab(page: Page, tab: 'Deposit' | 'Withdraw') {
+  return page.getByRole('button', { name: tab, exact: true });
+}
+
+/** Fill a deposit amount and wait for client-side validation to enable review. */
+export async function fillDepositAmount(page: Page, amount: string) {
+  const amountInput = page.getByLabel('Deposit amount');
+  await amountInput.fill(amount);
+  await amountInput.blur();
+  const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+  await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
+  return { amountInput, reviewBtn };
+}
+
+/** Approve USDC on the review step when the allowance gate is shown. */
+export async function approveUsdcIfNeeded(page: Page) {
+  const approveBtn = page.getByRole('button', { name: 'Approve USDC' });
+  if (await approveBtn.isVisible()) {
+    await approveBtn.click();
+    await expect(approveBtn).not.toBeVisible({ timeout: 5_000 });
+  }
+}
+
 /**
  * Stub the Freighter browser extension message protocol.
  *

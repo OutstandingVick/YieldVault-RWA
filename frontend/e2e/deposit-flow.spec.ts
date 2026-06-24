@@ -10,6 +10,8 @@ import {
   interceptApiRoutes,
   stubFreighterManualConnect,
   waitForMockUsdcBalance,
+  fillDepositAmount,
+  approveUsdcIfNeeded,
 } from './fixtures';
 
 const MOCK_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -24,24 +26,20 @@ test.describe('Deposit flow (e2e)', () => {
   test('connects wallet and deposits USDC successfully', async ({ page }) => {
     await page.goto('/');
 
-    // Starts disconnected
     await expect(page.getByText('Wallet Not Connected')).toBeVisible();
 
-    // Connect via the real UI button (drives setAllowed -> isAllowed -> getAddress)
     await page.getByRole('button', { name: /Connect Freighter/i }).click();
     await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Wallet Not Connected')).not.toBeVisible();
     await waitForMockUsdcBalance(page);
 
-    const amountInput = page.getByLabel('Deposit amount');
-    await amountInput.fill('100');
-
-    const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
-    await expect(reviewBtn).toBeEnabled();
+    const { amountInput, reviewBtn } = await fillDepositAmount(page, '100');
     await reviewBtn.click();
 
+    await expect(page.getByText('Confirm Transaction')).toBeVisible();
+    await approveUsdcIfNeeded(page);
     const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
-    await expect(confirmBtn).toBeEnabled();
+    await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
     await confirmBtn.click();
 
     await expect(page.getByText('Transaction Successful')).toBeVisible({ timeout: 15_000 });
