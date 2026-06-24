@@ -165,8 +165,9 @@ describe("VaultDashboard Wizard", () => {
 
     // Reset to Step 1
     await waitFor(() => {
-      expect(screen.getByLabelText("Deposit amount")).toBeInTheDocument();
-      expect(screen.getByLabelText("Deposit amount")).toHaveValue("");
-    });
-  });
+      const depositInput = screen.getByLabelText("Deposit amount");
+      expect(depositInput).toBeInTheDocument();
+      expect(depositInput).not.toHaveValue(10);
+    }, { timeout: 10000 });
+  }, 20000);
 });

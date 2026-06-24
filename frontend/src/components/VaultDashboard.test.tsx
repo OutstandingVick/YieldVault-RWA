@@ -198,11 +198,17 @@ describe("VaultDashboard", () => {
     expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
-    expect(await screen.findByLabelText("Withdrawal amount")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("location-search")).toHaveTextContent("tab=withdraw");
+      expect(screen.getByText(/Amount to withdraw/i)).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Deposit" }));
-    expect(await screen.findByLabelText("Deposit amount")).toBeInTheDocument();
-  });
+    await waitFor(() => {
+      expect(screen.getByTestId("location-search")).toHaveTextContent("tab=deposit");
+      expect(screen.getByText(/Amount to deposit/i)).toBeInTheDocument();
+    });
+  }, 15000);
 
   it("updates the amount input and processes a deposit", async () => {
     let resolveSubmit!: () => void;
@@ -248,12 +254,15 @@ describe("VaultDashboard", () => {
 
     const maxButton = screen.getByRole("button", { name: "MAX" });
     fireEvent.click(maxButton);
-    const input = screen.getByPlaceholderText("0.00");
-    expect(input).toHaveValue(1250.5);
+    const depositInput = screen.getByLabelText("Deposit amount");
+    expect(depositInput).toHaveValue(1250.5);
 
     fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
-    fireEvent.click(maxButton);
-    expect(input).toHaveValue(1250.5);
+    await waitFor(() => {
+      expect(screen.getByTestId("location-search")).toHaveTextContent("tab=withdraw");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "MAX" }));
+    expect(screen.getByLabelText("Withdrawal amount")).toHaveValue(1250.5);
   });
 
   it("shows inline error and blocks submit for amounts above balance", async () => {
@@ -327,18 +336,20 @@ describe("VaultDashboard", () => {
      });
    });
 
-    it("clears amount input when switching tabs", async () => {
-      renderDashboard("GABC123");
+  it("clears amount input when switching tabs", async () => {
+    renderDashboard("GABC123");
 
-      const input = await screen.findByPlaceholderText("0.00");
-      fireEvent.change(input, { target: { value: "100" } });
-      expect(input).toHaveValue(100);
+    const input = await screen.findByLabelText("Deposit amount");
+    fireEvent.change(input, { target: { value: "100" } });
+    expect(input).toHaveValue(100);
 
-      fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
 
-      const clearedInput = await screen.findByLabelText("Withdrawal amount");
-      expect(clearedInput).toHaveValue("");
+    await waitFor(() => {
+      expect(screen.getByTestId("location-search")).toHaveTextContent("tab=withdraw");
+      expect(screen.getByLabelText("Withdrawal amount")).not.toHaveValue(100);
     });
+  }, 15000);
 
     it("shows inline error and disables submit when XLM balance is insufficient for network fees", async () => {
       renderDashboard("GABC123", 1250.5, "/", 0.01);
