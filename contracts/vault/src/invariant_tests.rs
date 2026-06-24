@@ -251,7 +251,6 @@ fn test_invariant_suite_invest_divest_preserves_accounting() {
     assert_vault_invariants(&vault, &users);
 
     vault.divest(&1_000);
-    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &1_000);
     assert_accounting_unchanged(before, accounting_snapshot(&vault));
     assert_vault_invariants(&vault, &users);
 
@@ -287,7 +286,6 @@ fn test_invariant_suite_rebalance_preserves_accounting() {
     assert_vault_invariants(&vault, &users);
 
     vault.divest(&800);
-    token::StellarAssetClient::new(&env, &strategy_a.address).mint(&_vault_id, &800);
     assert_vault_invariants(&vault, &users);
 
     let withdraw_shares = vault.balance(&user) / 5;
@@ -326,7 +324,6 @@ fn test_invariant_suite_full_flow_deposit_invest_rebalance_withdraw_yield() {
     assert_vault_invariants(&vault, &users);
 
     vault.divest(&600);
-    token::StellarAssetClient::new(&env, &strategy_a.address).mint(&vault_id, &600);
     assert_vault_invariants(&vault, &users);
 
     vault.withdraw(&user_a, &200);
@@ -341,7 +338,7 @@ fn test_invariant_suite_multi_user_after_strategy_liquidity_moves() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _, usdc_sa, strategy, _admin, vault_id) = setup_vault_with_strategy(&env);
+    let (vault, _, usdc_sa, strategy, admin, _vault_id) = setup_vault_with_strategy(&env);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
     let user_c = Address::generate(&env);
@@ -350,6 +347,7 @@ fn test_invariant_suite_multi_user_after_strategy_liquidity_moves() {
     usdc_sa.mint(&user_a, &3_000);
     usdc_sa.mint(&user_b, &2_000);
     usdc_sa.mint(&user_c, &1_500);
+    usdc_sa.mint(&admin, &500);
 
     vault.deposit(&user_a, &1_200);
     vault.deposit(&user_b, &900);
@@ -362,7 +360,6 @@ fn test_invariant_suite_multi_user_after_strategy_liquidity_moves() {
     assert_vault_invariants(&vault, &users);
 
     vault.divest(&900);
-    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &900);
     assert_accounting_unchanged(before, accounting_snapshot(&vault));
     assert_vault_invariants(&vault, &users);
 
@@ -394,7 +391,6 @@ fn test_invariant_suite_full_exit_zeroes_accounting_after_strategy_ops() {
     assert_vault_invariants(&vault, &users);
 
     vault.divest(&1_500);
-    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &1_500);
     vault.accrue_yield(&300);
     assert_vault_invariants(&vault, &users);
 
