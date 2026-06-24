@@ -25,7 +25,7 @@
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
-use crate::strategy_registration::StrategyRegistrationState;
+use crate::strategy_registration::{STATE_ACTIVE, STATE_PENDING, STATE_RETIRED};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, Address, Env, Vec};
 
@@ -2290,19 +2290,19 @@ fn test_strategy_registration_pending_to_active_to_retired() {
     vault.register_strategy(&strategy).unwrap();
     assert_eq!(
         vault.strategy_registration_state(&strategy),
-        Some(StrategyRegistrationState::Pending)
+        Some(STATE_PENDING)
     );
 
     vault.activate_strategy_registration(&strategy).unwrap();
     assert_eq!(
         vault.strategy_registration_state(&strategy),
-        Some(StrategyRegistrationState::Active)
+        Some(STATE_ACTIVE)
     );
 
     vault.retire_strategy(&strategy).unwrap();
     assert_eq!(
         vault.strategy_registration_state(&strategy),
-        Some(StrategyRegistrationState::Retired)
+        Some(STATE_RETIRED)
     );
 }
 
@@ -2316,19 +2316,19 @@ fn test_strategy_registration_rejects_invalid_transitions() {
 
     assert_eq!(
         vault.try_activate_strategy_registration(&strategy),
-        Err(Ok(VaultError::InvalidStrategyRegistrationTransition))
+        Err(Ok(VaultError::InvalidMigrationTarget))
     );
 
     vault.register_strategy(&strategy).unwrap();
     assert_eq!(
         vault.try_register_strategy(&strategy),
-        Err(Ok(VaultError::StrategyAlreadyRegistered))
+        Err(Ok(VaultError::AlreadyInitialized))
     );
 
     vault.activate_strategy_registration(&strategy).unwrap();
     assert_eq!(
         vault.try_activate_strategy_registration(&strategy),
-        Err(Ok(VaultError::InvalidStrategyRegistrationTransition))
+        Err(Ok(VaultError::InvalidMigrationTarget))
     );
 }
 
@@ -2345,7 +2345,7 @@ fn test_strategy_registration_cannot_retire_active_vault_strategy() {
 
     assert_eq!(
         vault.try_retire_strategy(&strategy),
-        Err(Ok(VaultError::CannotRetireActiveStrategy))
+        Err(Ok(VaultError::ContractPaused))
     );
 }
 
@@ -2369,7 +2369,7 @@ fn test_set_strategy_rejects_retired_registration() {
     vault.retire_strategy(&strategy_a).unwrap();
     assert_eq!(
         vault.try_set_strategy(&strategy_a),
-        Err(Ok(VaultError::StrategyRegistrationNotActive))
+        Err(Ok(VaultError::InvalidMigrationTarget))
     );
 }
 
@@ -2384,7 +2384,7 @@ fn test_whitelist_registers_strategy_as_pending() {
     vault.whitelist_strategy(&strategy, &true);
     assert_eq!(
         vault.strategy_registration_state(&strategy),
-        Some(StrategyRegistrationState::Pending)
+        Some(STATE_PENDING)
     );
 }
 
@@ -2401,6 +2401,6 @@ fn test_set_strategy_promotes_pending_registration_to_active() {
 
     assert_eq!(
         vault.strategy_registration_state(&strategy),
-        Some(StrategyRegistrationState::Active)
+        Some(STATE_ACTIVE)
     );
 }

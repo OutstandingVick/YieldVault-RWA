@@ -4,7 +4,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::strategy_registration::{self, StrategyRegistrationState};
+use crate::strategy_registration::{self, STATE_RETIRED};
 use crate::upgrade::get_admin;
 use crate::DataKey;
 
@@ -35,7 +35,7 @@ impl SecureWhitelist {
             None => {
                 let _ = strategy_registration::register_strategy(env, caller, strategy);
             }
-            Some(StrategyRegistrationState::Retired) => {
+            Some(STATE_RETIRED) => {
                 return Err(WhitelistError::OperationFailed);
             }
             Some(_) => {}

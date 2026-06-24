@@ -79,7 +79,7 @@ pub mod strategy_registration;
 pub mod whitelist;
 
 use crate::strategy::StrategyClient;
-use crate::strategy_registration::{StrategyRegistrationError, StrategyRegistrationState};
+use crate::strategy_registration::{self, STATE_ACTIVE, STATE_PENDING, STATE_RETIRED};
 use crate::upgrade::{
     get_admin, get_pending_admin, get_storage_version, is_initialized, set_admin, set_initialized,
     set_pending_admin, set_storage_version,
@@ -337,11 +337,6 @@ pub enum VaultError {
     WithdrawalQueued = 21,
     /// Admin parameter change attempted before the minimum interval elapsed.
     AdminParamChangeTooSoon = 22,
-    StrategyNotRegistered = 23,
-    InvalidStrategyRegistrationTransition = 24,
-    StrategyRegistrationNotActive = 25,
-    CannotRetireActiveStrategy = 26,
-    StrategyAlreadyRegistered = 27,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -497,20 +492,26 @@ impl YieldVault {
         get_pending_admin(&env)
     }
 
-    fn map_registration_error(err: StrategyRegistrationError) -> VaultError {
+    fn map_registration_error(err: strategy_registration::StrategyRegistrationError) -> VaultError {
         match err {
-            StrategyRegistrationError::NotRegistered => VaultError::StrategyNotRegistered,
-            StrategyRegistrationError::InvalidTransition => {
-                VaultError::InvalidStrategyRegistrationTransition
+            strategy_registration::StrategyRegistrationError::NotRegistered => {
+                VaultError::InvalidAmount
             }
-            StrategyRegistrationError::StrategyNotActive => {
-                VaultError::StrategyRegistrationNotActive
+            strategy_registration::StrategyRegistrationError::InvalidTransition => {
+                VaultError::InvalidMigrationTarget
             }
-            StrategyRegistrationError::ActiveStrategyInUse => {
-                VaultError::CannotRetireActiveStrategy
+            strategy_registration::StrategyRegistrationError::StrategyNotActive => {
+                VaultError::InvalidMigrationTarget
             }
-            StrategyRegistrationError::AlreadyRegistered => VaultError::StrategyAlreadyRegistered,
-            StrategyRegistrationError::Unauthorized => VaultError::ContractPaused,
+            strategy_registration::StrategyRegistrationError::ActiveStrategyInUse => {
+                VaultError::ContractPaused
+            }
+            strategy_registration::StrategyRegistrationError::AlreadyRegistered => {
+                VaultError::AlreadyInitialized
+            }
+            strategy_registration::StrategyRegistrationError::Unauthorized => {
+                VaultError::ContractPaused
+            }
         }
     }
 
@@ -536,10 +537,7 @@ impl YieldVault {
             .map_err(Self::map_registration_error)
     }
 
-    pub fn strategy_registration_state(
-        env: Env,
-        strategy: Address,
-    ) -> Option<StrategyRegistrationState> {
+    pub fn strategy_registration_state(env: Env, strategy: Address) -> Option<u32> {
         strategy_registration::read_registration_state(&env, &strategy)
     }
 
@@ -565,13 +563,13 @@ impl YieldVault {
         }
 
         match strategy_registration::read_registration_state(&env, &strategy) {
-            Some(StrategyRegistrationState::Active) => {}
-            Some(StrategyRegistrationState::Pending) => {
+            Some(STATE_ACTIVE) => {}
+            Some(STATE_PENDING) => {
                 strategy_registration::activate_strategy(&env, &admin, &strategy)
                     .map_err(Self::map_registration_error)?;
             }
-            Some(StrategyRegistrationState::Retired) => {
-                return Err(VaultError::StrategyRegistrationNotActive);
+            Some(STATE_RETIRED) => {
+                return Err(VaultError::InvalidMigrationTarget);
             }
             None => {
                 strategy_registration::register_strategy(&env, &admin, &strategy)
