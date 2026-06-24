@@ -62,13 +62,21 @@ function stubFreighterConnected(win: Cypress.AUTWindow): void {
     };
 
     switch (type) {
-      case 'REQUEST_ALLOWED_STATUS':
       case 'SET_ALLOWED_STATUS':
+        stub.connected = true;
+        response.isAllowed = true;
+        response.publicKey = MOCK_ADDRESS;
+        break;
+      case 'REQUEST_ALLOWED_STATUS':
         response.isAllowed = stub.connected;
         break;
       case 'REQUEST_PUBLIC_KEY':
-      case 'REQUEST_ACCESS':
         response.publicKey = stub.connected ? MOCK_ADDRESS : '';
+        break;
+      case 'REQUEST_ACCESS':
+        stub.connected = true;
+        response.isAllowed = true;
+        response.publicKey = MOCK_ADDRESS;
         break;
       case 'REQUEST_CONNECTION_STATUS':
         response.isConnected = stub.connected;
@@ -149,11 +157,17 @@ function visitWithStubs(url = '/'): void {
     onBeforeLoad: (win) => {
       stubFreighterConnected(win);
       win.localStorage.setItem('hasSeenWalkthrough', 'true');
+      win.localStorage.setItem('yieldvault_last_wallet_provider', 'freighter');
     },
   });
 }
 
 function waitForConnectedVault(): void {
+  cy.get('body', { timeout: 30000 }).then(($body) => {
+    if ($body.find('button[aria-label="Disconnect Wallet"]').length === 0) {
+      cy.contains('button', /Connect Freighter/i).click();
+    }
+  });
   cy.get('button[aria-label="Disconnect Wallet"]', { timeout: 30000 }).should('exist');
   cy.get('[aria-label="USDC wallet balance"]', { timeout: 30000 }).should('contain.text', '1250.50');
   cy.contains('Wallet Not Connected').should('not.exist');
