@@ -2183,12 +2183,7 @@ impl YieldVault {
 
     /// Test helper: appends a synthetic queue entry for `process_withdrawal_queue` tests.
     #[doc(hidden)]
-    pub fn test_seed_withdrawal_queue_entry(
-        env: Env,
-        user: Address,
-        shares: i128,
-        assets: i128,
-    ) {
+    pub fn test_seed_withdrawal_queue_entry(env: Env, user: Address, shares: i128, assets: i128) {
         let tail = Self::withdrawal_queue_tail(&env);
         let entry = WithdrawalQueueEntry {
             user,
