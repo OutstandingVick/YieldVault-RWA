@@ -1,4 +1,4 @@
-import { normalizeWalletAddress } from './walletUtils';
+import { isValidStellarAddress, normalizeWalletAddress } from './walletUtils';
 
 export interface WalletAliasIdentifier {
   alias: string;
@@ -76,6 +76,65 @@ export class WalletAliasMappingService {
       aliases: Array.from(aliases),
       sources: Array.from(sources),
     };
+  }
+
+  /**
+   * Links a provider-specific alias to an existing canonical identity.
+   */
+  linkProviderIdentity(
+    primaryAlias: string,
+    primarySource: string,
+    linkedAlias: string,
+    linkedSource: string,
+  ): WalletAliasMapping {
+    const primary = this.registerAlias(primaryAlias, primarySource);
+    return this.registerAlias(linkedAlias, linkedSource, primary.canonicalId);
+  }
+
+  /**
+   * Resolves any provider alias to the canonical Stellar wallet when one exists
+   * in the identity group. Prevents duplicate records for the same user across
+   * wallet providers.
+   */
+  resolveCanonicalWallet(alias: string, source: string): string {
+    const normalizedSource = this.normalizeSource(source);
+    const normalizedAlias = this.normalizeAlias(alias, normalizedSource);
+
+    if (!normalizedAlias) {
+      return '';
+    }
+
+    if (isValidStellarAddress(normalizedAlias)) {
+      const stellar = normalizeWalletAddress(normalizedAlias);
+      const existing = this.resolveAlias(stellar, 'stellar');
+      if (!existing) {
+        this.registerAlias(stellar, 'stellar');
+      }
+      return stellar;
+    }
+
+    const mapping = this.resolveAlias(normalizedAlias, normalizedSource);
+    if (!mapping) {
+      this.registerAlias(normalizedAlias, normalizedSource);
+      return normalizedAlias;
+    }
+
+    const stellarAlias = mapping.aliases.find((entry) => isValidStellarAddress(entry));
+    return stellarAlias ? normalizeWalletAddress(stellarAlias) : normalizedAlias;
+  }
+
+  /**
+   * Returns true when two aliases refer to the same canonical identity.
+   */
+  areSameIdentity(aliasA: string, sourceA: string, aliasB: string, sourceB: string): boolean {
+    const mappingA = this.resolveAlias(aliasA, sourceA);
+    const mappingB = this.resolveAlias(aliasB, sourceB);
+
+    if (!mappingA || !mappingB) {
+      return false;
+    }
+
+    return mappingA.canonicalId === mappingB.canonicalId;
   }
 
   private ensureCanonicalEntry(canonicalId: string, alias: string, source: string): void {

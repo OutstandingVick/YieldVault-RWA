@@ -40,7 +40,7 @@ import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/corr
 import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
 import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
-import { cacheMiddleware, invalidateCache, getCacheStats, responseCache } from './middleware/cache';
+import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
 import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
 import { tieredJsonBodyParser } from './middleware/payloadLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
@@ -79,6 +79,7 @@ import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
+import walletAliasRouter from './walletAliasEndpoints';
 import transactionRouter from './transactionEndpoints';
 import {
   buildPortfolioHoldingsResponse,
@@ -630,6 +631,7 @@ app.use('/api/v1', apiV1);
 
 // Mount routers under /api/v1
 apiV1.use('/vault', vaultRouter);
+apiV1.use('/wallet-aliases', walletAliasRouter);
 apiV1.use('/referrals', referralRouter);
 apiV1.use('/transactions', transactionRouter);
 apiV1.use('/', listRouter);
@@ -832,20 +834,6 @@ app.get(
     });
   },
 );
-
-/**
- * POST /api/v1/vault/deposits - lightweight placeholder for vault deposit events.
- * Invalidates the response cache so downstream list endpoints become fresh.
- */
-app.post('/api/v1/vault/deposits', (_req: Request, res: Response) => {
-  responseCache.clear();
-  invalidateCache();
-  res.status(202).json({
-    message: 'Deposit accepted',
-    invalidated: true,
-    timestamp: new Date().toISOString(),
-  });
-});
 
 // ─── Admin Routes (with API key authentication) ──────────────────────────────
 
