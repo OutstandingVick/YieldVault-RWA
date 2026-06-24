@@ -59,10 +59,10 @@ impl MultiSignerValidator {
         if threshold == 0 {
             return Err("threshold must be > 0");
         }
-        if threshold > signers.len() as u32 {
+        if threshold > signers.len() {
             return Err("threshold exceeds signer set size");
         }
-        if (approvals.len() as u32) < threshold {
+        if approvals.len() < threshold {
             return Err("insufficient approvals");
         }
 

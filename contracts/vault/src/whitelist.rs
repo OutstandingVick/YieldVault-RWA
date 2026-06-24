@@ -6,7 +6,6 @@ use soroban_sdk::{Address, Env};
 
 use crate::strategy_registration::{self, STATE_RETIRED};
 use crate::upgrade::get_admin;
-use crate::DataKey;
 
 /// Errors that can occur during whitelist operations
 #[derive(Debug, Clone, Copy)]

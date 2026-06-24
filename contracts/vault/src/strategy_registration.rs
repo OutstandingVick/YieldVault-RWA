@@ -41,12 +41,13 @@ fn remove_registration_state(env: &Env, strategy: &Address) {
 }
 
 pub fn is_allowed_transition(from: Option<u32>, to: u32) -> bool {
-    match (from, to) {
-        (None, STATE_PENDING) => true,
-        (Some(STATE_PENDING), STATE_ACTIVE) => true,
-        (Some(STATE_PENDING | STATE_ACTIVE), STATE_RETIRED) => true,
-        _ => false,
-    }
+    matches!(
+        (from, to),
+        (None, STATE_PENDING)
+            | (Some(STATE_PENDING), STATE_ACTIVE)
+            | (Some(STATE_PENDING), STATE_RETIRED)
+            | (Some(STATE_ACTIVE), STATE_RETIRED)
+    )
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), StrategyRegistrationError> {
@@ -105,7 +106,7 @@ pub fn retire_strategy(
 pub fn is_eligible_for_allocation(env: &Env, strategy: &Address) -> bool {
     matches!(
         read_registration_state(env, strategy),
-        Some(STATE_PENDING | STATE_ACTIVE)
+        Some(STATE_PENDING) | Some(STATE_ACTIVE)
     )
 }
 
