@@ -22,6 +22,7 @@ nano .env.local
 # 3. Verify setup
 cd ..
 ./scripts/verify-env-security.sh
+npm run validate:frontend-env -- --env-file frontend/.env.local --strict --check-rpc
 ```
 
 ### For Production Deployment
@@ -42,6 +43,7 @@ nano .env.production
 # 3. Verify setup
 cd ..
 ./scripts/verify-env-security.sh
+npm run validate:frontend-env -- --env-file frontend/.env.production --strict --check-rpc
 ```
 
 ## 📋 Required Variables

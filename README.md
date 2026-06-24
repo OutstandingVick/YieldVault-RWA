@@ -60,7 +60,15 @@ For a comprehensive overview of the smart contract architecture, module responsi
    cd frontend && npm install && npm run dev
    ```
 
-4. **Open browser**: http://localhost:5173
+4. **Configure frontend contract env** (required before on-chain features work):
+
+   ```bash
+   cp frontend/.env.local.example frontend/.env.local
+   # Set VITE_VAULT_CONTRACT_ID from deployment.json after a contract deploy
+   npm run validate:frontend-env -- --env-file frontend/.env.local --strict --check-rpc
+   ```
+
+5. **Open browser**: http://localhost:5173
 
 For detailed setup instructions, prerequisites, and troubleshooting, see **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)**.
 
