@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/rules-of-hooks */
-import { test as base, type Page } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 // Inline fixture data — avoids JSON import attribute requirements across Node versions
 export const vaultSummary = {
@@ -30,6 +30,60 @@ export const vaultSummaryAtCapacity = {
   ...vaultSummary,
   tvl: vaultSummary.depositCap,
 };
+
+const HORIZON_USDC_ISSUER =
+  'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO';
+
+function buildHorizonAccountBody(accountId: string) {
+  return JSON.stringify({
+    id: accountId,
+    account_id: accountId,
+    sequence: '12884901882',
+    subentry_count: 0,
+    balances: [
+      { asset_type: 'native', balance: '5.0000000' },
+      {
+        asset_type: 'credit_alphanum4',
+        asset_code: 'USDC',
+        asset_issuer: HORIZON_USDC_ISSUER,
+        balance: '1250.5000000',
+      },
+    ],
+    _links: {
+      self: { href: `https://horizon-testnet.stellar.org/accounts/${accountId}` },
+      transactions: {
+        href: `https://horizon-testnet.stellar.org/accounts/${accountId}/transactions{?cursor,limit,order}`,
+        templated: true,
+      },
+      operations: {
+        href: `https://horizon-testnet.stellar.org/accounts/${accountId}/operations{?cursor,limit,order}`,
+        templated: true,
+      },
+    },
+  });
+}
+
+function buildHorizonOperationsBody() {
+  return JSON.stringify({
+    _embedded: {
+      records: [
+        {
+          id: '12884905984',
+          type: 'payment',
+          from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+          to: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+          amount: '100.0000000',
+          asset_type: 'credit_alphanum4',
+          asset_code: 'USDC',
+          asset_issuer: HORIZON_USDC_ISSUER,
+          created_at: '2026-03-25T10:00:00.000Z',
+          transaction_hash:
+            'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890',
+        },
+      ],
+    },
+  });
+}
 
 const portfolioHoldings = [
   {
@@ -109,10 +163,142 @@ const portfolioHoldings = [
 /**
  * Intercept mock API routes so tests are fully deterministic.
  */
-export async function interceptApiRoutes(page: Page) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem('hasSeenWalkthrough', 'true');
+async function fulfillHorizonRoute(route: import('@playwright/test').Route) {
+  if (route.request().method() !== 'GET') {
+    await route.continue();
+    return;
+  }
+
+  const url = route.request().url();
+
+  if (url.includes('/operations')) {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { date: new Date().toUTCString() },
+      body: buildHorizonOperationsBody(),
+    });
+    return;
+  }
+
+  const accountMatch = url.match(/\/accounts\/([^/?]+)/);
+  const accountId = accountMatch?.[1] ?? 'unknown';
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    headers: { date: new Date().toUTCString() },
+    body: buildHorizonAccountBody(accountId),
   });
+}
+
+export async function interceptApiRoutes(page: Page) {
+  await page.addInitScript(
+    ({ issuer, accountBodyTemplate, operationsBody }) => {
+      window.localStorage.setItem('hasSeenWalkthrough', 'true');
+
+      const buildAccountBody = (accountId: string) =>
+        accountBodyTemplate.replaceAll('__ACCOUNT_ID__', accountId);
+
+      const shouldMockHorizon = (url: string) =>
+        url.includes('horizon-testnet.stellar.org') || url.includes('horizon.stellar.org');
+
+      const isHorizonAccount = (url: string) =>
+        shouldMockHorizon(url) && url.includes('/accounts/') && !url.includes('/operations');
+
+      const isHorizonOperations = (url: string) =>
+        shouldMockHorizon(url) && url.includes('/operations');
+
+      const fulfillJson = (body: string) =>
+        new Response(body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            Date: new Date().toUTCString(),
+          },
+        });
+
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url =
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url;
+
+        if (isHorizonOperations(url)) {
+          return fulfillJson(operationsBody);
+        }
+
+        if (isHorizonAccount(url)) {
+          const accountMatch = url.match(/\/accounts\/([^/?]+)/);
+          const accountId = accountMatch?.[1] ?? 'unknown';
+          return fulfillJson(buildAccountBody(accountId));
+        }
+
+        return originalFetch(input, init);
+      };
+
+      const OriginalXHR = window.XMLHttpRequest;
+      class HorizonMockXHR extends OriginalXHR {
+        private _requestUrl = '';
+
+        open(method: string, url: string | URL, ...rest: unknown[]) {
+          this._requestUrl = String(url);
+          return super.open(
+            method,
+            url,
+            ...(rest as [boolean, string | null | undefined]),
+          );
+        }
+
+        send(body?: Document | XMLHttpRequestBodyInit | null) {
+          if (isHorizonOperations(this._requestUrl)) {
+            queueMicrotask(() => {
+              Object.defineProperty(this, 'readyState', { configurable: true, value: 4 });
+              Object.defineProperty(this, 'status', { configurable: true, value: 200 });
+              Object.defineProperty(this, 'responseText', {
+                configurable: true,
+                value: operationsBody,
+              });
+              Object.defineProperty(this, 'response', { configurable: true, value: operationsBody });
+              this.dispatchEvent(new Event('readystatechange'));
+              this.dispatchEvent(new Event('load'));
+            });
+            return;
+          }
+
+          if (isHorizonAccount(this._requestUrl)) {
+            const accountMatch = this._requestUrl.match(/\/accounts\/([^/?]+)/);
+            const accountId = accountMatch?.[1] ?? 'unknown';
+            const responseBody = buildAccountBody(accountId);
+            queueMicrotask(() => {
+              Object.defineProperty(this, 'readyState', { configurable: true, value: 4 });
+              Object.defineProperty(this, 'status', { configurable: true, value: 200 });
+              Object.defineProperty(this, 'responseText', {
+                configurable: true,
+                value: responseBody,
+              });
+              Object.defineProperty(this, 'response', { configurable: true, value: responseBody });
+              this.dispatchEvent(new Event('readystatechange'));
+              this.dispatchEvent(new Event('load'));
+            });
+            return;
+          }
+
+          return super.send(body);
+        }
+      }
+
+      window.XMLHttpRequest = HorizonMockXHR as typeof XMLHttpRequest;
+      void issuer;
+    },
+    {
+      issuer: HORIZON_USDC_ISSUER,
+      accountBodyTemplate: buildHorizonAccountBody('__ACCOUNT_ID__'),
+      operationsBody: buildHorizonOperationsBody(),
+    },
+  );
 
   await page.route('**/mock-api/vault-summary.json', (route) =>
     route.fulfill({
@@ -129,61 +315,13 @@ export async function interceptApiRoutes(page: Page) {
     }),
   );
 
-  await page.route('https://horizon-testnet.stellar.org/**', async (route) => {
-    if (route.request().method() !== 'GET') {
-      await route.continue();
-      return;
-    }
+  await page.route(/horizon(-testnet)?\.stellar\.org/i, fulfillHorizonRoute);
+}
 
-    const url = route.request().url();
-
-    if (url.includes('/operations')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          _embedded: {
-            records: [
-              {
-                id: '12884905984',
-                type: 'payment',
-                from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
-                to: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
-                amount: '100.0000000',
-                asset_type: 'credit_alphanum4',
-                asset_code: 'USDC',
-                asset_issuer: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
-                created_at: '2026-03-25T10:00:00.000Z',
-                transaction_hash: 'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890',
-              },
-            ],
-          },
-        }),
-      });
-      return;
-    }
-
-    const accountMatch = url.match(/\/accounts\/([^/?]+)/);
-    const accountId = accountMatch?.[1] ?? 'unknown';
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        id: accountId,
-        account_id: accountId,
-        sequence: '12884901882',
-        subentry_count: 0,
-        balances: [
-          { asset_type: 'native', balance: '5.0000000' },
-          {
-            asset_type: 'credit_alphanum4',
-            asset_code: 'USDC',
-            asset_issuer: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
-            balance: '1250.5000000',
-          },
-        ],
-      }),
-    });
+/** Wait until the connected wallet banner shows the mocked USDC balance. */
+export async function waitForMockUsdcBalance(page: Page) {
+  await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', {
+    timeout: 20_000,
   });
 }
 

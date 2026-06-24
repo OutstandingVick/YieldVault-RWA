@@ -9,6 +9,7 @@ import {
   expect,
   interceptApiRoutes,
   stubFreighterManualConnect,
+  waitForMockUsdcBalance,
 } from './fixtures';
 
 const MOCK_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -30,6 +31,7 @@ test.describe('Deposit flow (e2e)', () => {
     await page.getByRole('button', { name: /Connect Freighter/i }).click();
     await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Wallet Not Connected')).not.toBeVisible();
+    await waitForMockUsdcBalance(page);
 
     const amountInput = page.getByLabel('Deposit amount');
     await amountInput.fill('100');

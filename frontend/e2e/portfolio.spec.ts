@@ -11,7 +11,8 @@ test.describe('Portfolio page  unauthenticated', () => {
     await interceptApiRoutes(page);
     await page.goto('/portfolio');
     await expect(page.getByRole('heading', { name: 'Your Portfolio' })).toBeVisible();
-    await expect(page.getByText('Please connect your wallet to view your portfolio.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Getting started guide' })).toBeVisible();
+    await expect(page.getByText('Connect Your Wallet')).toBeVisible();
     await expect(page.getByRole('table')).not.toBeVisible();
   });
 });

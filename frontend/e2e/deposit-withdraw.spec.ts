@@ -9,6 +9,7 @@ import {
   stubFreighterConnected,
   stubFreighterDisconnected,
   vaultSummaryAtCapacity,
+  waitForMockUsdcBalance,
 } from './fixtures';
 
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
@@ -25,7 +26,7 @@ async function goToConnectedVault(page: Page) {
   await page.goto('/');
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
   await balanceResponse;
-  await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', { timeout: 20_000 });
+  await waitForMockUsdcBalance(page);
 }
 
 // Tests that verify unauthenticated UI  no Freighter stub injected
@@ -49,10 +50,10 @@ test.describe('Deposit panel  no wallet', () => {
     await expect(reviewBtn).toBeDisabled();
   });
 
-  test('strategy info panel shows exchange rate and network fee', async ({ page }) => {
+  test('strategy info panel shows exchange rate and strategy details', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByText(/1 yvUSDC =/)).toBeVisible();
-    await expect(page.getByText('~0.00001 XLM')).toBeVisible();
+    await expect(page.getByText('Franklin BENJI Connector')).toBeVisible();
     await expect(page.getByText('BENJI Strategy')).toBeVisible();
   });
 });
