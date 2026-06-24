@@ -70,8 +70,29 @@ export const NonceRequestSchema = z
 export const LoginSchema = z
   .object({
     walletAddress: walletAddressSchema,
+    source: z.string().min(1).max(64).optional(),
+    providerAlias: z.string().min(1).max(256).optional(),
+    providerSource: z.string().min(1).max(64).optional(),
     nonce: z.string().min(16).max(128).optional(),
     signature: z.string().min(32).max(512).optional(),
+  })
+  .strict();
+
+/** POST /api/v1/wallet-aliases/link */
+export const WalletAliasLinkSchema = z
+  .object({
+    primaryAlias: z.string().min(1).max(256),
+    primarySource: z.string().min(1).max(64),
+    linkedAlias: z.string().min(1).max(256),
+    linkedSource: z.string().min(1).max(64),
+  })
+  .strict();
+
+/** GET /api/v1/wallet-aliases/resolve */
+export const WalletAliasResolveQuerySchema = z
+  .object({
+    alias: z.string().min(1).max(256),
+    source: z.string().min(1).max(64),
   })
   .strict();
 

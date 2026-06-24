@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { logger, LogLevel } from './structuredLogging';
+import { logger } from './structuredLogging';
 
 /**
  * Configuration options for the timeout middleware
@@ -47,7 +47,7 @@ export function timeoutMiddleware(options: TimeoutOptions = DEFAULT_TIMEOUT_OPTI
     timeoutId = setTimeout(() => {
       if (!isResponded && !res.headersSent) {
         isResponded = true;
-        logger.log(LogLevel.WARN, 'Request timed out', {
+        logger.log('warn', 'Request timed out', {
           path: req.path,
           method: req.method,
           timeoutMs,
@@ -72,22 +72,22 @@ export function timeoutMiddleware(options: TimeoutOptions = DEFAULT_TIMEOUT_OPTI
     const originalWrite = res.write;
 
     // Override end to clean up timeout
-    res.end = (...args: any[]) => {
+    res.end = ((...args: any[]) => {
       if (!isResponded) {
         isResponded = true;
         cleanup();
       }
-      return originalEnd.apply(res, args);
-    };
+      return (originalEnd as any).apply(res, args);
+    }) as typeof res.end;
 
     // Also clean up on write (in case response is streamed)
-    res.write = (...args: any[]) => {
+    res.write = ((...args: any[]) => {
       if (!isResponded) {
         isResponded = true;
         cleanup();
       }
-      return originalWrite.apply(res, args);
-    };
+      return (originalWrite as any).apply(res, args);
+    }) as typeof res.write;
 
     // Clean up on request close or error
     req.on('close', cleanup);
