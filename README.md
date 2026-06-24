@@ -39,6 +39,7 @@ For a comprehensive overview of the smart contract architecture, module responsi
 
 - **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)** – Complete setup guide with step-by-step instructions
 - **[Service Dependency Matrix](./docs/SERVICE_DEPENDENCY_MATRIX.md)** – Visual dependency graph and service specifications
+- **[Stellar Testnet & Mainnet Deployment Runbook](./docs/DEPLOYMENT.md)** – Pinned toolchain alignment, optimizations, and upgrade guide
 
 ### Quick Start (5 minutes)
 

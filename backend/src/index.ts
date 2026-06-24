@@ -35,6 +35,8 @@ import {
 import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
 import { startDbBackupScheduler } from './dbBackupJob';
+import { startPositionReconciliationScheduler } from './positionReconciliationJob';
+import { setupSwagger } from './swagger';
 import { sorobanCircuitBreaker } from './circuitBreaker';
 import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
 import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
@@ -581,11 +583,21 @@ app.get('/health', async (_req: Request, res: Response) => {
   const dbHealth = await getDatabaseHealth();
   const prismaHealth = await getPrismaHealth();
   const circuitSnapshot = sorobanCircuitBreaker.toHealthSnapshot();
+  const lastIndexedLedger = await (async () => {
+    try {
+      const cursor = await prisma.eventCursor.findUnique({ where: { id: 1 } });
+      return cursor?.lastLedgerSeq ?? 0;
+    } catch {
+      return 0;
+    }
+  })();
+
   const health = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: nodeEnv,
+    lastIndexedLedger,
     checks: {
       api: 'up',
       cache: getCacheHealth(),
@@ -644,6 +656,9 @@ app.get('/ready', async (_req: Request, res: Response) => {
 app.get('/maintenance/status', (_req: Request, res: Response) => {
   res.status(200).json(buildMaintenanceStatusPayload());
 });
+
+// Enable Swagger UI documentation
+setupSwagger(app);
 
 // ─── Versioned API v1 Router ──────────────────────────────────────────────
 const apiV1 = express.Router();
@@ -3892,6 +3907,12 @@ if (process.env.NODE_ENV !== 'test') {
   const stopDbBackupScheduler = startDbBackupScheduler();
   shutdownHandler.onShutdown(async () => {
     stopDbBackupScheduler();
+  });
+
+  // ─── Position Reconciliation Scheduler (Issue #817) ────────────────────────
+  const stopPositionReconciliationScheduler = startPositionReconciliationScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopPositionReconciliationScheduler();
   });
 
   // Register event polling service shutdown

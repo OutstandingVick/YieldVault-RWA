@@ -1,9 +1,7 @@
-// TODO: Install swagger-jsdoc and swagger-ui-express when ready
-// import swaggerJsdoc from 'swagger-jsdoc';
-// import swaggerUi from 'swagger-ui-express';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
 import type { Express } from 'express';
 
-/*
 const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.1.0',
@@ -22,8 +20,8 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000/api/v1',
-        description: 'Development server',
+        url: '/api/v1',
+        description: 'API v1',
       },
     ],
     components: {
@@ -60,31 +58,17 @@ const options: swaggerJsdoc.Options = {
       },
     },
   },
-  apis: ['./src/index.ts', './src/listEndpoints.ts', './src/swagger.ts'], // Files containing annotations
+  apis: ['./src/**/*.ts', './src/index.ts', './src/listEndpoints.ts', './src/swagger.ts'], // Files containing annotations
 };
 
 export const specs = swaggerJsdoc(options);
-*/
-
-export const specs = {
-  openapi: '3.1.0',
-  info: {
-    title: 'YieldVault Stellar RWA API',
-    version: '1.0.0',
-  },
-  servers: [
-    {
-      url: '/api/v1',
-      description: 'API v1',
-    },
-  ],
-};
 
 export function setupSwagger(app: Express) {
   const nodeEnv = process.env.NODE_ENV || 'development';
 
   if (nodeEnv !== 'production') {
+    app.use('/docs', swaggerUi.serve, swaggerUi.setup(specs));
     /* eslint-disable-next-line no-console */
-    console.log('📝 Swagger documentation available at /docs (when swagger dependencies are installed)');
+    console.log('📝 Swagger documentation available at /docs');
   }
 }
