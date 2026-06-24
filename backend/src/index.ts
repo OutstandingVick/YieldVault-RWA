@@ -21,6 +21,10 @@ import { idempotencyStore } from './idempotency';
 import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
 import { recordAdminAuditLog } from './adminAudit';
 import {
+  recordAdminConfigChange, listAdminConfigChanges, getActorFromRequest
+} from './adminConfigChangeAudit';
+import { featureFlags } from './featureFlags';
+import {
   startImpersonationSession,
   endImpersonationSession,
   validateImpersonationSession,
@@ -40,6 +44,7 @@ import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/ca
 import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
 import { tieredJsonBodyParser } from './middleware/payloadLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
+import { timeoutMiddleware, createTimeoutFor } from './middleware/timeoutMiddleware';
 import {
   setWithdrawalLimitOverride,
   listWithdrawalLimitAuditEntries,
@@ -74,6 +79,7 @@ import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
+import walletAliasRouter from './walletAliasEndpoints';
 import transactionRouter from './transactionEndpoints';
 import {
   buildPortfolioHoldingsResponse,
@@ -116,6 +122,13 @@ import {
   updateMaintenanceModeState,
   logMaintenanceTransition,
 } from './maintenanceMode';
+import {
+  buildMaintenanceStatusPayload,
+  cancelMaintenanceWindow,
+  listMaintenanceWindows,
+  scheduleMaintenanceWindow,
+  startMaintenanceWindowScheduler,
+} from './maintenanceWindow';
 import {
   buildExportMetadataHeaderValue,
   getExportJobById,
@@ -471,6 +484,9 @@ app.use(correlationIdMiddleware);
 // Structured logging with correlation IDs
 app.use(structuredLoggingMiddleware);
 
+// Global timeout middleware (30 seconds default)
+app.use(timeoutMiddleware());
+
 // Metrics middleware to track HTTP requests
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = process.hrtime();
@@ -618,12 +634,21 @@ app.get('/ready', async (_req: Request, res: Response) => {
   res.status(isReady ? 200 : 503).json(readiness);
 });
 
+/**
+ * GET /maintenance/status
+ * Public read-only maintenance window visibility (Issue #714).
+ */
+app.get('/maintenance/status', (_req: Request, res: Response) => {
+  res.status(200).json(buildMaintenanceStatusPayload());
+});
+
 // ─── Versioned API v1 Router ──────────────────────────────────────────────
 const apiV1 = express.Router();
 app.use('/api/v1', apiV1);
 
 // Mount routers under /api/v1
 apiV1.use('/vault', vaultRouter);
+apiV1.use('/wallet-aliases', walletAliasRouter);
 apiV1.use('/referrals', referralRouter);
 apiV1.use('/transactions', transactionRouter);
 apiV1.use('/', listRouter);
@@ -995,6 +1020,17 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
 
   const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
 
+  await recordAdminConfigChange({
+    configType: 'maintenance',
+    action: 'toggle',
+    actor,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent'),
+    preChangeSnapshot: previous as unknown as Record<string, unknown>,
+    postChangeSnapshot: next as unknown as Record<string, unknown>,
+    metadata: { receiptId: '' },
+  });
+
   const receipt = await generateAdminReceipt({
     action: 'maintenance.toggle',
     actor,
@@ -1029,6 +1065,235 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
     timestamp: new Date().toISOString(),
     receipt,
   });
+});
+
+/**
+ * GET /admin/maintenance/windows - list scheduled maintenance windows
+ */
+app.get('/admin/maintenance/windows', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    windows: listMaintenanceWindows(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/maintenance/windows - schedule a maintenance window
+ * Body: { title: string, reason?: string, startsAt: string, endsAt: string }
+ */
+app.post('/admin/maintenance/windows', validateApiKey, (req: Request, res: Response) => {
+  const { title, reason, startsAt, endsAt } = req.body;
+  if (typeof title !== 'string' || !title.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`title` (string) is required',
+    });
+    return;
+  }
+  if (typeof startsAt !== 'string' || typeof endsAt !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`startsAt` and `endsAt` (ISO strings) are required',
+    });
+    return;
+  }
+
+  try {
+    const actor = resolveActingAdminAddress(req);
+    const window = scheduleMaintenanceWindow({
+      title,
+      reason: typeof reason === 'string' ? reason : undefined,
+      startsAt,
+      endsAt,
+      actor,
+    });
+    res.status(201).json({ window, timestamp: new Date().toISOString() });
+  } catch (error) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * DELETE /admin/maintenance/windows/:windowId - cancel a scheduled window
+ */
+app.delete('/admin/maintenance/windows/:windowId', validateApiKey, (req: Request, res: Response) => {
+  const cancelled = cancelMaintenanceWindow(req.params.windowId);
+  if (!cancelled) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Maintenance window not found',
+    });
+    return;
+  }
+  res.status(200).json({
+    cancelled: true,
+    windowId: req.params.windowId,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/config-changes - List admin configuration changes
+ * Requires API key authentication
+ */
+app.get('/admin/config-changes', validateApiKey, async (req: Request, res: Response) => {
+  const { configType, actor, start, end, limit } = req.query;
+  const configChanges = await listAdminConfigChanges({
+    configType: typeof configType === 'string' ? configType : undefined,
+    actor: typeof actor === 'string' ? actor : undefined,
+    start: typeof start === 'string' ? start : undefined,
+    end: typeof end === 'string' ? end : undefined,
+    limit: typeof limit === 'string' ? parseInt(limit, 10) : 100,
+  });
+
+  res.json({
+    data: configChanges,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/feature-flags/overrides - List active feature flag overrides
+ * Requires API key authentication
+ */
+app.get('/admin/feature-flags/overrides', validateApiKey, async (_req: Request, res: Response) => {
+  const overrides = await featureFlags.listActiveOverrides();
+  res.json({
+    data: overrides,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/feature-flags/overrides - Create a new feature flag override
+ * Requires API key authentication
+ * Body: {
+ *   flagName: string,
+ *   enabled: boolean,
+ *   scopeType: "wallet" | "environment",
+ *   scopeValue?: string,
+ *   expiresAt: string (ISO 8601)
+ * }
+ */
+app.post('/admin/feature-flags/overrides', validateApiKey, async (req: Request, res: Response) => {
+  const { flagName, enabled, scopeType, scopeValue, expiresAt } = req.body;
+
+  if (!flagName || typeof flagName !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`flagName` (string) is required'
+    });
+    return;
+  }
+
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`enabled` (boolean) is required'
+    });
+    return;
+  }
+
+  if (!scopeType || !['wallet', 'environment'].includes(scopeType)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeType` must be "wallet" or "environment"'
+    });
+    return;
+  }
+
+  if (scopeType === 'wallet' && (!scopeValue || typeof scopeValue !== 'string')) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeValue` (string) is required for wallet scope'
+    });
+    return;
+  }
+
+  if (scopeType === 'environment' && (!scopeValue || typeof scopeValue !== 'string')) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeValue` (string) is required for environment scope'
+    });
+    return;
+  }
+
+  if (!expiresAt || typeof expiresAt !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`expiresAt` (ISO 8601 string) is required'
+    });
+    return;
+  }
+
+  const expiresAtDate = new Date(expiresAt);
+  if (isNaN(expiresAtDate.getTime()) || expiresAtDate <= new Date()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`expiresAt` must be a valid future date in ISO 8601 format'
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const override = await featureFlags.createOverride(
+    flagName,
+    enabled,
+    scopeType as 'wallet' | 'environment',
+    scopeValue,
+    expiresAtDate,
+    actor
+  );
+
+  res.status(201).json({
+    message: 'Feature flag override created successfully',
+    data: override,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/feature-flags/overrides/:id - Delete a feature flag override
+ * Requires API key authentication
+ */
+app.delete('/admin/feature-flags/overrides/:id', validateApiKey, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'Override ID is required'
+    });
+    return;
+  }
+
+  try {
+    await featureFlags.deleteOverride(id);
+    res.status(200).json({
+      message: 'Feature flag override deleted successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Feature flag override not found'
+    });
+  }
 });
 
 /**
@@ -3315,6 +3580,11 @@ if (process.env.NODE_ENV !== 'test') {
   const stopApyScheduler = startApySnapshotScheduler();
   shutdownHandler.onShutdown(async () => {
     stopApyScheduler();
+  });
+
+  const stopMaintenanceWindowScheduler = startMaintenanceWindowScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopMaintenanceWindowScheduler();
   });
 
   // ─── Database Backup Scheduler (Issue #376) ──────────────────────────────────

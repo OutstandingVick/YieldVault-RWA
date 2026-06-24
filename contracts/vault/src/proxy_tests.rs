@@ -151,6 +151,67 @@ fn test_check_storage_layout_fingerprint() {
     });
 }
 
+#[test]
+fn test_upgrade_storage_version_checkpoint() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    // After initialize, storage version must equal STORAGE_VERSION (2).
+    assert_eq!(vault.storage_version(), 2);
+
+    let wasm_bytes = soroban_sdk::Bytes::new(&env);
+    let new_wasm_hash = env.deployer().upload_contract_wasm(wasm_bytes);
+
+    // upgrade() must preserve the storage version checkpoint.
+    vault.upgrade(&new_wasm_hash);
+    assert_eq!(vault.storage_version(), 2);
+}
+
+#[test]
+fn test_migrate_storage_version_checkpoint() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    let pre = vault.storage_version();
+    // Idempotent migration to current version must pass the checkpoint.
+    vault.migrate_storage(&2);
+    assert_eq!(vault.storage_version(), 2);
+    assert!(vault.storage_version() >= pre);
+}
+
+#[test]
+fn test_migrate_storage_downgrade_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &token);
+
+    // Downgrade below current version must be rejected.
+    let result = vault.try_migrate_storage(&1);
+    assert!(result.is_err());
+    // Version must be unchanged.
+    assert_eq!(vault.storage_version(), 2);
+}
+
 fn generate_storage_fingerprint(env: &Env) -> &str {
     // In a real script, this would iterate over storage or check specific critical keys
     // For the unit test, we just verify the ones we care about.

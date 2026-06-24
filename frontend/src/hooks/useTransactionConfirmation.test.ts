@@ -4,7 +4,7 @@
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { useTransactionConfirmation } from './useTransactionConfirmation';
 import type { TransactionSummary } from '../types/transaction';
 
@@ -42,14 +42,10 @@ describe('useTransactionConfirmation', () => {
     });
 
     it('resolves to true when user confirms', async () => {
-      const { result, rerender } = renderHook(() => useTransactionConfirmation());
-      
-      let resolveValue: boolean | undefined;
+      const { result } = renderHook(() => useTransactionConfirmation());
       
       act(() => {
-        result.current.requestConfirmation(mockSummary).then((value) => {
-          resolveValue = value;
-        });
+        void result.current.requestConfirmation(mockSummary);
       });
 
       await waitFor(() => {
@@ -152,8 +148,6 @@ describe('useTransactionConfirmation', () => {
       const { result } = renderHook(() => useTransactionConfirmation());
       
       const summary1 = { ...mockSummary, actionType: 'deposit' as const };
-      const summary2 = { ...mockSummary, actionType: 'withdraw' as const };
-
       // First request
       act(() => {
         result.current.requestConfirmation(summary1);
@@ -180,11 +174,6 @@ describe('useTransactionConfirmation', () => {
     });
 
     it('returns consistent modal and isOpen values', () => {
-      const { result } = renderHook(() => useTransactionConfirmation());
-      
-      const firstModal = result.current.modal;
-      const firstIsOpen = result.current.isOpen;
-      
       const { result: result2 } = renderHook(() => useTransactionConfirmation());
       // Fresh hook instance should have fresh state
       expect(result2.current.isOpen).toBe(false);

@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/react";
 import Navbar from "./components/Navbar";
 import SessionExpiredModal from "./components/SessionExpiredModal";
 import SessionExpiryWarning from "./components/SessionExpiryWarning";
+import WalletDisconnectRecoveryModal from "./components/WalletDisconnectRecoveryModal";
 import type { DisconnectReason } from "./components/WalletConnect";
 import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
 import ShortcutHelpModal from "./components/ShortcutHelpModal";
@@ -16,6 +17,12 @@ import { PreferencesProvider } from "./context/PreferencesContext";
 import { useUsdcBalance, useXlmBalance } from "./hooks/useBalanceData";
 import { queryClient } from "./lib/queryClient";
 import { clearWalletSessionState } from "./lib/sessionCleanup";
+import {
+  clearVaultFormDraft,
+  hasMeaningfulDraft,
+  loadVaultFormDraft,
+  type VaultFormDraft,
+} from "./lib/formDraftStorage";
 import ErrorFallback from "./components/ErrorFallback";
 import RouteLoadingFallback from "./components/RouteLoadingFallback";
 import NetworkWarningBanner from "./components/NetworkWarningBanner";
@@ -36,6 +43,7 @@ const TransactionReceipt = lazy(() => import("./pages/TransactionReceipt"));
 
 function AppContent() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<VaultFormDraft | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { sessionState, intendedPath, setSessionExpired, clearSessionExpired, dismissSessionWarning } = useAuth();
@@ -59,6 +67,7 @@ function AppContent() {
   const handleConnect = useCallback((address: string) => {
     clearSessionExpired();
     setWalletAddress(address);
+    setPendingDraft(null);
   }, [clearSessionExpired]);
 
   const handleDisconnect = useCallback((reason: DisconnectReason = "manual") => {
@@ -68,10 +77,40 @@ function AppContent() {
       clearSessionExpired();
     }
 
+    if (reason === "manual") {
+      clearVaultFormDraft();
+      setPendingDraft(null);
+    } else {
+      const draft = loadVaultFormDraft();
+      if (hasMeaningfulDraft(draft)) {
+        setPendingDraft(draft);
+      } else {
+        clearVaultFormDraft();
+        setPendingDraft(null);
+      }
+    }
+
     clearWalletSessionState(queryClient);
     setWalletAddress(null);
     navigate("/", { replace: true });
   }, [clearSessionExpired, location.pathname, navigate, setSessionExpired]);
+
+  const handleRestoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    const params = new URLSearchParams();
+    params.set("tab", pendingDraft.tab);
+    params.set("step", pendingDraft.step);
+    if (pendingDraft.amount) {
+      params.set("amount", pendingDraft.amount);
+    }
+    navigate(`/?${params.toString()}`, { replace: true });
+    setPendingDraft(null);
+  }, [navigate, pendingDraft]);
+
+  const handleDiscardDraft = useCallback(() => {
+    clearVaultFormDraft();
+    setPendingDraft(null);
+  }, []);
 
   const handleReconnect = useCallback(() => {
     clearSessionExpired();
@@ -148,6 +187,14 @@ function AppContent() {
               intendedPath={intendedPath}
               onReconnect={handleReconnect}
               onDismiss={() => handleDisconnect("manual")}
+            />
+          )}
+          {pendingDraft && !walletAddress && (
+            <WalletDisconnectRecoveryModal
+              draft={pendingDraft}
+              onReconnect={handleReconnect}
+              onRestore={handleRestoreDraft}
+              onDiscard={handleDiscardDraft}
             />
           )}
         </div>
