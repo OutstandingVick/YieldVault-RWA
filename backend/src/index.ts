@@ -79,6 +79,7 @@ import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
+import walletAliasRouter from './walletAliasEndpoints';
 import transactionRouter from './transactionEndpoints';
 import {
   buildPortfolioHoldingsResponse,
@@ -100,6 +101,7 @@ import {
 import { latencyMonitoringService } from './latencyMonitoring';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
+import { getPrismaClient } from './prismaClient';
 import {
   verifyWebhookEndpoint,
   registerWebhookEndpoint,
@@ -644,6 +646,7 @@ app.use('/api/v1', apiV1);
 
 // Mount routers under /api/v1
 apiV1.use('/vault', vaultRouter);
+apiV1.use('/wallet-aliases', walletAliasRouter);
 apiV1.use('/referrals', referralRouter);
 apiV1.use('/transactions', transactionRouter);
 apiV1.use('/', listRouter);
@@ -1021,8 +1024,8 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
     actor,
     ipAddress: req.ip,
     userAgent: req.get('user-agent'),
-    preChangeSnapshot: previous as Record<string, unknown>,
-    postChangeSnapshot: next as Record<string, unknown>,
+    preChangeSnapshot: previous as unknown as Record<string, unknown>,
+    postChangeSnapshot: next as unknown as Record<string, unknown>,
     metadata: { receiptId: '' },
   });
 

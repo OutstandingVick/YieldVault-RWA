@@ -176,6 +176,8 @@ pub enum DataKey {
     FeeBps,
     Treasury,
     TreasuryBalance,
+    // Tracks cumulative fees that exceeded the bounded accumulator
+    TreasuryRolloverExcess,
     // Goal 2: timelock withdrawals
     LargeWithdrawalThreshold,
     PendingWithdrawal(Address),
@@ -776,6 +778,38 @@ impl YieldVault {
         emergency::read_proposal(&env, proposal_id)
     }
 
+    /// Simulate an emergency unwind scenario without executing state changes.
+    ///
+    /// Allows governance to assess the feasibility and impact of an emergency unwind
+    /// before committing to the actual execution. This is a read-only operation.
+    ///
+    /// ### Parameters
+    /// * `estimated_slippage_bps` - Expected slippage from forced liquidations (basis points)
+    /// * `estimated_fee_bps` - Expected operational fees (basis points)
+    ///
+    /// ### Returns
+    /// `EmergencyUnwindResult` with simulated outcomes including:
+    /// - Total assets that would be recovered
+    /// - Estimated losses from slippage and fees
+    /// - Net amount available to users
+    /// - Feasibility assessment
+    pub fn simulate_emergency_unwind(
+        env: Env,
+        estimated_slippage_bps: i128,
+        estimated_fee_bps: i128,
+    ) -> emergency::EmergencyUnwindResult {
+        let state = Self::get_state(&env);
+        let total_assets = state.total_assets;
+        let strategy_count = 2u32; // BENJI + Korean Debt are the standard active strategies
+        
+        emergency::simulate_emergency_unwind(
+            total_assets,
+            strategy_count,
+            estimated_slippage_bps,
+            estimated_fee_bps,
+        )
+    }
+
     fn apply_emergency_pause(env: &Env, reason: PauseReason) {
         let mut state = Self::get_state(env);
         state.is_paused = true;
@@ -1011,6 +1045,138 @@ impl YieldVault {
             .set(&DataKey::DaoThreshold, &threshold);
         Self::record_admin_param_change(&env);
         Ok(())
+    }
+
+    // ── Multi-signer Governance Configuration ────────────────────────────────
+
+    /// Set the active governance signer set and required threshold.
+    /// Optionally triggers migration mode to accept both old and new signer sets.
+    ///
+    /// ### Parameters
+    /// * `signers` - Vector of addresses authorized to sign governance operations
+    /// * `threshold` - Number of required signatures (M of N)
+    /// * `migration_deadline` - Ledger timestamp after which only new signers are active
+    pub fn set_governance_signers(
+        env: Env,
+        signers: Vec<Address>,
+        threshold: u32,
+        migration_deadline: u64,
+    ) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        if threshold == 0 || threshold as usize > signers.len() {
+            panic!("invalid threshold: must be > 0 and <= signer set size");
+        }
+
+        // Store previous signers for migration (if any exist)
+        if env.storage().instance().has(&DataKey::GovernanceSigners) {
+            let old_signers: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::GovernanceSigners)
+                .unwrap();
+            env.storage()
+                .instance()
+                .set(&DataKey::GovernancePreviousSigners, &old_signers);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::GovernanceSigners, &signers);
+        env.storage()
+            .instance()
+            .set(&DataKey::GovernanceThreshold, &threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::GovernanceMigrationDeadline, &migration_deadline);
+
+        env.events()
+            .publish((symbol_short!("govset"),), (threshold, migration_deadline));
+    }
+
+    /// Get the active governance signer set.
+    pub fn governance_signers(env: Env) -> Option<Vec<Address>> {
+        env.storage().instance().get(&DataKey::GovernanceSigners)
+    }
+
+    /// Get the required signature threshold for governance operations.
+    pub fn governance_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::GovernanceThreshold)
+            .unwrap_or(1)
+    }
+
+    /// Verify that governance operations are signed by the required threshold.
+    /// During migration, accepts signatures from either active or previous signer sets.
+    ///
+    /// ### Parameters
+    /// * `approvals` - Vector of addresses that have approved the operation
+    ///
+    /// ### Returns
+    /// Ok if threshold is met, panics otherwise
+    pub fn require_governance_threshold(env: Env, approvals: Vec<Address>) {
+        let signers: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::GovernanceSigners)
+            .expect("governance signers not configured");
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::GovernanceThreshold)
+            .unwrap_or(1);
+
+        let current_time = env.ledger().timestamp();
+        let migration_deadline: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::GovernanceMigrationDeadline)
+            .unwrap_or(0);
+
+        // During migration, accept both old and new signer sets
+        let is_migration = current_time < migration_deadline
+            && env.storage().instance().has(&DataKey::GovernancePreviousSigners);
+
+        if is_migration {
+            let old_signers: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::GovernancePreviousSigners)
+                .unwrap();
+
+            // Try new signer set first, then fall back to old set
+            if permissions::MultiSignerValidator::verify_threshold(&signers, threshold, &approvals)
+                .is_ok()
+            {
+                return;
+            }
+            if permissions::MultiSignerValidator::verify_threshold(&old_signers, threshold, &approvals)
+                .is_ok()
+            {
+                return;
+            }
+            panic!("governance threshold not met");
+        } else {
+            permissions::MultiSignerValidator::verify_threshold(&signers, threshold, &approvals)
+                .expect("governance threshold not met");
+        }
+    }
+
+    /// Clear migration state. Called after old signer set is no longer needed.
+    pub fn finalize_governance_migration(env: Env) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .remove(&DataKey::GovernancePreviousSigners);
+        env.storage()
+            .instance()
+            .remove(&DataKey::GovernanceMigrationDeadline);
+
+        env.events().publish((symbol_short!("govfin"),), ());
     }
 
     pub fn create_strategy_proposal(env: Env, proposer: Address, strategy: Address) -> u32 {
@@ -2249,19 +2415,41 @@ impl YieldVault {
 
         token_client.transfer(&admin, &env.current_contract_address(), &amount);
 
-        // Accumulate fee in treasury balance
+        // Accumulate fee in treasury balance with bounded accumulator protection
         if fee_amount > 0 {
-            let treasury_bal: i128 = env
+            let mut treasury_bal: i128 = env
                 .storage()
                 .instance()
                 .get(&DataKey::TreasuryBalance)
                 .unwrap_or(0);
-            let new_treasury_bal = treasury_bal.checked_add(fee_amount).expect("overflow");
+
+            // Check if accumulating this fee would exceed bounds
+            if fee_math::would_exceed_accumulator_bound(treasury_bal, fee_amount) {
+                // Move overflow to rollover excess for later claiming
+                let rollover: i128 = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::TreasuryRolloverExcess)
+                    .unwrap_or(0);
+                let available_capacity = fee_math::MAX_TREASURY_ACCUMULATOR
+                    .saturating_sub(treasury_bal);
+                let excess = fee_amount.saturating_sub(available_capacity);
+                
+                treasury_bal = fee_math::MAX_TREASURY_ACCUMULATOR;
+                let new_rollover = rollover.checked_add(excess).unwrap_or(i128::MAX);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::TreasuryRolloverExcess, &new_rollover);
+                env.events().publish((symbol_short!("rolvr"),), excess);
+            } else {
+                treasury_bal = treasury_bal.checked_add(fee_amount).expect("overflow");
+            }
+
             env.storage()
                 .instance()
-                .set(&DataKey::TreasuryBalance, &new_treasury_bal);
+                .set(&DataKey::TreasuryBalance, &treasury_bal);
             env.events()
-                .publish((symbol_short!("feeacc"),), (fee_amount, new_treasury_bal));
+                .publish((symbol_short!("feeacc"),), (fee_amount, treasury_bal));
         }
 
         let ta = env
@@ -2396,6 +2584,64 @@ impl YieldVault {
             .instance()
             .get(&DataKey::TreasuryBalance)
             .unwrap_or(0)
+    }
+
+    /// Returns fees that exceeded the bounded accumulator and are held in rollover.
+    /// These should be claimed and transferred as part of claim_fees operations.
+    pub fn treasury_rollover_excess(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TreasuryRolloverExcess)
+            .unwrap_or(0)
+    }
+
+    /// Claim all accumulated and rolled-over fees. Transfers both primary and excess to treasury.
+    /// Only the Admin can call this. Emits a `feeclm` event.
+    ///
+    /// ### Errors
+    /// Panics if no treasury address is configured.
+    pub fn claim_all_fees(env: Env) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .expect("treasury not set");
+
+        let balance: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryBalance)
+            .unwrap_or(0);
+        let rollover: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TreasuryRolloverExcess)
+            .unwrap_or(0);
+
+        let total_claimable = balance.saturating_add(rollover);
+        if total_claimable == 0 {
+            panic!("no fees to claim");
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryBalance, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TreasuryRolloverExcess, &0i128);
+
+        let token_addr: Address = env.storage().instance().get(&DataKey::TokenAsset).unwrap();
+        token::Client::new(&env, &token_addr).transfer(
+            &env.current_contract_address(),
+            &treasury,
+            &total_claimable,
+        );
+
+        env.events()
+            .publish((symbol_short!("feeall"),), (treasury, total_claimable, rollover));
     }
 
     /// Transfers the entire accumulated treasury balance to the treasury address.

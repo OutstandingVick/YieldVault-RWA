@@ -10,7 +10,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import type { ApiKeyRole } from './apiKeyAuth';
+import { normalizeApiKeyRole, type ApiKeyRole } from './apiKeyAuth';
 import { getNormalizedPath } from './payloadLimit';
 
 // ─── Permissions ─────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ const ADMIN_ROUTE_RULES: RouteRule[] = [
 // ─── Core helpers ────────────────────────────────────────────────────────────
 
 export function resolveApiKeyRole(req: Request): ApiKeyRole {
-  return req.authApiKeyRole || 'admin';
+  return normalizeApiKeyRole(req.authApiKeyRole);
 }
 
 export function roleHasPermission(role: ApiKeyRole, permission: Permission): boolean {

@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
 import { normalizeWalletAddress } from './walletUtils';
+import { walletAliasMappingService } from './walletAliasService';
 import { invalidateCache } from './middleware/cache';
 
 // Use the centralized Prisma Client instance
@@ -22,7 +23,10 @@ export class ReferralService {
    */
   async recordDeposit(walletAddress: string, referralCode?: string): Promise<void> {
     const prisma = getPrisma();
-    const normalizedReferred = normalizeWalletAddress(walletAddress);
+    const normalizedReferred = walletAliasMappingService.resolveCanonicalWallet(
+      walletAddress,
+      'stellar',
+    );
     try {
       await prisma.$transaction(async (tx) => {
         // 1. If code provided, ensure relationship exists
