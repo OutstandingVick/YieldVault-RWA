@@ -269,6 +269,7 @@ pub struct WithdrawalQueueMeta {
     pub tail: u64,
     pub admin_last_change_ts: u64,
     pub admin_min_interval_secs: u64,
+    pub admin_param_recorded: bool,
 }
 
 #[contracttype]
@@ -535,7 +536,6 @@ impl YieldVault {
         }
 
         env.storage().instance().set(&DataKey::Strategy, &strategy);
-        Self::record_admin_param_change(&env);
         Ok(())
     }
 
@@ -858,7 +858,7 @@ impl YieldVault {
     }
 
     pub fn set_per_user_cap(env: Env, cap: i128) -> Result<(), VaultError> {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         env.storage().instance().set(&DataKey::PerUserCap, &cap);
@@ -2069,10 +2069,11 @@ impl YieldVault {
             .instance()
             .get(&DataKey::WithdrawalQueueMeta)
             .unwrap_or(WithdrawalQueueMeta {
-                head: 1,
-                tail: 1,
+                head: 0,
+                tail: 0,
                 admin_last_change_ts: 0,
                 admin_min_interval_secs: Self::DEFAULT_ADMIN_PARAM_INTERVAL_SECS,
+                admin_param_recorded: false,
             })
     }
 
@@ -2172,6 +2173,35 @@ impl YieldVault {
         tail.saturating_sub(head)
     }
 
+    /// Returns idle assets held in the vault (excluding strategy mark-to-market).
+    pub fn idle_total_assets(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0)
+    }
+
+    /// Test helper: appends a synthetic queue entry for `process_withdrawal_queue` tests.
+    #[doc(hidden)]
+    pub fn test_seed_withdrawal_queue_entry(
+        env: Env,
+        user: Address,
+        shares: i128,
+        assets: i128,
+    ) {
+        let tail = Self::withdrawal_queue_tail(&env);
+        let entry = WithdrawalQueueEntry {
+            user,
+            shares,
+            assets,
+            enqueued_at: env.ledger().timestamp(),
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::WithdrawalQueueEntry(tail), &entry);
+        Self::set_withdrawal_queue_tail(&env, tail.checked_add(1).expect("queue overflow"));
+    }
+
     /// Process queued withdrawals in deterministic FIFO order while liquidity allows.
     pub fn process_withdrawal_queue(env: Env, max_entries: u32) -> u32 {
         if max_entries == 0 {
@@ -2184,6 +2214,8 @@ impl YieldVault {
         let mut head = Self::withdrawal_queue_head(&env);
         let tail = Self::withdrawal_queue_tail(&env);
 
+        let vault_addr = env.current_contract_address();
+
         while head < tail && processed < max_entries {
             let key = DataKey::WithdrawalQueueEntry(head);
             let Some(entry) = env
@@ -2195,19 +2227,15 @@ impl YieldVault {
                 continue;
             };
 
-            let idle = env
-                .storage()
-                .instance()
-                .get::<_, i128>(&DataKey::TotalAssets)
-                .unwrap_or(0);
-            if idle < entry.assets {
+            let available = token_client.balance(&vault_addr);
+            if available < entry.assets {
                 break;
             }
 
-            token_client.transfer(&env.current_contract_address(), &entry.user, &entry.assets);
+            token_client.transfer(&vault_addr, &entry.user, &entry.assets);
             env.storage().instance().set(
                 &DataKey::TotalAssets,
-                &idle.checked_sub(entry.assets).expect("underflow"),
+                &available.checked_sub(entry.assets).expect("underflow"),
             );
             env.storage().instance().remove(&key);
             env.events().publish(
@@ -2294,17 +2322,38 @@ impl YieldVault {
     }
 
     /// Recall funds from the strategy.
+    ///
+    /// Withdraws up to `amount` based on the strategy's actual token balance and
+    /// credits only the tokens received by the vault.
     pub fn divest(env: Env, amount: i128) {
-        // Can be called by admin or internally by withdraw
+        if amount <= 0 {
+            return;
+        }
+
         let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
+        let token_addr = Self::token(env.clone());
+        let token_client = token::Client::new(&env, &token_addr);
 
-        strategy_client.withdraw(&amount);
+        let available = token_client.balance(&strategy_addr);
+        if available <= 0 {
+            return;
+        }
+        let to_withdraw = amount.min(available);
+
+        let vault_bal_before = token_client.balance(&env.current_contract_address());
+        strategy_client.withdraw(&to_withdraw);
+        let vault_bal_after = token_client.balance(&env.current_contract_address());
+        let withdrawn = vault_bal_after.checked_sub(vault_bal_before).unwrap_or(0);
+        if withdrawn <= 0 {
+            return;
+        }
+
         let current_watermark = Self::strategy_watermark(env.clone(), strategy_addr.clone());
-        if current_watermark > amount {
+        if current_watermark > withdrawn {
             env.storage().instance().set(
                 &DataKey::StrategyWatermark(strategy_addr.clone()),
-                &current_watermark.checked_sub(amount).expect("underflow"),
+                &current_watermark.checked_sub(withdrawn).expect("underflow"),
             );
         } else {
             env.storage()
@@ -2312,7 +2361,6 @@ impl YieldVault {
                 .set(&DataKey::StrategyWatermark(strategy_addr.clone()), &0i128);
         }
 
-        // The strategy contract should have transferred funds back to the vault
         let idle_ta = env
             .storage()
             .instance()
@@ -2320,7 +2368,7 @@ impl YieldVault {
             .unwrap_or(0);
         env.storage().instance().set(
             &DataKey::TotalAssets,
-            &idle_ta.checked_add(amount).expect("overflow"),
+            &idle_ta.checked_add(withdrawn).expect("overflow"),
         );
     }
 
@@ -2523,21 +2571,25 @@ impl YieldVault {
 
     fn assert_admin_param_interval(env: &Env) -> Result<(), VaultError> {
         let guard = Self::admin_param_guard(env);
+        if guard.admin_min_interval_secs == 0 {
+            return Ok(());
+        }
         let now = env.ledger().timestamp();
-        if guard.admin_last_change_ts > 0
-            && now
-                < guard
-                    .admin_last_change_ts
-                    .checked_add(guard.admin_min_interval_secs)
-                    .expect("overflow")
-        {
-            return Err(VaultError::AdminParamChangeTooSoon);
+        if guard.admin_param_recorded && guard.admin_min_interval_secs > 0 {
+            let next_allowed = guard
+                .admin_last_change_ts
+                .checked_add(guard.admin_min_interval_secs)
+                .expect("overflow");
+            if now < next_allowed {
+                return Err(VaultError::AdminParamChangeTooSoon);
+            }
         }
         Ok(())
     }
 
     fn record_admin_param_change(env: &Env) {
         let mut meta = Self::withdrawal_queue_meta(env);
+        meta.admin_param_recorded = true;
         meta.admin_last_change_ts = env.ledger().timestamp();
         Self::set_withdrawal_queue_meta(env, &meta);
     }
@@ -2551,14 +2603,10 @@ impl YieldVault {
     pub fn set_admin_param_change_interval(env: Env, seconds: u64) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        if seconds == 0 {
-            return Err(VaultError::InvalidAmount);
-        }
         Self::assert_admin_param_interval(&env)?;
         let mut meta = Self::withdrawal_queue_meta(&env);
         meta.admin_min_interval_secs = seconds;
         Self::set_withdrawal_queue_meta(&env, &meta);
-        Self::record_admin_param_change(&env);
         Ok(())
     }
 

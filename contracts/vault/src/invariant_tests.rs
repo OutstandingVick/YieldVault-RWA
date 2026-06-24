@@ -39,6 +39,7 @@ fn setup_vault(
     let vault_id = e.register(YieldVault, ());
     let vault = YieldVaultClient::new(e, &vault_id);
     vault.initialize(&admin, &usdc.address);
+    vault.set_admin_param_change_interval(&0);
 
     (vault, usdc, usdc_sa, admin)
 }
@@ -62,6 +63,7 @@ fn setup_vault_with_strategy(
     let vault_id = e.register(YieldVault, ());
     let vault = YieldVaultClient::new(e, &vault_id);
     vault.initialize(&admin, &usdc.address);
+    vault.set_admin_param_change_interval(&0);
 
     let strategy_id = e.register(BenjiStrategy, ());
     let strategy = BenjiStrategyClient::new(e, &strategy_id);
@@ -93,6 +95,7 @@ fn setup_vault_with_two_strategies(
     let vault_id = e.register(YieldVault, ());
     let vault = YieldVaultClient::new(e, &vault_id);
     vault.initialize(&admin, &usdc.address);
+    vault.set_admin_param_change_interval(&0);
 
     let strategy_a_id = e.register(BenjiStrategy, ());
     let strategy_a = BenjiStrategyClient::new(e, &strategy_a_id);
