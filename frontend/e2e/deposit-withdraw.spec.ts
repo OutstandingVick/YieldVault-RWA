@@ -17,15 +17,8 @@ const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 async function goToConnectedVault(page: Page) {
-  const balanceResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes('horizon-testnet.stellar.org/accounts/') &&
-      !response.url().includes('/operations') &&
-      response.ok(),
-  );
   await page.goto('/');
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
-  await balanceResponse;
   await waitForMockUsdcBalance(page);
 }
 

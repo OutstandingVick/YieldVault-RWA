@@ -192,112 +192,26 @@ async function fulfillHorizonRoute(route: import('@playwright/test').Route) {
 }
 
 export async function interceptApiRoutes(page: Page) {
-  await page.addInitScript(
-    ({ issuer, accountBodyTemplate, operationsBody }) => {
-      window.localStorage.setItem('hasSeenWalkthrough', 'true');
-
-      const buildAccountBody = (accountId: string) =>
-        accountBodyTemplate.replaceAll('__ACCOUNT_ID__', accountId);
-
-      const shouldMockHorizon = (url: string) =>
-        url.includes('horizon-testnet.stellar.org') || url.includes('horizon.stellar.org');
-
-      const isHorizonAccount = (url: string) =>
-        shouldMockHorizon(url) && url.includes('/accounts/') && !url.includes('/operations');
-
-      const isHorizonOperations = (url: string) =>
-        shouldMockHorizon(url) && url.includes('/operations');
-
-      const fulfillJson = (body: string) =>
-        new Response(body, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            Date: new Date().toUTCString(),
-          },
+  await page.addInitScript(() => {
+    window.localStorage.setItem('hasSeenWalkthrough', 'true');
+    // Match Cypress: skip service-worker registration so Playwright route mocks
+    // are not bypassed by cross-origin fetches issued from the SW context.
+    (window as Window & { Cypress?: boolean }).Cypress = true;
+    if ('serviceWorker' in navigator) {
+      void navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          void registration.unregister();
         });
+      });
+    }
+  });
 
-      const originalFetch = window.fetch.bind(window);
-      window.fetch = async (input, init) => {
-        const url =
-          typeof input === 'string'
-            ? input
-            : input instanceof URL
-              ? input.href
-              : input.url;
-
-        if (isHorizonOperations(url)) {
-          return fulfillJson(operationsBody);
-        }
-
-        if (isHorizonAccount(url)) {
-          const accountMatch = url.match(/\/accounts\/([^/?]+)/);
-          const accountId = accountMatch?.[1] ?? 'unknown';
-          return fulfillJson(buildAccountBody(accountId));
-        }
-
-        return originalFetch(input, init);
-      };
-
-      const OriginalXHR = window.XMLHttpRequest;
-      class HorizonMockXHR extends OriginalXHR {
-        private _requestUrl = '';
-
-        open(method: string, url: string | URL, ...rest: unknown[]) {
-          this._requestUrl = String(url);
-          return super.open(
-            method,
-            url,
-            ...(rest as [boolean, string | null | undefined]),
-          );
-        }
-
-        send(body?: Document | XMLHttpRequestBodyInit | null) {
-          if (isHorizonOperations(this._requestUrl)) {
-            queueMicrotask(() => {
-              Object.defineProperty(this, 'readyState', { configurable: true, value: 4 });
-              Object.defineProperty(this, 'status', { configurable: true, value: 200 });
-              Object.defineProperty(this, 'responseText', {
-                configurable: true,
-                value: operationsBody,
-              });
-              Object.defineProperty(this, 'response', { configurable: true, value: operationsBody });
-              this.dispatchEvent(new Event('readystatechange'));
-              this.dispatchEvent(new Event('load'));
-            });
-            return;
-          }
-
-          if (isHorizonAccount(this._requestUrl)) {
-            const accountMatch = this._requestUrl.match(/\/accounts\/([^/?]+)/);
-            const accountId = accountMatch?.[1] ?? 'unknown';
-            const responseBody = buildAccountBody(accountId);
-            queueMicrotask(() => {
-              Object.defineProperty(this, 'readyState', { configurable: true, value: 4 });
-              Object.defineProperty(this, 'status', { configurable: true, value: 200 });
-              Object.defineProperty(this, 'responseText', {
-                configurable: true,
-                value: responseBody,
-              });
-              Object.defineProperty(this, 'response', { configurable: true, value: responseBody });
-              this.dispatchEvent(new Event('readystatechange'));
-              this.dispatchEvent(new Event('load'));
-            });
-            return;
-          }
-
-          return super.send(body);
-        }
-      }
-
-      window.XMLHttpRequest = HorizonMockXHR as typeof XMLHttpRequest;
-      void issuer;
-    },
-    {
-      issuer: HORIZON_USDC_ISSUER,
-      accountBodyTemplate: buildHorizonAccountBody('__ACCOUNT_ID__'),
-      operationsBody: buildHorizonOperationsBody(),
-    },
+  await page.route('**/sw.js', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'disabled in e2e',
+    }),
   );
 
   await page.route('**/mock-api/vault-summary.json', (route) =>
