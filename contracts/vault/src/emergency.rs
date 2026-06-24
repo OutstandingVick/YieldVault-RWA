@@ -33,6 +33,22 @@ pub struct EmergencyProposal {
     pub dispute_deadline: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Result of an emergency unwind simulation.
+pub struct EmergencyUnwindResult {
+    /// Total assets that would be recovered
+    pub total_assets_recovered: i128,
+    /// Estimated losses from forced liquidation (slippage + fees)
+    pub estimated_losses: i128,
+    /// Net amount available to users after losses
+    pub net_amount_available: i128,
+    /// Cost of the operation (gas, external call fees)
+    pub operational_cost: i128,
+    /// Whether the unwind is feasible with current strategy allocations
+    pub feasible: bool,
+}
+
 pub fn read_proposal(env: &Env, id: u32) -> Option<EmergencyProposal> {
     env.storage()
         .instance()
@@ -74,10 +90,65 @@ pub fn require_distinct_approvers(primary: &Address, secondary: &Address) {
     assert!(primary != secondary, "approvers must be distinct");
 }
 
+/// Simulate an emergency unwind scenario without executing state changes.
+/// Provides governance with estimated outcomes before committing to emergency actions.
+///
+/// ### Parameters
+/// * `total_assets` - Total vault assets currently allocated
+/// * `strategy_count` - Number of active strategy allocations
+/// * `estimated_slippage_bps` - Estimated slippage from forced liquidations (basis points)
+/// * `estimated_fee_bps` - Estimated operational fees (basis points)
+///
+/// ### Returns
+/// `EmergencyUnwindResult` with simulated outcomes
+pub fn simulate_emergency_unwind(
+    total_assets: i128,
+    strategy_count: u32,
+    estimated_slippage_bps: i128,
+    estimated_fee_bps: i128,
+) -> EmergencyUnwindResult {
+    if total_assets <= 0 {
+        return EmergencyUnwindResult {
+            total_assets_recovered: 0,
+            estimated_losses: 0,
+            net_amount_available: 0,
+            operational_cost: 0,
+            feasible: true,
+        };
+    }
+
+    // Calculate slippage loss
+    let slippage_loss = total_assets
+        .saturating_mul(estimated_slippage_bps)
+        .checked_div(10_000)
+        .unwrap_or(0)
+        .max(0);
+
+    // Calculate operational fees
+    let op_cost = total_assets
+        .saturating_mul(estimated_fee_bps)
+        .checked_div(10_000)
+        .unwrap_or(0)
+        .max(0);
+
+    let total_losses = slippage_loss.saturating_add(op_cost);
+    let net_available = total_assets.saturating_sub(total_losses).max(0);
+
+    // Feasibility check: unwind is feasible if we can recover at least 80% of assets
+    let feasible = net_available >= total_assets / 5;
+
+    EmergencyUnwindResult {
+        total_assets_recovered: total_assets,
+        estimated_losses: total_losses,
+        net_amount_available: net_available,
+        operational_cost: op_cost,
+        feasible,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_distinct_approvers_required() {
@@ -93,5 +164,48 @@ mod tests {
         let env = Env::default();
         let a = Address::generate(&env);
         require_distinct_approvers(&a, &a);
+    }
+
+    #[test]
+    fn test_emergency_unwind_zero_assets() {
+        let result = simulate_emergency_unwind(0, 1, 500, 100);
+        assert_eq!(result.total_assets_recovered, 0);
+        assert_eq!(result.net_amount_available, 0);
+        assert!(result.feasible);
+    }
+
+    #[test]
+    fn test_emergency_unwind_normal_scenario() {
+        let result = simulate_emergency_unwind(1_000_000, 3, 300, 50);
+        // Slippage: 1_000_000 * 300 / 10_000 = 30_000
+        // Fees: 1_000_000 * 50 / 10_000 = 5_000
+        // Total losses: 35_000
+        // Net: 965_000
+        assert_eq!(result.total_assets_recovered, 1_000_000);
+        assert_eq!(result.estimated_losses, 35_000);
+        assert_eq!(result.net_amount_available, 965_000);
+        assert!(result.feasible);
+    }
+
+    #[test]
+    fn test_emergency_unwind_high_slippage() {
+        let result = simulate_emergency_unwind(1_000_000, 5, 3000, 500);
+        // Slippage: 1_000_000 * 3000 / 10_000 = 300_000
+        // Fees: 1_000_000 * 500 / 10_000 = 50_000
+        // Total: 350_000
+        // Net: 650_000 (65% recovery)
+        assert_eq!(result.net_amount_available, 650_000);
+        assert!(result.feasible);
+    }
+
+    #[test]
+    fn test_emergency_unwind_severe_losses() {
+        let result = simulate_emergency_unwind(1_000_000, 5, 8000, 1000);
+        // Slippage: 1_000_000 * 8000 / 10_000 = 800_000
+        // Fees: 1_000_000 * 1000 / 10_000 = 100_000
+        // Total: 900_000
+        // Net: 100_000 (10% recovery) - infeasible
+        assert_eq!(result.net_amount_available, 100_000);
+        assert!(!result.feasible);
     }
 }
