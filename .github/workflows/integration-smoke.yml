@@ -96,7 +96,7 @@ jobs:
 
       - name: Prepare backend database
         working-directory: backend
-        run: npx prisma generate && npx prisma migrate deploy
+        run: npx prisma generate
 
       - name: Start backend for smoke probes
         working-directory: backend
