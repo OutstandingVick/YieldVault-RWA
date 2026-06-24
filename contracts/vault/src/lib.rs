@@ -146,6 +146,15 @@ pub struct VaultState {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceConfig {
+    pub signers: Vec<Address>,
+    pub previous_signers: Vec<Address>,
+    pub threshold: u32,
+    pub migration_deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckpointTotals {
     pub total_shares: i128,
     pub total_assets: i128,
@@ -169,6 +178,7 @@ pub enum DataKey {
     State,
     DaoThreshold,
     ProposalNonce,
+    GovernanceConfig,
     BenjiStrategy,
     KoreanDebtStrategy,
     IsPaused,
@@ -1144,26 +1154,26 @@ impl YieldVault {
         }
 
         // Store previous signers for migration (if any exist)
-        if env.storage().instance().has(&DataKey::GovernanceSigners) {
-            let old_signers: Vec<Address> = env
-                .storage()
-                .instance()
-                .get(&DataKey::GovernanceSigners)
-                .unwrap();
-            env.storage()
-                .instance()
-                .set(&DataKey::GovernancePreviousSigners, &old_signers);
+        let mut config = env
+            .storage()
+            .instance()
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .unwrap_or(GovernanceConfig {
+                signers: Vec::new(&env),
+                previous_signers: Vec::new(&env),
+                threshold: 1,
+                migration_deadline: 0,
+            });
+        if !config.signers.is_empty() {
+            config.previous_signers = config.signers.clone();
         }
+        config.signers = signers;
+        config.threshold = threshold;
+        config.migration_deadline = migration_deadline;
 
         env.storage()
             .instance()
-            .set(&DataKey::GovernanceSigners, &signers);
-        env.storage()
-            .instance()
-            .set(&DataKey::GovernanceThreshold, &threshold);
-        env.storage()
-            .instance()
-            .set(&DataKey::GovernanceMigrationDeadline, &migration_deadline);
+            .set(&DataKey::GovernanceConfig, &config);
 
         env.events()
             .publish((symbol_short!("govset"),), (threshold, migration_deadline));
@@ -1171,14 +1181,18 @@ impl YieldVault {
 
     /// Get the active governance signer set.
     pub fn governance_signers(env: Env) -> Option<Vec<Address>> {
-        env.storage().instance().get(&DataKey::GovernanceSigners)
+        env.storage()
+            .instance()
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .map(|config| config.signers)
     }
 
     /// Get the required signature threshold for governance operations.
     pub fn governance_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
-            .get(&DataKey::GovernanceThreshold)
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .map(|config| config.threshold)
             .unwrap_or(1)
     }
 
@@ -1191,37 +1205,22 @@ impl YieldVault {
     /// ### Returns
     /// Ok if threshold is met, panics otherwise
     pub fn require_governance_threshold(env: Env, approvals: Vec<Address>) {
-        let signers: Vec<Address> = env
+        let config: GovernanceConfig = env
             .storage()
             .instance()
-            .get(&DataKey::GovernanceSigners)
+            .get(&DataKey::GovernanceConfig)
             .expect("governance signers not configured");
-        let threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::GovernanceThreshold)
-            .unwrap_or(1);
+        let signers = config.signers;
+        let threshold = config.threshold;
 
         let current_time = env.ledger().timestamp();
-        let migration_deadline: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::GovernanceMigrationDeadline)
-            .unwrap_or(0);
+        let migration_deadline = config.migration_deadline;
 
         // During migration, accept both old and new signer sets
-        let is_migration = current_time < migration_deadline
-            && env
-                .storage()
-                .instance()
-                .has(&DataKey::GovernancePreviousSigners);
+        let is_migration = current_time < migration_deadline && !config.previous_signers.is_empty();
 
         if is_migration {
-            let old_signers: Vec<Address> = env
-                .storage()
-                .instance()
-                .get(&DataKey::GovernancePreviousSigners)
-                .unwrap();
+            let old_signers = config.previous_signers;
 
             // Try new signer set first, then fall back to old set
             if permissions::MultiSignerValidator::verify_threshold(&signers, threshold, &approvals)
@@ -1250,12 +1249,17 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        env.storage()
+        if let Some(mut config) = env
+            .storage()
             .instance()
-            .remove(&DataKey::GovernancePreviousSigners);
-        env.storage()
-            .instance()
-            .remove(&DataKey::GovernanceMigrationDeadline);
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+        {
+            config.previous_signers = Vec::new(&env);
+            config.migration_deadline = 0;
+            env.storage()
+                .instance()
+                .set(&DataKey::GovernanceConfig, &config);
+        }
 
         env.events().publish((symbol_short!("govfin"),), ());
     }
