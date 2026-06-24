@@ -11,7 +11,7 @@ import {
   stubFreighterManualConnect,
   waitForMockUsdcBalance,
   fillDepositAmount,
-  approveUsdcIfNeeded,
+  completeVaultReviewStep,
 } from './fixtures';
 
 const MOCK_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -34,15 +34,7 @@ test.describe('Deposit flow (e2e)', () => {
     await waitForMockUsdcBalance(page);
 
     const { amountInput, reviewBtn } = await fillDepositAmount(page, '100');
-    await reviewBtn.click();
-
-    await expect(page.getByText('Confirm Transaction')).toBeVisible();
-    await approveUsdcIfNeeded(page);
-    const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
-    await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
-    await confirmBtn.click();
-
-    await expect(page.getByText('Transaction Successful')).toBeVisible({ timeout: 15_000 });
+    await completeVaultReviewStep(page, 'deposit');
 
     await page.getByRole('button', { name: /Done/i }).click();
     await expect(reviewBtn).toBeVisible();

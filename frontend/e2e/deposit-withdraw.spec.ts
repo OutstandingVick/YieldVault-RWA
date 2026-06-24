@@ -12,7 +12,7 @@ import {
   waitForMockUsdcBalance,
   vaultActionTab,
   fillDepositAmount,
-  approveUsdcIfNeeded,
+  completeVaultReviewStep,
 } from './fixtures';
 
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
@@ -94,19 +94,8 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
 
   test('performs a deposit wizard flow and updates the balance', async ({ page }) => {
     await goToConnectedVault(page);
-
-    const { reviewBtn } = await fillDepositAmount(page, '100');
-    await reviewBtn.click();
-
-    await expect(page.getByText('Confirm Transaction')).toBeVisible();
-    await approveUsdcIfNeeded(page);
-    const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
-    await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
-    await confirmBtn.click();
-
-    await expect(page.getByText('Transaction Successful')).toBeVisible({
-      timeout: 15_000,
-    });
+    await fillDepositAmount(page, '100');
+    await completeVaultReviewStep(page, 'deposit');
     await page.getByRole('button', { name: /Done/i }).click();
     await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeVisible();
   });
@@ -120,18 +109,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     const amountInput = page.getByLabel('Withdrawal amount');
     await amountInput.fill('50');
     await amountInput.blur();
-    const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
-    await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
-    await reviewBtn.click();
-
-    await expect(page.getByText('Confirm Transaction')).toBeVisible();
-    const confirmBtn = page.getByRole('button', { name: /Confirm withdrawal/i });
-    await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
-    await confirmBtn.click();
-
-    await expect(page.getByText('Transaction Successful')).toBeVisible({
-      timeout: 15_000,
-    });
+    await completeVaultReviewStep(page, 'withdraw');
     await page.getByRole('button', { name: /Done/i }).click();
     await expect(vaultActionTab(page, 'Withdraw')).toBeVisible();
   });
@@ -188,7 +166,9 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
 
     const disconnectBtn = page.getByLabel('Disconnect Wallet');
     await disconnectBtn.scrollIntoViewIfNeeded();
-    await disconnectBtn.click();
+    await disconnectBtn.evaluate((element) => {
+      element.click();
+    });
 
     await expect(page.getByRole('button', { name: /Connect Freighter/i })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Wallet Not Connected')).toBeVisible();

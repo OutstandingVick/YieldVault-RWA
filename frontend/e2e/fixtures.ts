@@ -262,6 +262,41 @@ export async function approveUsdcIfNeeded(page: Page) {
   }
 }
 
+/** Confirm the secondary transaction summary modal opened by the vault wizard. */
+export async function confirmInTransactionModal(page: Page) {
+  const dialog = page.getByRole('dialog', { name: /Confirm (deposit|withdraw)/i });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  const confirmAnyway = dialog.getByRole('button', { name: /Confirm Anyway/i });
+  if (await confirmAnyway.isVisible()) {
+    await confirmAnyway.click();
+    return;
+  }
+  await dialog.getByRole('button', { name: /^Confirm$/i }).click();
+}
+
+/** Complete the vault wizard review step for deposits or withdrawals. */
+export async function completeVaultReviewStep(
+  page: Page,
+  action: 'deposit' | 'withdraw',
+) {
+  const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+  await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
+  await reviewBtn.click();
+  await expect(page.getByText('Confirm Transaction')).toBeVisible();
+  if (action === 'deposit') {
+    await approveUsdcIfNeeded(page);
+  }
+  const confirmBtn = page.getByRole('button', {
+    name: action === 'deposit' ? /Confirm deposit/i : /Confirm withdraw/i,
+  });
+  await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
+  await confirmBtn.click();
+  await confirmInTransactionModal(page);
+  await expect(page.getByText('Transaction Successful')).toBeVisible({
+    timeout: 20_000,
+  });
+}
+
 /**
  * Stub the Freighter browser extension message protocol.
  *

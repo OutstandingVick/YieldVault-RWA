@@ -822,6 +822,8 @@ describe("TransactionHistory — detail drawer", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     mockNetworkConfig.isTestnet = true;
     localStorage.clear();
+    localStorage.setItem(`yieldvault:transactions:view-mode:${WALLET}`, "paginated");
+    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "10");
   });
 
   afterEach(() => {
@@ -879,9 +881,10 @@ describe("TransactionHistory — detail drawer", () => {
     renderPage(WALLET);
 
     const table = await screen.findByRole("table");
-    fireEvent.click(
-      within(table).getByRole("button", { name: /View row details/i }),
-    );
+    const row = await within(table).findByRole("button", {
+      name: /View row details/i,
+    });
+    fireEvent.click(row);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
