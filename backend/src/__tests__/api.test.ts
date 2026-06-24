@@ -187,7 +187,7 @@ describe('Backend API', () => {
         .send({
           amount: '100',
           asset: 'USDC',
-          walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567',
+          walletAddress: 'G234567ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQ',
           email: 'user@example.com',
         });
 

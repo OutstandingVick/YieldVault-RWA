@@ -149,6 +149,8 @@ import {
 } from './bulkExportJobs';
 import { normalizeWalletAddress } from './walletUtils';
 import { emailQueueService } from './emailQueue';
+import { webhookDeduplicationStore } from './webhookDeduplication';
+import { requestIdStorage } from './requestContext';
 
 declare global {
   namespace Express {
@@ -3156,7 +3158,250 @@ app.get('/admin/idempotency/metrics', validateApiKey, (_req: Request, res: Respo
   });
 });
 
-// ─── Vault Metrics Poll Cycle ────────────────────────────────────────────────
+// ─── Webhook Deduplication Admin Endpoints (Issue #710) ──────────────────────
+
+/**
+ * GET /admin/webhooks/deduplication/metrics
+ * Returns observability counters for the webhook replay-safe deduplication store.
+ * Requires API key authentication.
+ */
+app.get('/admin/webhooks/deduplication/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/webhooks/deduplication/entries
+ * Lists active event fingerprints held in the deduplication store.
+ * Optional ?prefix=<string> filters by event id prefix.
+ * Requires API key authentication.
+ */
+app.get('/admin/webhooks/deduplication/entries', validateApiKey, (req: Request, res: Response) => {
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : undefined;
+  const entries = webhookDeduplicationStore.inspect(prefix);
+  res.status(200).json({
+    entries,
+    count: entries.length,
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/deduplication/:eventId
+ * Removes a single event fingerprint from the deduplication store.
+ * Requires API key authentication.
+ */
+app.delete('/admin/webhooks/deduplication/:eventId', validateApiKey, (req: Request, res: Response) => {
+  const eventId = decodeURIComponent(req.params.eventId);
+
+  if (isDryRunRequest(req)) {
+    const exists = webhookDeduplicationStore.has(eventId);
+    res.status(exists ? 200 : 404).json({
+      dryRun: true,
+      message: exists
+        ? `Deduplication entry '${eventId}' would be removed`
+        : `Deduplication entry '${eventId}' not found`,
+      eventId,
+      wouldDelete: exists,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const removed = webhookDeduplicationStore.remove(eventId);
+  if (!removed) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: `Deduplication entry '${eventId}' not found`,
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'webhook.dedup.entry.removed', 200, { eventId });
+
+  res.status(200).json({
+    message: `Deduplication entry '${eventId}' removed`,
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/deduplication
+ * Flushes the entire webhook deduplication store.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/webhooks/deduplication', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to flush the webhook deduplication store',
+    });
+    return;
+  }
+
+  const metrics = webhookDeduplicationStore.getMetrics();
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: 'Webhook deduplication store flush dry-run preview',
+      wouldFlush: true,
+      activeFingerprints: metrics.activeFingerprints,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  webhookDeduplicationStore.flush();
+
+  void recordAdminAuditLog(req, 'webhook.dedup.store.flushed', 200, {
+    flushedCount: metrics.activeFingerprints,
+  });
+
+  res.status(200).json({
+    message: 'Webhook deduplication store flushed',
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Wallet Activity Heatmap Endpoint (Issue #712) ───────────────────────────
+
+/**
+ * GET /admin/analytics/wallet-activity/heatmap
+ *
+ * Returns aggregated wallet activity counts bucketed by calendar date for use
+ * in admin analytics dashboards.  Raw wallet records are never exposed; only
+ * the per-bucket counts and the summary statistics are returned.
+ *
+ * Query parameters:
+ *   from        ISO-8601 date or datetime (inclusive).  Defaults to 30 days ago.
+ *   to          ISO-8601 date or datetime (inclusive).  Defaults to today.
+ *   granularity day | week | month.  Defaults to day.
+ *   walletAddress  Optional address to scope results to a single wallet.
+ *
+ * Requires API key authentication.
+ */
+app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: Request, res: Response) => {
+  const granularity =
+    req.query.granularity === 'week' || req.query.granularity === 'month'
+      ? (req.query.granularity as 'week' | 'month')
+      : 'day';
+
+  let rangeStart: string;
+  let rangeEnd: string;
+
+  try {
+    const parsed = parseUtcDateRange({
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    });
+    const defaultStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const defaultEnd = new Date().toISOString().slice(0, 10);
+    rangeStart = parsed.start ?? defaultStart;
+    rangeEnd = parsed.end ?? defaultEnd;
+  } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(error.status).json({
+        error: 'Bad Request',
+        status: error.status,
+        message: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to parse date range',
+    });
+    return;
+  }
+
+  const walletAddress =
+    typeof req.query.walletAddress === 'string' && req.query.walletAddress.trim()
+      ? normalizeWalletAddress(req.query.walletAddress.trim())
+      : undefined;
+
+  try {
+    const where: Record<string, unknown> = {
+      timestamp: {
+        gte: new Date(rangeStart + 'T00:00:00.000Z'),
+        lte: new Date(rangeEnd + 'T23:59:59.999Z'),
+      },
+    };
+
+    if (walletAddress) {
+      where.user = walletAddress;
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: where as any,
+      select: { timestamp: true },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    function bucketKey(date: Date, g: 'day' | 'week' | 'month'): string {
+      const y = date.getUTCFullYear();
+      const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(date.getUTCDate()).padStart(2, '0');
+      if (g === 'month') return `${y}-${m}`;
+      if (g === 'week') {
+        const dayOfWeek = date.getUTCDay();
+        const mondayOffset = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek) * 86400000;
+        const monday = new Date(date.getTime() + mondayOffset);
+        const wy = monday.getUTCFullYear();
+        const wm = String(monday.getUTCMonth() + 1).padStart(2, '0');
+        const wd = String(monday.getUTCDate()).padStart(2, '0');
+        return `${wy}-${wm}-${wd}`;
+      }
+      return `${y}-${m}-${d}`;
+    }
+
+    const buckets = new Map<string, number>();
+    for (const tx of transactions) {
+      const key = bucketKey(new Date(tx.timestamp), granularity);
+      buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    }
+
+    const heatmap = Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([bucket, count]) => ({ bucket, count }));
+
+    const totalActivity = heatmap.reduce((sum, b) => sum + b.count, 0);
+    const peakBucket = heatmap.reduce(
+      (max, b) => (b.count > (max?.count ?? -1) ? b : max),
+      null as { bucket: string; count: number } | null,
+    );
+
+    res.status(200).json({
+      heatmap,
+      summary: {
+        totalActivity,
+        bucketCount: heatmap.length,
+        granularity,
+        rangeStart,
+        rangeEnd,
+        walletAddress: walletAddress ?? null,
+        peakBucket: peakBucket ?? null,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to aggregate wallet activity',
+    });
+  }
+});
+
+
 
 /**
  * Mock vault metrics poll cycle
