@@ -217,8 +217,6 @@ impl SecureWhitelist {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_whitelist_documentation_exists() {
         // This test documents that the whitelist module is implemented

@@ -237,7 +237,7 @@ fn test_invariant_suite_invest_divest_preserves_accounting() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _, usdc_sa, strategy, _admin, vault_id) = setup_vault_with_strategy(&env);
+    let (vault, _, usdc_sa, _strategy, _admin, _vault_id) = setup_vault_with_strategy(&env);
     let user = Address::generate(&env);
     let users = [user.clone()];
 
@@ -298,7 +298,7 @@ fn test_invariant_suite_full_flow_deposit_invest_rebalance_withdraw_yield() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _, usdc_sa, strategy_a, strategy_b, admin, vault_id) =
+    let (vault, _, usdc_sa, strategy_a, strategy_b, admin, _vault_id) =
         setup_vault_with_two_strategies(&env);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
@@ -338,7 +338,7 @@ fn test_invariant_suite_multi_user_after_strategy_liquidity_moves() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _, usdc_sa, strategy, admin, _vault_id) = setup_vault_with_strategy(&env);
+    let (vault, _, usdc_sa, _strategy, admin, _vault_id) = setup_vault_with_strategy(&env);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
     let user_c = Address::generate(&env);
@@ -376,7 +376,7 @@ fn test_invariant_suite_full_exit_zeroes_accounting_after_strategy_ops() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _, usdc_sa, strategy, admin, vault_id) = setup_vault_with_strategy(&env);
+    let (vault, _, usdc_sa, _strategy, admin, _vault_id) = setup_vault_with_strategy(&env);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
     let users = [user_a.clone(), user_b.clone()];

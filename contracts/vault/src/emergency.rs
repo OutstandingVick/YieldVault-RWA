@@ -105,7 +105,7 @@ pub fn require_distinct_approvers(primary: &Address, secondary: &Address) {
 /// `EmergencyUnwindResult` with simulated outcomes
 pub fn simulate_emergency_unwind(
     total_assets: i128,
-    strategy_count: u32,
+    _strategy_count: u32,
     estimated_slippage_bps: i128,
     estimated_fee_bps: i128,
 ) -> EmergencyUnwindResult {

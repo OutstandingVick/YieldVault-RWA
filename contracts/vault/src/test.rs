@@ -1760,7 +1760,7 @@ fn test_batch_deposit_share_price_consistency_after_yield() {
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
 
-    let (vault, usdc, usdc_sa, admin, relayer) = setup_vault_with_relayer(
+    let (vault, _usdc, usdc_sa, admin, relayer) = setup_vault_with_relayer(
         &env,
         &[
             (seed_user.clone(), 1000),
@@ -1898,7 +1898,7 @@ fn test_whitelist_strategy_add_and_check() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (vault, _, _, admin) = setup_vault(&env);
+    let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
 
     // Initially, strategy should not be whitelisted
@@ -1917,7 +1917,7 @@ fn test_whitelist_strategy_remove() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (vault, _, _, admin) = setup_vault(&env);
+    let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
 
     // Add strategy to whitelist
@@ -2080,11 +2080,11 @@ fn test_whitelist_consistency_with_set_strategy() {
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let benji_strategy = env.register(BenjiStrategy, ());
-    let benji = BenjiStrategyClient::new(&env, &benji_strategy);
+    let _benji = BenjiStrategyClient::new(&env, &benji_strategy);
 
     // Setup BENJI (simplistic - normally would do more setup)
     let token_admin = Address::generate(&env);
-    let benji_token = create_token(&env, &token_admin);
+    let _benji_token = create_token(&env, &token_admin);
 
     // Whitelist the strategy
     vault.whitelist_strategy(&benji_strategy, &true);
@@ -2204,7 +2204,7 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _usdc, _usdc_sa, admin) = setup_vault(&env);
+    let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
     vault.set_admin_param_change_interval(&60);
     vault.set_fee_bps(&100);
 
