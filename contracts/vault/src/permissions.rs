@@ -43,7 +43,7 @@ pub struct MultiSignerValidator;
 
 impl MultiSignerValidator {
     /// Verify that threshold signatures are satisfied.
-    /// 
+    ///
     /// ### Parameters
     /// * `signers` - Set of authorized signers for this operation
     /// * `threshold` - Number of required signatures (M of N)
@@ -59,10 +59,10 @@ impl MultiSignerValidator {
         if threshold == 0 {
             return Err("threshold must be > 0");
         }
-        if threshold as usize > signers.len() {
+        if threshold > signers.len() {
             return Err("threshold exceeds signer set size");
         }
-        if approvals.len() < threshold as usize {
+        if approvals.len() < threshold {
             return Err("insufficient approvals");
         }
 
@@ -92,6 +92,7 @@ impl MultiSignerValidator {
 mod tests {
 
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_permission_matrix_documentation_exists() {
@@ -102,11 +103,14 @@ mod tests {
     #[test]
     fn test_threshold_valid_approvals() {
         let env = soroban_sdk::Env::default();
-        let signers = Vec::from_array(&env, [
-            Address::generate(&env),
-            Address::generate(&env),
-            Address::generate(&env),
-        ]);
+        let signers = Vec::from_array(
+            &env,
+            [
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+            ],
+        );
         let approvals = Vec::from_array(&env, [signers.get(0).unwrap(), signers.get(1).unwrap()]);
         assert!(MultiSignerValidator::verify_threshold(&signers, 2, &approvals).is_ok());
     }
@@ -114,10 +118,7 @@ mod tests {
     #[test]
     fn test_threshold_insufficient_approvals() {
         let env = soroban_sdk::Env::default();
-        let signers = Vec::from_array(&env, [
-            Address::generate(&env),
-            Address::generate(&env),
-        ]);
+        let signers = Vec::from_array(&env, [Address::generate(&env), Address::generate(&env)]);
         let approvals = Vec::from_array(&env, [signers.get(0).unwrap()]);
         assert!(MultiSignerValidator::verify_threshold(&signers, 2, &approvals).is_err());
     }

@@ -20,6 +20,8 @@
 //!     multi-status isolation, pagination edge cases
 //! 10. invariants          – share/asset accounting never drifts across multi-user
 //!     deposit/withdraw/yield sequences; full exit zeroes state
+//! 11. invariant suite     – centralized helpers + deposit/withdraw/invest/divest/rebalance
+//!     scenarios (see `invariant_tests.rs`, Issue #735)
 
 #![cfg(test)]
 
@@ -1066,8 +1068,8 @@ fn test_invariant_share_price_monotonic_after_accrue_yield() {
     vault.deposit(&user, &500);
     let price_before = vault.share_price();
 
-    vault.set_fee_bps(&admin, &1_000);
-    vault.accrue_yield(&100).unwrap();
+    vault.set_fee_bps(&1_000);
+    vault.accrue_yield(&100);
 
     let price_after = vault.share_price();
     assert!(price_after >= price_before);
@@ -1086,10 +1088,10 @@ fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &500);
-    vault.set_fee_bps(&admin, &10_000);
+    vault.set_fee_bps(&10_000);
 
     let price_before = vault.share_price();
-    vault.accrue_yield(&100).unwrap();
+    vault.accrue_yield(&100);
     let price_after = vault.share_price();
 
     assert_eq!(price_after, price_before);
@@ -1109,16 +1111,16 @@ fn test_invariant_share_price_full_exit_and_redeposit_resets_to_one() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &1_000);
-    vault.accrue_yield(&200).unwrap();
+    vault.accrue_yield(&200);
 
     let shares = vault.balance(&user);
-    let withdrawn = vault.withdraw(&user, &shares).unwrap();
+    let withdrawn = vault.withdraw(&user, &shares);
     assert_eq!(withdrawn, 1_200);
     assert_eq!(vault.total_shares(), 0);
     assert_eq!(vault.total_assets(), 0);
     assert_eq!(vault.share_price(), 0);
 
-    vault.deposit(&user, &1_200).unwrap();
+    vault.deposit(&user, &1_200);
     assert_eq!(vault.share_price(), SHARE_PRICE_SCALE);
 }
 
@@ -1485,13 +1487,13 @@ fn test_withdrawal_cooldown_then_timelock_then_execute() {
 // ─── 11. batch_deposit ────────────────────────────────────────────────────────
 
 /// Helper: set up a vault with a registered relayer and mint USDC to `users`.
-fn setup_vault_with_relayer(
-    env: &Env,
+fn setup_vault_with_relayer<'a>(
+    env: &'a Env,
     user_amounts: &[(Address, i128)],
 ) -> (
-    YieldVaultClient<'_>,
-    token::Client<'_>,
-    token::StellarAssetClient<'_>,
+    YieldVaultClient<'a>,
+    token::Client<'a>,
+    token::StellarAssetClient<'a>,
     Address, // admin
     Address, // relayer
 ) {
@@ -1958,27 +1960,27 @@ fn test_whitelist_toggle_multiple_strategies() {
 }
 
 #[test]
+#[should_panic(expected = "strategy not whitelisted")]
 fn test_set_strategy_requires_whitelisted_strategy() {
-    // Test that set_strategy only accepts whitelisted strategies
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+    vault.set_strategy(&strategy);
+}
+
+#[test]
+fn test_set_strategy_accepts_whitelisted_strategy() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
 
-    // Try to set non-whitelisted strategy should panic
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        vault.set_strategy(&strategy);
-    }));
-
-    // Should fail because strategy is not whitelisted
-    assert!(result.is_err() || vault.strategy().is_none());
-
-    // Now whitelist the strategy
     vault.whitelist_strategy(&strategy, &true);
-
-    // set_strategy should now succeed (though it might fail for other reasons like strategy init)
-    // The key test is that it doesn't panic with "strategy not whitelisted"
+    vault.set_strategy(&strategy);
+    assert_eq!(vault.strategy().unwrap(), strategy);
 }
 
 #[test]
@@ -2144,7 +2146,7 @@ fn test_withdrawal_queue_processes_fifo_when_liquidity_returns() {
 
     vault.deposit(&user_a, &500);
     vault.deposit(&user_b, &500);
-    vault.invest(&980).unwrap();
+    vault.invest(&980);
 
     let result_a = vault.try_withdraw(&user_a, &200);
     assert_eq!(result_a, Err(Ok(VaultError::WithdrawalQueued)));
@@ -2177,7 +2179,7 @@ fn test_withdrawal_queue_stops_when_liquidity_insufficient_for_head() {
     usdc_sa.mint(&user_b, &2_000);
     vault.deposit(&user_a, &1_000);
     vault.deposit(&user_b, &1_000);
-    vault.invest(&1_950).unwrap();
+    vault.invest(&1_950);
 
     assert_eq!(
         vault.try_withdraw(&user_a, &500),
@@ -2203,8 +2205,8 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
     env.mock_all_auths_allowing_non_root_auth();
 
     let (vault, _usdc, _usdc_sa, admin) = setup_vault(&env);
-    vault.set_admin_param_change_interval(&60).unwrap();
-    vault.set_fee_bps(&100).unwrap();
+    vault.set_admin_param_change_interval(&60);
+    vault.set_fee_bps(&100);
 
     let second = vault.try_set_fee_bps(&200);
     assert_eq!(second, Err(Ok(VaultError::AdminParamChangeTooSoon)));
@@ -2213,7 +2215,7 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
         li.timestamp += 61;
     });
 
-    vault.set_fee_bps(&200).unwrap();
+    vault.set_fee_bps(&200);
     assert_eq!(vault.fee_bps(), 200);
 }
 
@@ -2223,8 +2225,8 @@ fn test_admin_param_change_interval_applies_across_setters() {
     env.mock_all_auths_allowing_non_root_auth();
 
     let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
-    vault.set_admin_param_change_interval(&120).unwrap();
-    vault.set_min_deposit(&10).unwrap();
+    vault.set_admin_param_change_interval(&120);
+    vault.set_min_deposit(&10);
 
     let blocked = vault.try_set_dao_threshold(&5);
     assert_eq!(blocked, Err(Ok(VaultError::AdminParamChangeTooSoon)));

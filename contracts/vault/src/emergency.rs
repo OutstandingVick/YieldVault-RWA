@@ -77,13 +77,15 @@ pub fn next_proposal_id(env: &Env) -> u32 {
 pub fn primary_approver(env: &Env) -> Option<Address> {
     env.storage()
         .instance()
-        .get(&crate::DataKey::EmergencyApproverPrimary)
+        .get::<_, crate::EmergencyApprovers>(&crate::DataKey::EmergencyApprovers)
+        .map(|approvers| approvers.primary)
 }
 
 pub fn secondary_approver(env: &Env) -> Option<Address> {
     env.storage()
         .instance()
-        .get(&crate::DataKey::EmergencyApproverSecondary)
+        .get::<_, crate::EmergencyApprovers>(&crate::DataKey::EmergencyApprovers)
+        .map(|approvers| approvers.secondary)
 }
 
 pub fn require_distinct_approvers(primary: &Address, secondary: &Address) {
@@ -149,6 +151,7 @@ pub fn simulate_emergency_unwind(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_distinct_approvers_required() {

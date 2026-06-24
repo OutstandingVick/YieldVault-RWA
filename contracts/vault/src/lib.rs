@@ -63,6 +63,8 @@ mod feature_tests;
 pub mod fee_math;
 #[cfg(test)]
 mod fuzz_math;
+#[cfg(test)]
+mod invariant_tests;
 pub mod math;
 #[cfg(test)]
 mod oracle_tests;
@@ -144,6 +146,29 @@ pub struct VaultState {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyApprovers {
+    pub primary: Address,
+    pub secondary: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckpointTotals {
+    pub total_shares: i128,
+    pub total_assets: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceConfig {
+    pub signers: Vec<Address>,
+    pub previous_signers: Vec<Address>,
+    pub threshold: u32,
+    pub migration_deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     TokenAsset,
     TotalShares,
@@ -155,10 +180,8 @@ pub enum DataKey {
     ProposalNonce,
     BenjiStrategy,
     KoreanDebtStrategy,
-    IsPaused,
     PauseReason,
-    EmergencyApproverPrimary,
-    EmergencyApproverSecondary,
+    EmergencyApprovers,
     EmergencyProposalNonce,
     EmergencyProposal(u32),
     Proposal(u32),
@@ -193,8 +216,7 @@ pub enum DataKey {
     WithdrawalCooldown,
     LastDepositTime(Address),
     CheckpointNonce,
-    CheckpointTotalShares(u32),
-    CheckpointTotalAssets(u32),
+    CheckpointTotals(u32),
     UserCheckpoint(Address),
     UserBalanceAt(Address, u32),
     // Relayer batch-deposit whitelist
@@ -208,6 +230,7 @@ pub enum DataKey {
     // FIFO withdrawal queue + admin param guard metadata
     WithdrawalQueueMeta,
     WithdrawalQueueEntry(u64),
+    GovernanceConfig,
 }
 
 #[contracttype]
@@ -604,12 +627,10 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         emergency::require_distinct_approvers(&primary, &secondary);
-        env.storage()
-            .instance()
-            .set(&DataKey::EmergencyApproverPrimary, &primary);
-        env.storage()
-            .instance()
-            .set(&DataKey::EmergencyApproverSecondary, &secondary);
+        env.storage().instance().set(
+            &DataKey::EmergencyApprovers,
+            &EmergencyApprovers { primary, secondary },
+        );
     }
 
     pub fn emergency_approver_primary(env: Env) -> Option<Address> {
@@ -801,7 +822,7 @@ impl YieldVault {
         let state = Self::get_state(&env);
         let total_assets = state.total_assets;
         let strategy_count = 2u32; // BENJI + Korean Debt are the standard active strategies
-        
+
         emergency::simulate_emergency_unwind(
             total_assets,
             strategy_count,
@@ -939,12 +960,11 @@ impl YieldVault {
             .instance()
             .set(&DataKey::CheckpointNonce, &next_checkpoint);
         env.storage().instance().set(
-            &DataKey::CheckpointTotalShares(next_checkpoint),
-            &state.total_shares,
-        );
-        env.storage().instance().set(
-            &DataKey::CheckpointTotalAssets(next_checkpoint),
-            &state.total_assets,
+            &DataKey::CheckpointTotals(next_checkpoint),
+            &CheckpointTotals {
+                total_shares: state.total_shares,
+                total_assets: state.total_assets,
+            },
         );
         env.events()
             .publish((symbol_short!("chkpoint"),), (next_checkpoint,));
@@ -954,14 +974,16 @@ impl YieldVault {
     pub fn total_shares_at(env: Env, checkpoint_id: u32) -> i128 {
         env.storage()
             .instance()
-            .get(&DataKey::CheckpointTotalShares(checkpoint_id))
+            .get::<_, CheckpointTotals>(&DataKey::CheckpointTotals(checkpoint_id))
+            .map(|totals| totals.total_shares)
             .unwrap_or(0)
     }
 
     pub fn total_assets_at(env: Env, checkpoint_id: u32) -> i128 {
         env.storage()
             .instance()
-            .get(&DataKey::CheckpointTotalAssets(checkpoint_id))
+            .get::<_, CheckpointTotals>(&DataKey::CheckpointTotals(checkpoint_id))
+            .map(|totals| totals.total_assets)
             .unwrap_or(0)
     }
 
@@ -1065,31 +1087,29 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold as usize > signers.len() {
+        if threshold == 0 || threshold > signers.len() {
             panic!("invalid threshold: must be > 0 and <= signer set size");
         }
 
         // Store previous signers for migration (if any exist)
-        if env.storage().instance().has(&DataKey::GovernanceSigners) {
-            let old_signers: Vec<Address> = env
-                .storage()
-                .instance()
-                .get(&DataKey::GovernanceSigners)
-                .unwrap();
-            env.storage()
-                .instance()
-                .set(&DataKey::GovernancePreviousSigners, &old_signers);
+        let mut previous_signers = Vec::new(&env);
+        if let Some(existing) = env
+            .storage()
+            .instance()
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+        {
+            previous_signers = existing.signers;
         }
 
+        let config = GovernanceConfig {
+            signers,
+            previous_signers,
+            threshold,
+            migration_deadline,
+        };
         env.storage()
             .instance()
-            .set(&DataKey::GovernanceSigners, &signers);
-        env.storage()
-            .instance()
-            .set(&DataKey::GovernanceThreshold, &threshold);
-        env.storage()
-            .instance()
-            .set(&DataKey::GovernanceMigrationDeadline, &migration_deadline);
+            .set(&DataKey::GovernanceConfig, &config);
 
         env.events()
             .publish((symbol_short!("govset"),), (threshold, migration_deadline));
@@ -1097,14 +1117,18 @@ impl YieldVault {
 
     /// Get the active governance signer set.
     pub fn governance_signers(env: Env) -> Option<Vec<Address>> {
-        env.storage().instance().get(&DataKey::GovernanceSigners)
+        env.storage()
+            .instance()
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .map(|config| config.signers)
     }
 
     /// Get the required signature threshold for governance operations.
     pub fn governance_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
-            .get(&DataKey::GovernanceThreshold)
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .map(|config| config.threshold)
             .unwrap_or(1)
     }
 
@@ -1117,34 +1141,22 @@ impl YieldVault {
     /// ### Returns
     /// Ok if threshold is met, panics otherwise
     pub fn require_governance_threshold(env: Env, approvals: Vec<Address>) {
-        let signers: Vec<Address> = env
+        let config: GovernanceConfig = env
             .storage()
             .instance()
-            .get(&DataKey::GovernanceSigners)
+            .get(&DataKey::GovernanceConfig)
             .expect("governance signers not configured");
-        let threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::GovernanceThreshold)
-            .unwrap_or(1);
+        let signers = config.signers;
+        let threshold = config.threshold;
 
         let current_time = env.ledger().timestamp();
-        let migration_deadline: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::GovernanceMigrationDeadline)
-            .unwrap_or(0);
+        let migration_deadline = config.migration_deadline;
 
         // During migration, accept both old and new signer sets
-        let is_migration = current_time < migration_deadline
-            && env.storage().instance().has(&DataKey::GovernancePreviousSigners);
+        let is_migration = current_time < migration_deadline && !config.previous_signers.is_empty();
 
         if is_migration {
-            let old_signers: Vec<Address> = env
-                .storage()
-                .instance()
-                .get(&DataKey::GovernancePreviousSigners)
-                .unwrap();
+            let old_signers = config.previous_signers;
 
             // Try new signer set first, then fall back to old set
             if permissions::MultiSignerValidator::verify_threshold(&signers, threshold, &approvals)
@@ -1152,8 +1164,12 @@ impl YieldVault {
             {
                 return;
             }
-            if permissions::MultiSignerValidator::verify_threshold(&old_signers, threshold, &approvals)
-                .is_ok()
+            if permissions::MultiSignerValidator::verify_threshold(
+                &old_signers,
+                threshold,
+                &approvals,
+            )
+            .is_ok()
             {
                 return;
             }
@@ -1169,12 +1185,17 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        env.storage()
+        if let Some(mut config) = env
+            .storage()
             .instance()
-            .remove(&DataKey::GovernancePreviousSigners);
-        env.storage()
-            .instance()
-            .remove(&DataKey::GovernanceMigrationDeadline);
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+        {
+            config.previous_signers = Vec::new(&env);
+            config.migration_deadline = 0;
+            env.storage()
+                .instance()
+                .set(&DataKey::GovernanceConfig, &config);
+        }
 
         env.events().publish((symbol_short!("govfin"),), ());
     }
@@ -2431,10 +2452,10 @@ impl YieldVault {
                     .instance()
                     .get(&DataKey::TreasuryRolloverExcess)
                     .unwrap_or(0);
-                let available_capacity = fee_math::MAX_TREASURY_ACCUMULATOR
-                    .saturating_sub(treasury_bal);
+                let available_capacity =
+                    fee_math::MAX_TREASURY_ACCUMULATOR.saturating_sub(treasury_bal);
                 let excess = fee_amount.saturating_sub(available_capacity);
-                
+
                 treasury_bal = fee_math::MAX_TREASURY_ACCUMULATOR;
                 let new_rollover = rollover.checked_add(excess).unwrap_or(i128::MAX);
                 env.storage()
@@ -2640,8 +2661,10 @@ impl YieldVault {
             &total_claimable,
         );
 
-        env.events()
-            .publish((symbol_short!("feeall"),), (treasury, total_claimable, rollover));
+        env.events().publish(
+            (symbol_short!("feeall"),),
+            (treasury, total_claimable, rollover),
+        );
     }
 
     /// Transfers the entire accumulated treasury balance to the treasury address.
