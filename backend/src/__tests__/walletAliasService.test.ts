@@ -34,4 +34,14 @@ describe('WalletAliasMappingService', () => {
     expect(service.getIdentityLinks(first.canonicalId)?.aliases).toEqual(['wallet-connect-alias']);
     expect(service.getIdentityLinks(first.canonicalId)?.sources).toEqual(['walletconnect']);
   });
+
+  it('normalizes provider names across formatting variants to the same identity', () => {
+    const service = new WalletAliasMappingService();
+
+    const first = service.registerAlias('wallet-connect-alias', 'Wallet Connect');
+    const second = service.registerAlias('wallet-connect-alias', 'wallet-connect');
+
+    expect(first.canonicalId).toBe(second.canonicalId);
+    expect(service.getIdentityLinks(first.canonicalId)?.sources).toEqual(['walletconnect']);
+  });
 });

@@ -141,7 +141,7 @@ export class WalletAliasMappingService {
       return '';
     }
 
-    return trimmed.toLowerCase().replace(/\s+/g, '');
+    return trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '');
   }
 
   private buildAliasKey(alias: string, source: string): string {
