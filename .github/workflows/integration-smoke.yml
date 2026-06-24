@@ -94,23 +94,32 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Prepare backend database
+        working-directory: backend
+        run: npx prisma generate && npx prisma migrate deploy
+
       - name: Start backend for smoke probes
         working-directory: backend
         run: |
           npm run build
           npm run start &
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -fsS "$BACKEND_URL/health" >/dev/null 2>&1; then
               echo "Backend is ready"
               exit 0
             fi
-            sleep 1
+            sleep 2
           done
           echo "Backend failed to start"
+          curl -v "$BACKEND_URL/health" || true
           exit 1
         env:
           PORT: 3000
-          NODE_ENV: test
+          NODE_ENV: development
+          OTEL_ENABLED: "false"
+          ALLOWLIST_ENABLED: "false"
+          STELLAR_RPC_URL: https://soroban-testnet.stellar.org
+          ADMIN_AUDIT_LOG_STORAGE: memory
 
       - name: Run cross-stack smoke test
         run: bash contracts/vault/scripts/smoke-test.sh
