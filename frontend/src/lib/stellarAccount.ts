@@ -45,7 +45,7 @@ export async function discoverConnectedAddressWithRetry(
     }
 
     if (index < retries - 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+      await new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
     }
   }
 
