@@ -2275,4 +2275,3 @@ fn test_withdraw_auto_divest_liquidity_path() {
     // Vault total assets and total shares should be 0
     assert_eq!(vault.total_assets(), 0);
 }
-
