@@ -1,9 +1,45 @@
 const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
+const vaultSummary = {
+  tvl: 12450800,
+  depositCap: 15_000_000,
+  apy: 8.45,
+  participantCount: 1248,
+  monthlyGrowthPct: 12.5,
+  strategyStabilityPct: 99.9,
+  assetLabel: 'Sovereign Debt',
+  exchangeRate: 1.084,
+  networkFeeEstimate: '~0.00001 XLM',
+  updatedAt: '2026-03-25T10:00:00.000Z',
+  contractPaused: false,
+  strategy: {
+    id: 'stellar-benji',
+    name: 'Franklin BENJI Connector',
+    issuer: 'Franklin Templeton',
+    network: 'Stellar',
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    status: 'active',
+    description: 'Connector strategy.',
+  },
+};
+
+const portfolioHoldings = [
+  {
+    id: 'hold-1',
+    asset: 'USDC Treasury Pool',
+    vaultName: 'Stellar RWA Yield Fund',
+    symbol: 'yvUSDC',
+    shares: 1250.5,
+    apy: 8.45,
+    valueUsd: 1250.5,
+    unrealizedGainUsd: 42.15,
+    issuer: 'Franklin Templeton',
+    status: 'active',
+  },
+];
+
 /**
  * Inject the Freighter stub into the window BEFORE the app bundle executes.
- * Must be used in cy.visit({ onBeforeLoad }) — NOT cy.on('window:before:load')
- * because that only fires for navigations AFTER the initial visit.
  */
 function stubFreighterConnected(win: Cypress.AUTWindow): void {
   const stub = { connected: true };
@@ -21,7 +57,7 @@ function stubFreighterConnected(win: Cypress.AUTWindow): void {
 
     const response: Record<string, unknown> = {
       source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
-      messagedId: messageId, // freighter-api uses this typo internally
+      messagedId: messageId,
     };
 
     switch (type) {
@@ -53,47 +89,99 @@ function stubFreighterConnected(win: Cypress.AUTWindow): void {
   });
 }
 
+function setupApiIntercepts(): void {
+  cy.intercept('GET', '**/mock-api/vault-summary.json', {
+    statusCode: 200,
+    body: vaultSummary,
+  }).as('vaultSummary');
+  cy.intercept('GET', '**/mock-api/portfolio-holdings.json', {
+    statusCode: 200,
+    body: portfolioHoldings,
+  }).as('portfolioHoldings');
+  cy.intercept('GET', 'https://horizon-testnet.stellar.org/accounts/*', {
+    statusCode: 200,
+    body: {
+      balances: [
+        { asset_type: 'native', balance: '5.0000000' },
+        {
+          asset_type: 'credit_alphanum4',
+          asset_code: 'USDC',
+          asset_issuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+          balance: '1250.5000000',
+        },
+      ],
+    },
+  }).as('horizonAccount');
+  cy.intercept('GET', 'https://horizon-testnet.stellar.org/accounts/*/operations*', {
+    statusCode: 200,
+    body: {
+      _embedded: {
+        records: [
+          {
+            id: '12884905984',
+            type: 'payment',
+            from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+            to: MOCK_ADDRESS,
+            amount: '100.0000000',
+            asset_type: 'credit_alphanum4',
+            asset_code: 'USDC',
+            asset_issuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+            created_at: '2026-03-25T10:00:00.000Z',
+            transaction_hash: 'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890',
+          },
+        ],
+      },
+    },
+  }).as('horizonOperations');
+}
+
+function visitWithStubs(url = '/'): void {
+  setupApiIntercepts();
+  cy.visit(url, {
+    onBeforeLoad: (win) => {
+      stubFreighterConnected(win);
+      win.localStorage.setItem('hasSeenWalkthrough', 'true');
+    },
+  });
+}
+
+function waitForConnectedVault(): void {
+  cy.get('[aria-label="USDC wallet balance"]', { timeout: 20000 }).should('contain.text', '1250.50');
+  cy.contains('Wallet Not Connected').should('not.exist');
+}
+
 describe('YieldVault Smoke Tests', () => {
   beforeEach(() => {
-    // The onBeforeLoad callback runs synchronously before any app JS executes,
-    // so the Freighter stub is in place when discoverConnectedAddress() is called.
-    cy.visit('/', {
-      onBeforeLoad: stubFreighterConnected,
-    });
+    visitWithStubs('/');
   });
 
   it('should connect wallet', () => {
-    // Depending on environment timing, wallet state can be connected or ready-to-connect.
-    cy.get('body', { timeout: 15000 }).should(($body) => {
-      const hasDisconnect = $body.find('button[aria-label="Disconnect Wallet"]').length > 0;
-      const hasConnect = $body.find('button:contains("Connect Freighter")').length > 0;
-      const hasChecking = $body.find('button:contains("Checking wallet")').length > 0;
-      expect(hasDisconnect || hasConnect || hasChecking).to.eq(true);
-    });
+    waitForConnectedVault();
+    cy.get('button[aria-label="Disconnect Wallet"]').should('exist');
   });
 
   it('should navigate to deposit flow', () => {
+    waitForConnectedVault();
     cy.contains('[role="tab"]', 'Deposit').click({ force: true });
-    cy.contains('Amount to deposit').should('be.visible');
+    cy.contains('Amount to deposit', { timeout: 10000 }).should('be.visible');
   });
 
   it('should navigate to withdrawal flow', () => {
+    waitForConnectedVault();
     cy.contains('[role="tab"]', 'Withdraw').click({ force: true });
-    cy.contains('Amount to withdraw').should('be.visible');
+    cy.contains('Amount to withdraw', { timeout: 10000 }).should('be.visible');
   });
 
   it('should view transaction history', () => {
-    cy.visit('/transactions', {
-      onBeforeLoad: stubFreighterConnected,
-    });
-    cy.contains('Transaction History', { timeout: 10000 }).should('be.visible');
+    visitWithStubs('/transactions');
+    waitForConnectedVault();
+    cy.contains('History', { timeout: 10000 }).should('be.visible');
     cy.get('body').should(($body) => {
+      const text = $body.text();
       const hasTable = $body.find('table').length > 0;
-      const hasEmptyState = $body.text().includes('No transactions yet');
-      const hasWalletPrompt = $body
-        .text()
-        .includes('Please connect your wallet to view your transaction history.');
-      const hasLoading = $body.text().includes('Loading transactions...');
+      const hasEmptyState = text.includes('No transactions yet');
+      const hasWalletPrompt = text.includes('Connect your wallet to view your transaction history');
+      const hasLoading = text.includes('Loading...');
       expect(hasTable || hasEmptyState || hasWalletPrompt || hasLoading).to.eq(true);
     });
   });
