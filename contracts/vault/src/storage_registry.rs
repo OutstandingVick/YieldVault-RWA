@@ -141,14 +141,7 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
         parameterized: true,
     });
 
-    keys.push_back(scalar(
-        StorageNamespace::Emergency,
-        "EmergencyApproverPrimary",
-    ));
-    keys.push_back(scalar(
-        StorageNamespace::Emergency,
-        "EmergencyApproverSecondary",
-    ));
+    keys.push_back(scalar(StorageNamespace::Emergency, "EmergencyApprovers"));
     keys.push_back(scalar(
         StorageNamespace::Emergency,
         "EmergencyProposalNonce",

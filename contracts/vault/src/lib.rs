@@ -79,7 +79,7 @@ pub mod strategy_registration;
 pub mod whitelist;
 
 use crate::strategy::StrategyClient;
-use crate::strategy_registration::{self, STATE_ACTIVE, STATE_PENDING, STATE_RETIRED};
+use crate::strategy_registration::{STATE_ACTIVE, STATE_PENDING, STATE_RETIRED};
 use crate::upgrade::{
     get_admin, get_pending_admin, get_storage_version, is_initialized, set_admin, set_initialized,
     set_pending_admin, set_storage_version,
@@ -146,6 +146,20 @@ pub struct VaultState {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckpointTotals {
+    pub total_shares: i128,
+    pub total_assets: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyApprovers {
+    pub primary: Address,
+    pub secondary: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     TokenAsset,
     TotalShares,
@@ -159,8 +173,7 @@ pub enum DataKey {
     KoreanDebtStrategy,
     IsPaused,
     PauseReason,
-    EmergencyApproverPrimary,
-    EmergencyApproverSecondary,
+    EmergencyApprovers,
     EmergencyProposalNonce,
     EmergencyProposal(u32),
     Proposal(u32),
@@ -195,8 +208,7 @@ pub enum DataKey {
     WithdrawalCooldown,
     LastDepositTime(Address),
     CheckpointNonce,
-    CheckpointTotalShares(u32),
-    CheckpointTotalAssets(u32),
+    CheckpointTotals(u32),
     UserCheckpoint(Address),
     UserBalanceAt(Address, u32),
     // Relayer batch-deposit whitelist
@@ -667,12 +679,10 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         emergency::require_distinct_approvers(&primary, &secondary);
-        env.storage()
-            .instance()
-            .set(&DataKey::EmergencyApproverPrimary, &primary);
-        env.storage()
-            .instance()
-            .set(&DataKey::EmergencyApproverSecondary, &secondary);
+        env.storage().instance().set(
+            &DataKey::EmergencyApprovers,
+            &EmergencyApprovers { primary, secondary },
+        );
     }
 
     pub fn emergency_approver_primary(env: Env) -> Option<Address> {
@@ -1002,12 +1012,11 @@ impl YieldVault {
             .instance()
             .set(&DataKey::CheckpointNonce, &next_checkpoint);
         env.storage().instance().set(
-            &DataKey::CheckpointTotalShares(next_checkpoint),
-            &state.total_shares,
-        );
-        env.storage().instance().set(
-            &DataKey::CheckpointTotalAssets(next_checkpoint),
-            &state.total_assets,
+            &DataKey::CheckpointTotals(next_checkpoint),
+            &CheckpointTotals {
+                total_shares: state.total_shares,
+                total_assets: state.total_assets,
+            },
         );
         env.events()
             .publish((symbol_short!("chkpoint"),), (next_checkpoint,));
@@ -1017,14 +1026,16 @@ impl YieldVault {
     pub fn total_shares_at(env: Env, checkpoint_id: u32) -> i128 {
         env.storage()
             .instance()
-            .get(&DataKey::CheckpointTotalShares(checkpoint_id))
+            .get::<_, CheckpointTotals>(&DataKey::CheckpointTotals(checkpoint_id))
+            .map(|totals| totals.total_shares)
             .unwrap_or(0)
     }
 
     pub fn total_assets_at(env: Env, checkpoint_id: u32) -> i128 {
         env.storage()
             .instance()
-            .get(&DataKey::CheckpointTotalAssets(checkpoint_id))
+            .get::<_, CheckpointTotals>(&DataKey::CheckpointTotals(checkpoint_id))
+            .map(|totals| totals.total_assets)
             .unwrap_or(0)
     }
 
