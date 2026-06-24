@@ -1067,7 +1067,7 @@ fn test_invariant_share_price_monotonic_after_accrue_yield() {
     vault.deposit(&user, &500);
     let price_before = vault.share_price();
 
-    vault.set_fee_bps(&admin, &1_000);
+    vault.set_fee_bps(&1_000);
     vault.accrue_yield(&100).unwrap();
 
     let price_after = vault.share_price();
@@ -1087,7 +1087,7 @@ fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &500);
-    vault.set_fee_bps(&admin, &10_000);
+    vault.set_fee_bps(&10_000);
 
     let price_before = vault.share_price();
     vault.accrue_yield(&100).unwrap();
@@ -1486,13 +1486,13 @@ fn test_withdrawal_cooldown_then_timelock_then_execute() {
 // ─── 11. batch_deposit ────────────────────────────────────────────────────────
 
 /// Helper: set up a vault with a registered relayer and mint USDC to `users`.
-fn setup_vault_with_relayer(
-    env: &Env,
+fn setup_vault_with_relayer<'a>(
+    env: &'a Env,
     user_amounts: &[(Address, i128)],
 ) -> (
-    YieldVaultClient<'_>,
-    token::Client<'_>,
-    token::StellarAssetClient<'_>,
+    YieldVaultClient<'a>,
+    token::Client<'a>,
+    token::StellarAssetClient<'a>,
     Address, // admin
     Address, // relayer
 ) {
@@ -1959,27 +1959,14 @@ fn test_whitelist_toggle_multiple_strategies() {
 }
 
 #[test]
+#[should_panic(expected = "strategy not whitelisted")]
 fn test_set_strategy_requires_whitelisted_strategy() {
-    // Test that set_strategy only accepts whitelisted strategies
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
-
-    // Try to set non-whitelisted strategy should panic
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        vault.set_strategy(&strategy);
-    }));
-
-    // Should fail because strategy is not whitelisted
-    assert!(result.is_err() || vault.strategy().is_none());
-
-    // Now whitelist the strategy
-    vault.whitelist_strategy(&strategy, &true);
-
-    // set_strategy should now succeed (though it might fail for other reasons like strategy init)
-    // The key test is that it doesn't panic with "strategy not whitelisted"
+    let _ = vault.set_strategy(&strategy);
 }
 
 #[test]

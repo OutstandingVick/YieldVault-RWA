@@ -593,6 +593,9 @@ impl YieldVault {
             Some(STATE_RETIRED) => {
                 return Err(VaultError::InvalidMigrationTarget);
             }
+            Some(_) => {
+                return Err(VaultError::InvalidMigrationTarget);
+            }
             None => {
                 strategy_registration::register_strategy(&env, &admin, &strategy)
                     .map_err(Self::map_registration_error)?;
@@ -1149,7 +1152,7 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold as usize > signers.len() {
+        if threshold == 0 || threshold > signers.len() as u32 {
             panic!("invalid threshold: must be > 0 and <= signer set size");
         }
 
