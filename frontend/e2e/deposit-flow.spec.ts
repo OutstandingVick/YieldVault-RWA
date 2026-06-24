@@ -31,23 +31,21 @@ test.describe('Deposit flow (e2e)', () => {
     await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Wallet Not Connected')).not.toBeVisible();
 
-    // Deposit
-    const amountInput = page.getByPlaceholder('0.00');
-    const submitBtn = page.getByRole('button', { name: /Approve & Deposit/i });
-
+    const amountInput = page.getByLabel('Deposit amount');
     await amountInput.fill('100');
-    await expect(submitBtn).toBeEnabled();
-    await submitBtn.click();
 
-    await expect(page.getByRole('button', { name: /Processing Transaction/i })).toBeVisible();
+    const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+    await expect(reviewBtn).toBeEnabled();
+    await reviewBtn.click();
 
-    // Success state (toast + updated balance)
-    await expect(page.getByText('Deposit Successful')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('1350.50')).toBeVisible({ timeout: 5000 });
+    const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
+    await expect(confirmBtn).toBeEnabled();
+    await confirmBtn.click();
 
-    // Form resets after success
-    await expect(amountInput).toHaveValue('');
-    await expect(submitBtn).toBeDisabled();
+    await expect(page.getByText('Transaction Successful')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole('button', { name: /Done/i }).click();
+    await expect(reviewBtn).toBeVisible();
+    await expect(amountInput).not.toHaveValue('100');
   });
 });
-

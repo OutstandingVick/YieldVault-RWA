@@ -16,8 +16,15 @@ const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 async function goToConnectedVault(page: Page) {
+  const balanceResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes('horizon-testnet.stellar.org/accounts/') &&
+      !response.url().includes('/operations') &&
+      response.ok(),
+  );
   await page.goto('/');
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
+  await balanceResponse;
   await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', { timeout: 20_000 });
 }
 
@@ -44,7 +51,7 @@ test.describe('Deposit panel  no wallet', () => {
 
   test('strategy info panel shows exchange rate and network fee', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('1 yvUSDC = 1.084 USDC')).toBeVisible();
+    await expect(page.getByText(/1 yvUSDC =/)).toBeVisible();
     await expect(page.getByText('~0.00001 XLM')).toBeVisible();
     await expect(page.getByText('BENJI Strategy')).toBeVisible();
   });

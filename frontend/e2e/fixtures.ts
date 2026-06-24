@@ -129,14 +129,42 @@ export async function interceptApiRoutes(page: Page) {
     }),
   );
 
-  await page.route(/https:\/\/horizon-testnet\.stellar\.org\/accounts\/[^/?]+.*/, async (route) => {
+  await page.route('https://horizon-testnet.stellar.org/**', async (route) => {
     if (route.request().method() !== 'GET') {
       await route.continue();
       return;
     }
 
-    const pathname = new URL(route.request().url()).pathname;
-    const accountId = pathname.split('/').filter(Boolean).pop() ?? 'unknown';
+    const url = route.request().url();
+
+    if (url.includes('/operations')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          _embedded: {
+            records: [
+              {
+                id: '12884905984',
+                type: 'payment',
+                from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+                to: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+                amount: '100.0000000',
+                asset_type: 'credit_alphanum4',
+                asset_code: 'USDC',
+                asset_issuer: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
+                created_at: '2026-03-25T10:00:00.000Z',
+                transaction_hash: 'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890',
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+
+    const accountMatch = url.match(/\/accounts\/([^/?]+)/);
+    const accountId = accountMatch?.[1] ?? 'unknown';
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
