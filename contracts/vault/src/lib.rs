@@ -201,6 +201,8 @@ pub enum DataKey {
     MaxBatchSize,
     // Dispute window duration in seconds for emergency proposals (default 3600 = 1 hour)
     EmergencyDisputeWindow,
+    // Monotonic counter stamped on every event topic for deterministic indexer ordering.
+    EventSeq,
 }
 
 #[contracttype]
@@ -358,7 +360,22 @@ impl YieldVault {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
+        let pre_version = get_storage_version(&env);
         Self::run_storage_migration(&env, STORAGE_VERSION).expect("storage migration failed");
+        // Checkpoint: storage version must equal STORAGE_VERSION after migration.
+        let post_version = get_storage_version(&env);
+        assert_eq!(
+            post_version, STORAGE_VERSION,
+            "storage version checkpoint failed: expected {}, got {}",
+            STORAGE_VERSION, post_version
+        );
+        // Ensure the migration was either a no-op or a forward progression.
+        assert!(
+            post_version >= pre_version,
+            "storage version must not decrease: was {}, now {}",
+            pre_version, post_version
+        );
+
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
@@ -368,7 +385,21 @@ impl YieldVault {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        Self::run_storage_migration(&env, target_version)
+        let pre_version = get_storage_version(&env);
+        Self::run_storage_migration(&env, target_version)?;
+        // Checkpoint: storage version must equal target_version after migration.
+        let post_version = get_storage_version(&env);
+        assert_eq!(
+            post_version, target_version,
+            "storage version checkpoint failed: expected {}, got {}",
+            target_version, post_version
+        );
+        assert!(
+            post_version >= pre_version,
+            "storage version must not decrease: was {}, now {}",
+            pre_version, post_version
+        );
+        Ok(())
     }
 
     pub fn storage_version(env: Env) -> u32 {
@@ -1736,6 +1767,7 @@ impl YieldVault {
             &ts.checked_sub(shares).expect("underflow"),
         );
 
+        // Capture pre-burn share balance for proportional cost-basis reduction.
         let vault_balance = Self::balance(env.clone(), user.clone());
         env.storage().instance().set(
             &DataKey::ShareBalance(user.clone()),
@@ -1749,18 +1781,39 @@ impl YieldVault {
         state.total_shares = state.total_shares.checked_sub(shares).expect("underflow");
         env.storage().instance().set(&DataKey::State, state);
 
-        let user_key = DataKey::ShareBalance(user.clone());
-        let user_shares: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
-        let _ = user_shares; // already updated above via vault_balance path
-
+        // Burn precedence rule: proportional cost-basis reduction.
+        //
+        // For partial withdrawals across mixed-lot share states (user made deposits at
+        // different share prices), the burned cost basis is the proportional slice of
+        // the total recorded deposit:
+        //
+        //   cost_basis_reduction = (shares_burned × current_deposit) / pre_burn_balance
+        //
+        // Rationale:
+        // - Deterministic: same inputs always produce same output regardless of deposit history.
+        // - Stable: does not require per-lot storage; works on a flat balance.
+        // - Fair: each share carries an equal fraction of the aggregate cost basis.
+        // - Solvency-safe: rounds down (truncates), never over-reduces the recorded deposit.
+        //
+        // Edge cases:
+        // - Full burn (shares == vault_balance): new_deposit = 0.
+        // - vault_balance == 0: unreachable (InsufficientShares guard fires first), but
+        //   zeroed defensively.
         let deposit_key = DataKey::UserDeposit(user.clone());
         let current_deposit: i128 = env.storage().instance().get(&deposit_key).unwrap_or(0);
-        let new_deposit = if current_deposit > assets_to_return {
-            current_deposit
-                .checked_sub(assets_to_return)
-                .expect("underflow")
-        } else {
+        let new_deposit = if vault_balance == 0 || shares >= vault_balance {
+            // Full burn or degenerate state: zero out cost basis.
             0
+        } else {
+            // Proportional reduction: round down (truncate) to stay solvency-safe.
+            let cost_basis_reduction = shares
+                .checked_mul(current_deposit)
+                .expect("overflow in cost_basis_reduction")
+                .checked_div(vault_balance)
+                .expect("division by zero in cost_basis_reduction");
+            current_deposit
+                .checked_sub(cost_basis_reduction)
+                .expect("underflow in cost_basis_reduction")
         };
         env.storage().instance().set(&deposit_key, &new_deposit);
 
