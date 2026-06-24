@@ -587,7 +587,7 @@ impl YieldVault {
         match strategy_registration::read_registration_state(&env, &strategy) {
             Some(STATE_ACTIVE) => {}
             Some(STATE_PENDING) => {
-                strategy_registration::activate_strategy(&env, &admin, &strategy)
+                strategy_registration::activate_strategy_internal(&env, &strategy)
                     .map_err(Self::map_registration_error)?;
             }
             Some(STATE_RETIRED) => {
@@ -597,9 +597,9 @@ impl YieldVault {
                 return Err(VaultError::InvalidMigrationTarget);
             }
             None => {
-                strategy_registration::register_strategy(&env, &admin, &strategy)
+                strategy_registration::register_strategy_internal(&env, &strategy)
                     .map_err(Self::map_registration_error)?;
-                strategy_registration::activate_strategy(&env, &admin, &strategy)
+                strategy_registration::activate_strategy_internal(&env, &strategy)
                     .map_err(Self::map_registration_error)?;
             }
         }

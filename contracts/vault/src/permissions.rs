@@ -92,6 +92,7 @@ impl MultiSignerValidator {
 mod tests {
 
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_permission_matrix_documentation_exists() {

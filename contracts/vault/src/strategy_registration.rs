@@ -50,6 +50,15 @@ pub fn is_allowed_transition(from: Option<u32>, to: u32) -> bool {
     )
 }
 
+fn transition(env: &Env, strategy: &Address, to: u32) -> Result<u32, StrategyRegistrationError> {
+    let from = read_registration_state(env, strategy);
+    if !is_allowed_transition(from, to) {
+        return Err(StrategyRegistrationError::InvalidTransition);
+    }
+    write_registration_state(env, strategy, to);
+    Ok(to)
+}
+
 fn require_admin(env: &Env, caller: &Address) -> Result<(), StrategyRegistrationError> {
     let admin = get_admin(env).ok_or(StrategyRegistrationError::Unauthorized)?;
     if caller != &admin {
@@ -60,13 +69,32 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), StrategyRegistration
     Ok(())
 }
 
-fn transition(env: &Env, strategy: &Address, to: u32) -> Result<u32, StrategyRegistrationError> {
-    let from = read_registration_state(env, strategy);
-    if !is_allowed_transition(from, to) {
-        return Err(StrategyRegistrationError::InvalidTransition);
+pub(crate) fn register_strategy_internal(
+    env: &Env,
+    strategy: &Address,
+) -> Result<u32, StrategyRegistrationError> {
+    if read_registration_state(env, strategy).is_some() {
+        return Err(StrategyRegistrationError::AlreadyRegistered);
     }
-    write_registration_state(env, strategy, to);
-    Ok(to)
+    transition(env, strategy, STATE_PENDING)
+}
+
+pub(crate) fn activate_strategy_internal(
+    env: &Env,
+    strategy: &Address,
+) -> Result<u32, StrategyRegistrationError> {
+    transition(env, strategy, STATE_ACTIVE)
+}
+
+pub(crate) fn retire_strategy_internal(
+    env: &Env,
+    strategy: &Address,
+    active_vault_strategy: Option<Address>,
+) -> Result<u32, StrategyRegistrationError> {
+    if active_vault_strategy.as_ref() == Some(strategy) {
+        return Err(StrategyRegistrationError::ActiveStrategyInUse);
+    }
+    transition(env, strategy, STATE_RETIRED)
 }
 
 pub fn register_strategy(
@@ -75,10 +103,7 @@ pub fn register_strategy(
     strategy: &Address,
 ) -> Result<u32, StrategyRegistrationError> {
     require_admin(env, caller)?;
-    if read_registration_state(env, strategy).is_some() {
-        return Err(StrategyRegistrationError::AlreadyRegistered);
-    }
-    transition(env, strategy, STATE_PENDING)
+    register_strategy_internal(env, strategy)
 }
 
 pub fn activate_strategy(
@@ -87,7 +112,7 @@ pub fn activate_strategy(
     strategy: &Address,
 ) -> Result<u32, StrategyRegistrationError> {
     require_admin(env, caller)?;
-    transition(env, strategy, STATE_ACTIVE)
+    activate_strategy_internal(env, strategy)
 }
 
 pub fn retire_strategy(
@@ -97,10 +122,7 @@ pub fn retire_strategy(
     active_vault_strategy: Option<Address>,
 ) -> Result<u32, StrategyRegistrationError> {
     require_admin(env, caller)?;
-    if active_vault_strategy.as_ref() == Some(strategy) {
-        return Err(StrategyRegistrationError::ActiveStrategyInUse);
-    }
-    transition(env, strategy, STATE_RETIRED)
+    retire_strategy_internal(env, strategy, active_vault_strategy)
 }
 
 pub fn is_eligible_for_allocation(env: &Env, strategy: &Address) -> bool {

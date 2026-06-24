@@ -25,14 +25,12 @@ impl SecureWhitelist {
     ) -> Result<(), WhitelistError> {
         let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
         if caller != &admin {
-            caller.require_auth();
             return Err(WhitelistError::Unauthorized);
         }
-        admin.require_auth();
 
         match strategy_registration::read_registration_state(env, strategy) {
             None => {
-                let _ = strategy_registration::register_strategy(env, caller, strategy);
+                let _ = strategy_registration::register_strategy_internal(env, strategy);
             }
             Some(STATE_RETIRED) => {
                 return Err(WhitelistError::OperationFailed);
@@ -50,10 +48,8 @@ impl SecureWhitelist {
     ) -> Result<(), WhitelistError> {
         let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
         if caller != &admin {
-            caller.require_auth();
             return Err(WhitelistError::Unauthorized);
         }
-        admin.require_auth();
 
         strategy_registration::remove_registration(env, strategy);
         Ok(())

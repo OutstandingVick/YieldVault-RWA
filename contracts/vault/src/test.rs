@@ -1068,7 +1068,7 @@ fn test_invariant_share_price_monotonic_after_accrue_yield() {
     let price_before = vault.share_price();
 
     vault.set_fee_bps(&1_000);
-    vault.accrue_yield(&100).unwrap();
+    vault.accrue_yield(&100);
 
     let price_after = vault.share_price();
     assert!(price_after >= price_before);
@@ -1090,7 +1090,7 @@ fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
     vault.set_fee_bps(&10_000);
 
     let price_before = vault.share_price();
-    vault.accrue_yield(&100).unwrap();
+    vault.accrue_yield(&100);
     let price_after = vault.share_price();
 
     assert_eq!(price_after, price_before);
@@ -1110,16 +1110,16 @@ fn test_invariant_share_price_full_exit_and_redeposit_resets_to_one() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &1_000);
-    vault.accrue_yield(&200).unwrap();
+    vault.accrue_yield(&200);
 
     let shares = vault.balance(&user);
-    let withdrawn = vault.withdraw(&user, &shares).unwrap();
+    let withdrawn = vault.withdraw(&user, &shares);
     assert_eq!(withdrawn, 1_200);
     assert_eq!(vault.total_shares(), 0);
     assert_eq!(vault.total_assets(), 0);
     assert_eq!(vault.share_price(), 0);
 
-    vault.deposit(&user, &1_200).unwrap();
+    vault.deposit(&user, &1_200);
     assert_eq!(vault.share_price(), SHARE_PRICE_SCALE);
 }
 
@@ -1759,7 +1759,7 @@ fn test_batch_deposit_share_price_consistency_after_yield() {
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
 
-    let (vault, usdc, usdc_sa, admin, relayer) = setup_vault_with_relayer(
+    let (vault, _usdc, usdc_sa, admin, relayer) = setup_vault_with_relayer(
         &env,
         &[
             (seed_user.clone(), 1000),
@@ -1897,7 +1897,7 @@ fn test_whitelist_strategy_add_and_check() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (vault, _, _, admin) = setup_vault(&env);
+    let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
 
     // Initially, strategy should not be whitelisted
@@ -1916,7 +1916,7 @@ fn test_whitelist_strategy_remove() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (vault, _, _, admin) = setup_vault(&env);
+    let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
 
     // Add strategy to whitelist
@@ -1966,7 +1966,7 @@ fn test_set_strategy_requires_whitelisted_strategy() {
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
-    let _ = vault.set_strategy(&strategy);
+    vault.set_strategy(&strategy);
 }
 
 #[test]
@@ -2066,11 +2066,6 @@ fn test_whitelist_consistency_with_set_strategy() {
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let benji_strategy = env.register(BenjiStrategy, ());
-    let benji = BenjiStrategyClient::new(&env, &benji_strategy);
-
-    // Setup BENJI (simplistic - normally would do more setup)
-    let token_admin = Address::generate(&env);
-    let benji_token = create_token(&env, &token_admin);
 
     // Whitelist the strategy
     vault.whitelist_strategy(&benji_strategy, &true);
@@ -2132,7 +2127,7 @@ fn test_withdrawal_queue_processes_fifo_when_liquidity_returns() {
 
     vault.deposit(&user_a, &500);
     vault.deposit(&user_b, &500);
-    vault.invest(&980).unwrap();
+    vault.invest(&980);
 
     let result_a = vault.try_withdraw(&user_a, &200);
     assert_eq!(result_a, Err(Ok(VaultError::WithdrawalQueued)));
@@ -2165,7 +2160,7 @@ fn test_withdrawal_queue_stops_when_liquidity_insufficient_for_head() {
     usdc_sa.mint(&user_b, &2_000);
     vault.deposit(&user_a, &1_000);
     vault.deposit(&user_b, &1_000);
-    vault.invest(&1_950).unwrap();
+    vault.invest(&1_950);
 
     assert_eq!(
         vault.try_withdraw(&user_a, &500),
@@ -2190,9 +2185,9 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _usdc, _usdc_sa, admin) = setup_vault(&env);
-    vault.set_admin_param_change_interval(&60).unwrap();
-    vault.set_fee_bps(&100).unwrap();
+    let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
+    vault.set_admin_param_change_interval(&60);
+    vault.set_fee_bps(&100);
 
     let second = vault.try_set_fee_bps(&200);
     assert_eq!(second, Err(Ok(VaultError::AdminParamChangeTooSoon)));
@@ -2201,7 +2196,7 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
         li.timestamp += 61;
     });
 
-    vault.set_fee_bps(&200).unwrap();
+    vault.set_fee_bps(&200);
     assert_eq!(vault.fee_bps(), 200);
 }
 
@@ -2211,8 +2206,8 @@ fn test_admin_param_change_interval_applies_across_setters() {
     env.mock_all_auths_allowing_non_root_auth();
 
     let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
-    vault.set_admin_param_change_interval(&120).unwrap();
-    vault.set_min_deposit(&10).unwrap();
+    vault.set_admin_param_change_interval(&120);
+    vault.set_min_deposit(&10);
 
     let blocked = vault.try_set_dao_threshold(&5);
     assert_eq!(blocked, Err(Ok(VaultError::AdminParamChangeTooSoon)));
@@ -2237,7 +2232,7 @@ fn test_withdraw_auto_divest_liquidity_path() {
     assert_eq!(usdc.balance(&vault_id), 10_000);
 
     // 3. Invest 8,000 USDC into the strategy
-    vault.invest(&8_000).unwrap();
+    vault.invest(&8_000);
 
     // Verify balances after investment
     // Vault idle assets should be 2,000 (10,000 - 8,000)
@@ -2274,19 +2269,19 @@ fn test_strategy_registration_pending_to_active_to_retired() {
     let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
 
-    vault.register_strategy(&strategy).unwrap();
+    vault.register_strategy(&strategy);
     assert_eq!(
         vault.strategy_registration_state(&strategy),
         Some(STATE_PENDING)
     );
 
-    vault.activate_strategy_registration(&strategy).unwrap();
+    vault.activate_strategy_registration(&strategy);
     assert_eq!(
         vault.strategy_registration_state(&strategy),
         Some(STATE_ACTIVE)
     );
 
-    vault.retire_strategy(&strategy).unwrap();
+    vault.retire_strategy(&strategy);
     assert_eq!(
         vault.strategy_registration_state(&strategy),
         Some(STATE_RETIRED)
@@ -2306,13 +2301,13 @@ fn test_strategy_registration_rejects_invalid_transitions() {
         Err(Ok(VaultError::InvalidMigrationTarget))
     );
 
-    vault.register_strategy(&strategy).unwrap();
+    vault.register_strategy(&strategy);
     assert_eq!(
         vault.try_register_strategy(&strategy),
         Err(Ok(VaultError::AlreadyInitialized))
     );
 
-    vault.activate_strategy_registration(&strategy).unwrap();
+    vault.activate_strategy_registration(&strategy);
     assert_eq!(
         vault.try_activate_strategy_registration(&strategy),
         Err(Ok(VaultError::InvalidMigrationTarget))
@@ -2328,7 +2323,7 @@ fn test_strategy_registration_cannot_retire_active_vault_strategy() {
     let strategy = Address::generate(&env);
 
     vault.whitelist_strategy(&strategy, &true);
-    vault.set_strategy(&strategy).unwrap();
+    vault.set_strategy(&strategy);
 
     assert_eq!(
         vault.try_retire_strategy(&strategy),
@@ -2346,14 +2341,14 @@ fn test_set_strategy_rejects_retired_registration() {
     let strategy_b = Address::generate(&env);
 
     vault.whitelist_strategy(&strategy_a, &true);
-    vault.set_strategy(&strategy_a).unwrap();
+    vault.set_strategy(&strategy_a);
     env.ledger().with_mut(|li| {
         li.timestamp += 3_601;
     });
     vault.whitelist_strategy(&strategy_b, &true);
-    vault.set_strategy(&strategy_b).unwrap();
+    vault.set_strategy(&strategy_b);
 
-    vault.retire_strategy(&strategy_a).unwrap();
+    vault.retire_strategy(&strategy_a);
     assert_eq!(
         vault.try_set_strategy(&strategy_a),
         Err(Ok(VaultError::InvalidMigrationTarget))
@@ -2384,7 +2379,7 @@ fn test_set_strategy_promotes_pending_registration_to_active() {
     let strategy = Address::generate(&env);
 
     vault.whitelist_strategy(&strategy, &true);
-    vault.set_strategy(&strategy).unwrap();
+    vault.set_strategy(&strategy);
 
     assert_eq!(
         vault.strategy_registration_state(&strategy),
