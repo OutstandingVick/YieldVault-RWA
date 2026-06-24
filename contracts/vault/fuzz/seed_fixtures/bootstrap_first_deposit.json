@@ -1,0 +1,7 @@
+{
+  "description": "First depositor receives shares equal to assets (1:1 bootstrap).",
+  "assets": 1000,
+  "total_shares": 0,
+  "total_assets": 0,
+  "yield_amount": 1
+}

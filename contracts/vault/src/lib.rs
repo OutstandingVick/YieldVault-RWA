@@ -801,7 +801,7 @@ impl YieldVault {
         let state = Self::get_state(&env);
         let total_assets = state.total_assets;
         let strategy_count = 2u32; // BENJI + Korean Debt are the standard active strategies
-        
+
         emergency::simulate_emergency_unwind(
             total_assets,
             strategy_count,
@@ -1137,7 +1137,10 @@ impl YieldVault {
 
         // During migration, accept both old and new signer sets
         let is_migration = current_time < migration_deadline
-            && env.storage().instance().has(&DataKey::GovernancePreviousSigners);
+            && env
+                .storage()
+                .instance()
+                .has(&DataKey::GovernancePreviousSigners);
 
         if is_migration {
             let old_signers: Vec<Address> = env
@@ -1152,8 +1155,12 @@ impl YieldVault {
             {
                 return;
             }
-            if permissions::MultiSignerValidator::verify_threshold(&old_signers, threshold, &approvals)
-                .is_ok()
+            if permissions::MultiSignerValidator::verify_threshold(
+                &old_signers,
+                threshold,
+                &approvals,
+            )
+            .is_ok()
             {
                 return;
             }
@@ -2431,10 +2438,10 @@ impl YieldVault {
                     .instance()
                     .get(&DataKey::TreasuryRolloverExcess)
                     .unwrap_or(0);
-                let available_capacity = fee_math::MAX_TREASURY_ACCUMULATOR
-                    .saturating_sub(treasury_bal);
+                let available_capacity =
+                    fee_math::MAX_TREASURY_ACCUMULATOR.saturating_sub(treasury_bal);
                 let excess = fee_amount.saturating_sub(available_capacity);
-                
+
                 treasury_bal = fee_math::MAX_TREASURY_ACCUMULATOR;
                 let new_rollover = rollover.checked_add(excess).unwrap_or(i128::MAX);
                 env.storage()
@@ -2640,8 +2647,10 @@ impl YieldVault {
             &total_claimable,
         );
 
-        env.events()
-            .publish((symbol_short!("feeall"),), (treasury, total_claimable, rollover));
+        env.events().publish(
+            (symbol_short!("feeall"),),
+            (treasury, total_claimable, rollover),
+        );
     }
 
     /// Transfers the entire accumulated treasury balance to the treasury address.

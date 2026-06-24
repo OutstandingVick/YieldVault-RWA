@@ -41,29 +41,9 @@ fn mint(env: &Env, token_addr: &Address, _admin: &Address, recipient: &Address, 
     token.mint(recipient, &amount);
 }
 
-// ── pure math helpers (mirrors contract logic, no SDK needed) ─────────────────
+// ── pure math helpers (delegates to centralized math module) ──────────────────
 
-/// Replicate the share-minting formula used in `deposit` and `calculate_shares`.
-/// This now delegates to the centralized math module for consistency.
-fn shares_for(assets: i128, total_shares: i128, total_assets: i128) -> Option<i128> {
-    // Use checked operations to return None on overflow
-    if total_assets == 0 || total_shares == 0 {
-        Some(assets)
-    } else {
-        assets.checked_mul(total_shares)?.checked_div(total_assets)
-    }
-}
-
-/// Replicate the asset-redemption formula used in `withdraw` and `calculate_assets`.
-/// This now delegates to the centralized math module for consistency.
-fn assets_for(shares: i128, total_shares: i128, total_assets: i128) -> Option<i128> {
-    // Use checked operations to return None on overflow
-    if total_shares == 0 {
-        Some(0)
-    } else {
-        shares.checked_mul(total_assets)?.checked_div(total_shares)
-    }
-}
+use crate::math::{try_assets_to_shares as shares_for, try_shares_to_assets as assets_for};
 
 // ── property strategies ───────────────────────────────────────────────────────
 
