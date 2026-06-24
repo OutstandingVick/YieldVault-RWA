@@ -109,8 +109,15 @@ export function tenantGuard(options: TenantGuardOptions) {
       return;
     }
 
-    // 4. Check if authenticated wallet matches requested wallet
-    if (!authenticatedWallet || authenticatedWallet !== requestedWallet) {
+    // 4. Check if authenticated wallet matches requested wallet.
+    // Anonymous requests should be allowed to view public wallet data
+    // (for example, transaction history or portfolio listings).
+    if (!authenticatedWallet) {
+      next();
+      return;
+    }
+
+    if (authenticatedWallet !== requestedWallet) {
       res.status(403).json({
         error: 'Forbidden',
         status: 403,
@@ -145,8 +152,12 @@ export function enforceTenantWallet(
     return normalizedRequested;
   }
 
-  // Check if authenticated wallet matches
-  if (!authenticatedWallet || authenticatedWallet !== normalizedRequested) {
+  // Anonymous requests are allowed to inspect public wallet data.
+  if (!authenticatedWallet) {
+    return normalizedRequested;
+  }
+
+  if (authenticatedWallet !== normalizedRequested) {
     throw new Error('FORBIDDEN_TENANT_ACCESS');
   }
 

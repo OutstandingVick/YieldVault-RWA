@@ -40,7 +40,7 @@ import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/corr
 import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
 import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
-import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
+import { cacheMiddleware, invalidateCache, getCacheStats, responseCache } from './middleware/cache';
 import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
 import { tieredJsonBodyParser } from './middleware/payloadLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
@@ -100,6 +100,7 @@ import {
 import { latencyMonitoringService } from './latencyMonitoring';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
+import { getPrismaClient } from './prismaClient';
 import {
   verifyWebhookEndpoint,
   registerWebhookEndpoint,
@@ -832,6 +833,20 @@ app.get(
   },
 );
 
+/**
+ * POST /api/v1/vault/deposits - lightweight placeholder for vault deposit events.
+ * Invalidates the response cache so downstream list endpoints become fresh.
+ */
+app.post('/api/v1/vault/deposits', (_req: Request, res: Response) => {
+  responseCache.clear();
+  invalidateCache();
+  res.status(202).json({
+    message: 'Deposit accepted',
+    invalidated: true,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ─── Admin Routes (with API key authentication) ──────────────────────────────
 
 /**
@@ -1006,8 +1021,8 @@ app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Respons
     actor,
     ipAddress: req.ip,
     userAgent: req.get('user-agent'),
-    preChangeSnapshot: previous as Record<string, unknown>,
-    postChangeSnapshot: next as Record<string, unknown>,
+    preChangeSnapshot: previous as unknown as Record<string, unknown>,
+    postChangeSnapshot: next as unknown as Record<string, unknown>,
     metadata: { receiptId: '' },
   });
 
