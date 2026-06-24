@@ -357,6 +357,8 @@ describe("TransactionHistory", () => {
   // Req 5.3 — applying filter resets page to 1
   it("resets page to 1 when filter is applied", async () => {
     // 15 transactions so we have 2 pages
+    localStorage.setItem(`yieldvault:transactions:view-mode:${WALLET}`, "paginated");
+    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "10");
     mockGetTransactions.mockResolvedValue(makeManyTransactions(15));
 
     renderPage(WALLET);
@@ -369,22 +371,22 @@ describe("TransactionHistory", () => {
       screen.getAllByRole("button", { name: /Next/i })[0];
     fireEvent.click(nextBtn);
 
-    await waitFor(() =>
+    await waitFor(() => {
       expect(
         screen.getByRole("button", { current: "page", name: /Go to page 2/i }),
-      ).toBeInTheDocument(),
-    );
+      ).toBeInTheDocument();
+    });
 
     // Apply a filter — should reset to page 1
     fireEvent.click(
       screen.getByRole("checkbox", { name: /Filter by Type Deposit/i }),
     );
 
-    await waitFor(() =>
+    await waitFor(() => {
       expect(
         screen.getByRole("button", { current: "page", name: /Go to page 1/i }),
-      ).toBeInTheDocument(),
-    );
+      ).toBeInTheDocument();
+    });
   });
 
   // Req 6.1 — type badge renders with distinct class per type
@@ -398,11 +400,10 @@ describe("TransactionHistory", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    const depositBadge = screen.getByText("deposit");
-    const withdrawalBadge = screen.getByText("withdrawal");
-
-    expect(depositBadge).toBeInTheDocument();
-    expect(withdrawalBadge).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("deposit")).toBeInTheDocument();
+      expect(screen.getByText("withdrawal")).toBeInTheDocument();
+    });
   });
 
   // Req 7.1 — empty state when no transactions
