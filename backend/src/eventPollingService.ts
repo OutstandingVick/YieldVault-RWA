@@ -325,7 +325,6 @@ export class EventPollingService {
       logger.log('error', 'Event polling failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      throw error;
     }
   }
 
