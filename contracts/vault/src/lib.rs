@@ -203,11 +203,9 @@ pub enum DataKey {
     EmergencyDisputeWindow,
     // Monotonic counter stamped on every event topic for deterministic indexer ordering.
     EventSeq,
-    // FIFO withdrawal queue metadata (head/tail sequence counters)
+    // FIFO withdrawal queue + admin param guard metadata
     WithdrawalQueueMeta,
     WithdrawalQueueEntry(u64),
-    // Cooldown metadata for sensitive admin parameter updates (Issue #774)
-    AdminParamGuard,
 }
 
 #[contracttype]
@@ -240,18 +238,12 @@ pub struct WithdrawalQueueEntry {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-/// Head/tail sequence counters for the withdrawal liquidity queue.
+/// Withdrawal queue counters and admin parameter change guard state.
 pub struct WithdrawalQueueMeta {
     pub head: u64,
     pub tail: u64,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-/// Tracks the minimum interval between sensitive admin parameter changes.
-pub struct AdminParamGuard {
-    pub last_change_ts: u64,
-    pub min_interval_secs: u64,
+    pub admin_last_change_ts: u64,
+    pub admin_min_interval_secs: u64,
 }
 
 #[contracttype]
@@ -408,7 +400,8 @@ impl YieldVault {
         assert!(
             post_version >= pre_version,
             "storage version must not decrease: was {}, now {}",
-            pre_version, post_version
+            pre_version,
+            post_version
         );
 
         env.deployer().update_current_contract_wasm(new_wasm_hash);
@@ -432,7 +425,8 @@ impl YieldVault {
         assert!(
             post_version >= pre_version,
             "storage version must not decrease: was {}, now {}",
-            pre_version, post_version
+            pre_version,
+            post_version
         );
         Ok(())
     }
@@ -665,8 +659,10 @@ impl YieldVault {
             dispute_deadline,
         };
         emergency::write_proposal(&env, proposal_id, &proposal);
-        env.events()
-            .publish((symbol_short!("emrgprop"),), (proposal_id, kind as u32, dispute_deadline));
+        env.events().publish(
+            (symbol_short!("emrgprop"),),
+            (proposal_id, kind as u32, dispute_deadline),
+        );
         proposal_id
     }
 
@@ -674,7 +670,11 @@ impl YieldVault {
     ///
     /// Confirmation is only allowed after the dispute window has closed and the
     /// proposal has not been cancelled.
-    pub fn confirm_emergency_action(env: Env, confirmer: Address, proposal_id: u32) -> Result<(), VaultError> {
+    pub fn confirm_emergency_action(
+        env: Env,
+        confirmer: Address,
+        proposal_id: u32,
+    ) -> Result<(), VaultError> {
         confirmer.require_auth();
         let secondary = emergency::secondary_approver(&env).expect("secondary approver not set");
         assert!(
@@ -1882,7 +1882,12 @@ impl YieldVault {
         env.storage()
             .instance()
             .get(&DataKey::WithdrawalQueueMeta)
-            .unwrap_or(WithdrawalQueueMeta { head: 1, tail: 1 })
+            .unwrap_or(WithdrawalQueueMeta {
+                head: 1,
+                tail: 1,
+                admin_last_change_ts: 0,
+                admin_min_interval_secs: Self::DEFAULT_ADMIN_PARAM_INTERVAL_SECS,
+            })
     }
 
     fn set_withdrawal_queue_meta(env: &Env, meta: &WithdrawalQueueMeta) {
@@ -1966,8 +1971,10 @@ impl YieldVault {
         };
         env.storage().instance().set(&deposit_key, &new_deposit);
 
-        env.events()
-            .publish((symbol_short!("wdqueue"), user.clone()), (tail, assets_to_return));
+        env.events().publish(
+            (symbol_short!("wdqueue"), user.clone()),
+            (tail, assets_to_return),
+        );
 
         Err(VaultError::WithdrawalQueued)
     }
@@ -1993,7 +2000,11 @@ impl YieldVault {
 
         while head < tail && processed < max_entries {
             let key = DataKey::WithdrawalQueueEntry(head);
-            let Some(entry) = env.storage().instance().get::<_, WithdrawalQueueEntry>(&key) else {
+            let Some(entry) = env
+                .storage()
+                .instance()
+                .get::<_, WithdrawalQueueEntry>(&key)
+            else {
                 head = head.checked_add(1).expect("overflow");
                 continue;
             };
@@ -2007,11 +2018,7 @@ impl YieldVault {
                 break;
             }
 
-            token_client.transfer(
-                &env.current_contract_address(),
-                &entry.user,
-                &entry.assets,
-            );
+            token_client.transfer(&env.current_contract_address(), &entry.user, &entry.assets);
             env.storage().instance().set(
                 &DataKey::TotalAssets,
                 &idle.checked_sub(entry.assets).expect("underflow"),
@@ -2302,24 +2309,19 @@ impl YieldVault {
 
     const DEFAULT_ADMIN_PARAM_INTERVAL_SECS: u64 = 3_600;
 
-    fn admin_param_guard(env: &Env) -> AdminParamGuard {
-        env.storage()
-            .instance()
-            .get(&DataKey::AdminParamGuard)
-            .unwrap_or(AdminParamGuard {
-                last_change_ts: 0,
-                min_interval_secs: Self::DEFAULT_ADMIN_PARAM_INTERVAL_SECS,
-            })
+    fn admin_param_guard(env: &Env) -> WithdrawalQueueMeta {
+        Self::withdrawal_queue_meta(env)
     }
 
     fn assert_admin_param_interval(env: &Env) -> Result<(), VaultError> {
         let guard = Self::admin_param_guard(env);
         let now = env.ledger().timestamp();
-        if guard.last_change_ts > 0
-            && now < guard
-                .last_change_ts
-                .checked_add(guard.min_interval_secs)
-                .expect("overflow")
+        if guard.admin_last_change_ts > 0
+            && now
+                < guard
+                    .admin_last_change_ts
+                    .checked_add(guard.admin_min_interval_secs)
+                    .expect("overflow")
         {
             return Err(VaultError::AdminParamChangeTooSoon);
         }
@@ -2327,16 +2329,14 @@ impl YieldVault {
     }
 
     fn record_admin_param_change(env: &Env) {
-        let mut guard = Self::admin_param_guard(env);
-        guard.last_change_ts = env.ledger().timestamp();
-        env.storage()
-            .instance()
-            .set(&DataKey::AdminParamGuard, &guard);
+        let mut meta = Self::withdrawal_queue_meta(env);
+        meta.admin_last_change_ts = env.ledger().timestamp();
+        Self::set_withdrawal_queue_meta(env, &meta);
     }
 
     /// Returns the configured minimum interval between sensitive admin parameter changes.
     pub fn admin_param_change_interval(env: Env) -> u64 {
-        Self::admin_param_guard(&env).min_interval_secs
+        Self::admin_param_guard(&env).admin_min_interval_secs
     }
 
     /// Configure the minimum interval between sensitive admin parameter changes.
@@ -2347,11 +2347,9 @@ impl YieldVault {
             return Err(VaultError::InvalidAmount);
         }
         Self::assert_admin_param_interval(&env)?;
-        let mut guard = Self::admin_param_guard(&env);
-        guard.min_interval_secs = seconds;
-        env.storage()
-            .instance()
-            .set(&DataKey::AdminParamGuard, &guard);
+        let mut meta = Self::withdrawal_queue_meta(&env);
+        meta.admin_min_interval_secs = seconds;
+        Self::set_withdrawal_queue_meta(&env, &meta);
         Self::record_admin_param_change(&env);
         Ok(())
     }

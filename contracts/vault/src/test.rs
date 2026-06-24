@@ -2155,8 +2155,7 @@ fn test_withdrawal_queue_processes_fifo_when_liquidity_returns() {
     assert_eq!(vault.withdrawal_queue_length(), 2);
 
     vault.divest(&980);
-    token::StellarAssetClient::new(&env, &strategy.address)
-        .mint(&vault_id, &980);
+    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &980);
 
     let processed = vault.process_withdrawal_queue(&10);
     assert_eq!(processed, 2);
@@ -2180,12 +2179,17 @@ fn test_withdrawal_queue_stops_when_liquidity_insufficient_for_head() {
     vault.deposit(&user_b, &1_000);
     vault.invest(&1_950).unwrap();
 
-    assert_eq!(vault.try_withdraw(&user_a, &500), Err(Ok(VaultError::WithdrawalQueued)));
-    assert_eq!(vault.try_withdraw(&user_b, &400), Err(Ok(VaultError::WithdrawalQueued)));
+    assert_eq!(
+        vault.try_withdraw(&user_a, &500),
+        Err(Ok(VaultError::WithdrawalQueued))
+    );
+    assert_eq!(
+        vault.try_withdraw(&user_b, &400),
+        Err(Ok(VaultError::WithdrawalQueued))
+    );
 
     vault.divest(&200);
-    token::StellarAssetClient::new(&env, &strategy.address)
-        .mint(&vault_id, &200);
+    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &200);
 
     assert_eq!(vault.process_withdrawal_queue(&10), 1);
     assert_eq!(vault.withdrawal_queue_length(), 1);
