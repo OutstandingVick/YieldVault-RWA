@@ -206,6 +206,8 @@ pub enum DataKey {
     // FIFO withdrawal queue metadata (head/tail sequence counters)
     WithdrawalQueueMeta,
     WithdrawalQueueEntry(u64),
+    // Cooldown metadata for sensitive admin parameter updates (Issue #774)
+    AdminParamGuard,
 }
 
 #[contracttype]
@@ -242,6 +244,14 @@ pub struct WithdrawalQueueEntry {
 pub struct WithdrawalQueueMeta {
     pub head: u64,
     pub tail: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+/// Tracks the minimum interval between sensitive admin parameter changes.
+pub struct AdminParamGuard {
+    pub last_change_ts: u64,
+    pub min_interval_secs: u64,
 }
 
 #[contracttype]
@@ -329,6 +339,8 @@ pub enum VaultError {
     DisputeWindowClosed = 20,
     /// Withdrawal was queued because idle liquidity was insufficient.
     WithdrawalQueued = 21,
+    /// Admin parameter change attempted before the minimum interval elapsed.
+    AdminParamChangeTooSoon = 22,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -493,9 +505,10 @@ impl YieldVault {
     ///
     /// # Panics
     /// Panics if the strategy is not whitelisted
-    pub fn set_strategy(env: Env, strategy: Address) {
+    pub fn set_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
 
         // Check whitelist using SecureWhitelist module
         if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
@@ -503,6 +516,8 @@ impl YieldVault {
         }
 
         env.storage().instance().set(&DataKey::Strategy, &strategy);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     /// Whitelist or un-whitelist a strategy address.
@@ -788,10 +803,13 @@ impl YieldVault {
         }
     }
 
-    pub fn set_per_user_cap(env: Env, cap: i128) {
+    pub fn set_per_user_cap(env: Env, cap: i128) -> Result<(), VaultError> {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         env.storage().instance().set(&DataKey::PerUserCap, &cap);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     pub fn per_user_cap(env: Env) -> i128 {
@@ -981,15 +999,18 @@ impl YieldVault {
         harvested
     }
 
-    pub fn set_dao_threshold(env: Env, threshold: i128) {
+    pub fn set_dao_threshold(env: Env, threshold: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         if threshold <= 0 {
             panic!("threshold must be > 0");
         }
         env.storage()
             .instance()
             .set(&DataKey::DaoThreshold, &threshold);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     pub fn create_strategy_proposal(env: Env, proposer: Address, strategy: Address) -> u32 {
@@ -2279,17 +2300,76 @@ impl YieldVault {
 
     // ── Goal 1: Protocol fee ──────────────────────────────────────────────────
 
-    /// Set the protocol fee in basis points (0–10000). Emits a FeeBpsChanged event.
-    pub fn set_fee_bps(env: Env, new_bps: i128) {
+    const DEFAULT_ADMIN_PARAM_INTERVAL_SECS: u64 = 3_600;
+
+    fn admin_param_guard(env: &Env) -> AdminParamGuard {
+        env.storage()
+            .instance()
+            .get(&DataKey::AdminParamGuard)
+            .unwrap_or(AdminParamGuard {
+                last_change_ts: 0,
+                min_interval_secs: Self::DEFAULT_ADMIN_PARAM_INTERVAL_SECS,
+            })
+    }
+
+    fn assert_admin_param_interval(env: &Env) -> Result<(), VaultError> {
+        let guard = Self::admin_param_guard(env);
+        let now = env.ledger().timestamp();
+        if guard.last_change_ts > 0
+            && now < guard
+                .last_change_ts
+                .checked_add(guard.min_interval_secs)
+                .expect("overflow")
+        {
+            return Err(VaultError::AdminParamChangeTooSoon);
+        }
+        Ok(())
+    }
+
+    fn record_admin_param_change(env: &Env) {
+        let mut guard = Self::admin_param_guard(env);
+        guard.last_change_ts = env.ledger().timestamp();
+        env.storage()
+            .instance()
+            .set(&DataKey::AdminParamGuard, &guard);
+    }
+
+    /// Returns the configured minimum interval between sensitive admin parameter changes.
+    pub fn admin_param_change_interval(env: Env) -> u64 {
+        Self::admin_param_guard(&env).min_interval_secs
+    }
+
+    /// Configure the minimum interval between sensitive admin parameter changes.
+    pub fn set_admin_param_change_interval(env: Env, seconds: u64) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        if seconds == 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+        Self::assert_admin_param_interval(&env)?;
+        let mut guard = Self::admin_param_guard(&env);
+        guard.min_interval_secs = seconds;
+        env.storage()
+            .instance()
+            .set(&DataKey::AdminParamGuard, &guard);
+        Self::record_admin_param_change(&env);
+        Ok(())
+    }
+
+    /// Set the protocol fee in basis points (0–10000). Emits a FeeBpsChanged event.
+    pub fn set_fee_bps(env: Env, new_bps: i128) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         if !(0..=10_000).contains(&new_bps) {
             panic!("fee_bps must be 0-10000");
         }
         let old_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
         env.storage().instance().set(&DataKey::FeeBps, &new_bps);
+        Self::record_admin_param_change(&env);
         env.events()
             .publish((symbol_short!("feechg"),), (old_bps, new_bps));
+        Ok(())
     }
 
     /// Returns the current fee in basis points.
@@ -2298,10 +2378,13 @@ impl YieldVault {
     }
 
     /// Set the treasury address where fees accumulate.
-    pub fn set_treasury(env: Env, treasury: Address) {
+    pub fn set_treasury(env: Env, treasury: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         env.storage().instance().set(&DataKey::Treasury, &treasury);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     /// Returns the treasury address.
@@ -2359,15 +2442,18 @@ impl YieldVault {
     // ── Goal 2: Large-withdrawal timelock ────────────────────────────────────
 
     /// Set the threshold above which withdrawals require a 24-hour timelock.
-    pub fn set_large_withdrawal_threshold(env: Env, threshold: i128) {
+    pub fn set_large_withdrawal_threshold(env: Env, threshold: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         if threshold <= 0 {
             panic!("threshold must be > 0");
         }
         env.storage()
             .instance()
             .set(&DataKey::LargeWithdrawalThreshold, &threshold);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     /// Returns the current large-withdrawal threshold.
@@ -2381,9 +2467,10 @@ impl YieldVault {
     // ── Goal 3: Minimum deposit ───────────────────────────────────────────────
 
     /// Set the minimum deposit amount. Emits a MinDepositChanged event.
-    pub fn set_min_deposit(env: Env, new_min: i128) {
+    pub fn set_min_deposit(env: Env, new_min: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         if new_min < 0 {
             panic!("min_deposit must be >= 0");
         }
@@ -2393,8 +2480,10 @@ impl YieldVault {
             .get(&DataKey::MinDeposit)
             .unwrap_or(0);
         env.storage().instance().set(&DataKey::MinDeposit, &new_min);
+        Self::record_admin_param_change(&env);
         env.events()
             .publish((symbol_short!("mindepchg"),), (old_min, new_min));
+        Ok(())
     }
 
     /// Returns the current minimum deposit threshold.
@@ -2406,9 +2495,10 @@ impl YieldVault {
     }
 
     /// Set the minimum idle vault liquidity retained before strategy allocation.
-    pub fn set_min_liquidity_buffer(env: Env, new_buffer: i128) {
+    pub fn set_min_liquidity_buffer(env: Env, new_buffer: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         if new_buffer < 0 {
             panic!("min_liquidity_buffer must be >= 0");
         }
@@ -2416,8 +2506,10 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::MinLiquidityBuffer, &new_buffer);
+        Self::record_admin_param_change(&env);
         env.events()
             .publish((symbol_short!("liqbufchg"),), (old_buffer, new_buffer));
+        Ok(())
     }
 
     /// Returns the minimum idle vault liquidity retained before strategy allocation.
@@ -2433,9 +2525,10 @@ impl YieldVault {
     /// Set the withdrawal cooldown duration in seconds.
     /// When non-zero, users must wait this long after depositing before they can withdraw.
     /// Only the Admin can call this.
-    pub fn set_withdrawal_cooldown(env: Env, seconds: u64) {
+    pub fn set_withdrawal_cooldown(env: Env, seconds: u64) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         let old: u64 = env
             .storage()
             .instance()
@@ -2444,8 +2537,10 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::WithdrawalCooldown, &seconds);
+        Self::record_admin_param_change(&env);
         env.events()
             .publish((symbol_short!("wdrwcd"),), (old, seconds));
+        Ok(())
     }
 
     /// Returns the current withdrawal cooldown in seconds (0 = no cooldown).
@@ -2460,10 +2555,13 @@ impl YieldVault {
 
     /// Set the price oracle contract address used for strategy value validation.
     /// Only the Admin can call this.
-    pub fn set_price_oracle(env: Env, oracle: Address) {
+    pub fn set_price_oracle(env: Env, oracle: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         env.storage().instance().set(&DataKey::PriceOracle, &oracle);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     /// Returns the configured price oracle address, if any.
@@ -2473,12 +2571,15 @@ impl YieldVault {
 
     /// Enable or disable oracle-based price validation for strategy values.
     /// Only the Admin can call this.
-    pub fn set_oracle_enabled(env: Env, enabled: bool) {
+    pub fn set_oracle_enabled(env: Env, enabled: bool) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::OracleEnabled, &enabled);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     /// Returns whether oracle price validation is currently enabled.
@@ -2492,12 +2593,15 @@ impl YieldVault {
     /// Set the oracle heartbeat in seconds — the maximum age of a price feed
     /// before it is considered stale. Defaults to 3600 (1 hour).
     /// Only the Admin can call this.
-    pub fn set_oracle_heartbeat(env: Env, seconds: u64) {
+    pub fn set_oracle_heartbeat(env: Env, seconds: u64) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
         env.storage()
             .instance()
             .set(&DataKey::OracleHeartbeat, &seconds);
+        Self::record_admin_param_change(&env);
+        Ok(())
     }
 
     /// Returns the current oracle heartbeat in seconds.
