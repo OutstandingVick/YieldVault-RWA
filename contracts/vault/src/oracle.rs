@@ -220,7 +220,7 @@ impl OracleValidator {
         let current_time = env.ledger().timestamp();
         Self::validate_not_future(price_data, current_time)?;
         Self::validate_price_value(price_data)?;
-        
+
         // Block swap if price is below minimum acceptable level
         if price_data_price(price_data) < min_price_confidence {
             return Err(OracleError::PriceDeviationExceeded);

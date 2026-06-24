@@ -25,6 +25,7 @@
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
+use crate::strategy_registration::StrategyRegistrationState;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, Address, Env, Vec};
 
@@ -2276,3 +2277,130 @@ fn test_withdraw_auto_divest_liquidity_path() {
     assert_eq!(vault.total_assets(), 0);
 }
 
+// ─── Issue #746: strategy registration lifecycle ───────────────────────────
+
+#[test]
+fn test_strategy_registration_pending_to_active_to_retired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.register_strategy(&strategy).unwrap();
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(StrategyRegistrationState::Pending)
+    );
+
+    vault.activate_strategy_registration(&strategy).unwrap();
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(StrategyRegistrationState::Active)
+    );
+
+    vault.retire_strategy(&strategy).unwrap();
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(StrategyRegistrationState::Retired)
+    );
+}
+
+#[test]
+fn test_strategy_registration_rejects_invalid_transitions() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    assert_eq!(
+        vault.try_activate_strategy_registration(&strategy),
+        Err(Ok(VaultError::InvalidStrategyRegistrationTransition))
+    );
+
+    vault.register_strategy(&strategy).unwrap();
+    assert_eq!(
+        vault.try_register_strategy(&strategy),
+        Err(Ok(VaultError::StrategyAlreadyRegistered))
+    );
+
+    vault.activate_strategy_registration(&strategy).unwrap();
+    assert_eq!(
+        vault.try_activate_strategy_registration(&strategy),
+        Err(Ok(VaultError::InvalidStrategyRegistrationTransition))
+    );
+}
+
+#[test]
+fn test_strategy_registration_cannot_retire_active_vault_strategy() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy, &true);
+    vault.set_strategy(&strategy).unwrap();
+
+    assert_eq!(
+        vault.try_retire_strategy(&strategy),
+        Err(Ok(VaultError::CannotRetireActiveStrategy))
+    );
+}
+
+#[test]
+fn test_set_strategy_rejects_retired_registration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy_a = Address::generate(&env);
+    let strategy_b = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy_a, &true);
+    vault.set_strategy(&strategy_a).unwrap();
+    env.ledger().with_mut(|li| {
+        li.timestamp += 3_601;
+    });
+    vault.whitelist_strategy(&strategy_b, &true);
+    vault.set_strategy(&strategy_b).unwrap();
+
+    vault.retire_strategy(&strategy_a).unwrap();
+    assert_eq!(
+        vault.try_set_strategy(&strategy_a),
+        Err(Ok(VaultError::StrategyRegistrationNotActive))
+    );
+}
+
+#[test]
+fn test_whitelist_registers_strategy_as_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy, &true);
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(StrategyRegistrationState::Pending)
+    );
+}
+
+#[test]
+fn test_set_strategy_promotes_pending_registration_to_active() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy, &true);
+    vault.set_strategy(&strategy).unwrap();
+
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(StrategyRegistrationState::Active)
+    );
+}

@@ -75,9 +75,11 @@ mod test;
 pub mod upgrade;
 
 pub mod oracle;
+pub mod strategy_registration;
 pub mod whitelist;
 
 use crate::strategy::StrategyClient;
+use crate::strategy_registration::{StrategyRegistrationError, StrategyRegistrationState};
 use crate::upgrade::{
     get_admin, get_pending_admin, get_storage_version, is_initialized, set_admin, set_initialized,
     set_pending_admin, set_storage_version,
@@ -335,6 +337,11 @@ pub enum VaultError {
     WithdrawalQueued = 21,
     /// Admin parameter change attempted before the minimum interval elapsed.
     AdminParamChangeTooSoon = 22,
+    StrategyNotRegistered = 23,
+    InvalidStrategyRegistrationTransition = 24,
+    StrategyRegistrationNotActive = 25,
+    CannotRetireActiveStrategy = 26,
+    StrategyAlreadyRegistered = 27,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -490,6 +497,52 @@ impl YieldVault {
         get_pending_admin(&env)
     }
 
+    fn map_registration_error(err: StrategyRegistrationError) -> VaultError {
+        match err {
+            StrategyRegistrationError::NotRegistered => VaultError::StrategyNotRegistered,
+            StrategyRegistrationError::InvalidTransition => {
+                VaultError::InvalidStrategyRegistrationTransition
+            }
+            StrategyRegistrationError::StrategyNotActive => {
+                VaultError::StrategyRegistrationNotActive
+            }
+            StrategyRegistrationError::ActiveStrategyInUse => {
+                VaultError::CannotRetireActiveStrategy
+            }
+            StrategyRegistrationError::AlreadyRegistered => VaultError::StrategyAlreadyRegistered,
+            StrategyRegistrationError::Unauthorized => VaultError::ContractPaused,
+        }
+    }
+
+    pub fn register_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        strategy_registration::register_strategy(&env, &admin, &strategy)
+            .map(|_| ())
+            .map_err(Self::map_registration_error)
+    }
+
+    pub fn activate_strategy_registration(env: Env, strategy: Address) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        strategy_registration::activate_strategy(&env, &admin, &strategy)
+            .map(|_| ())
+            .map_err(Self::map_registration_error)
+    }
+
+    pub fn retire_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        let active = Self::strategy(env.clone());
+        strategy_registration::retire_strategy(&env, &admin, &strategy, active)
+            .map(|_| ())
+            .map_err(Self::map_registration_error)
+    }
+
+    pub fn strategy_registration_state(
+        env: Env,
+        strategy: Address,
+    ) -> Option<StrategyRegistrationState> {
+        strategy_registration::read_registration_state(&env, &strategy)
+    }
+
     /// Set or update the active strategy connector.
     ///
     /// The strategy must be whitelisted before it can be set as the active strategy.
@@ -509,6 +562,23 @@ impl YieldVault {
         // Check whitelist using SecureWhitelist module
         if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
             panic!("strategy not whitelisted");
+        }
+
+        match strategy_registration::read_registration_state(&env, &strategy) {
+            Some(StrategyRegistrationState::Active) => {}
+            Some(StrategyRegistrationState::Pending) => {
+                strategy_registration::activate_strategy(&env, &admin, &strategy)
+                    .map_err(Self::map_registration_error)?;
+            }
+            Some(StrategyRegistrationState::Retired) => {
+                return Err(VaultError::StrategyRegistrationNotActive);
+            }
+            None => {
+                strategy_registration::register_strategy(&env, &admin, &strategy)
+                    .map_err(Self::map_registration_error)?;
+                strategy_registration::activate_strategy(&env, &admin, &strategy)
+                    .map_err(Self::map_registration_error)?;
+            }
         }
 
         env.storage().instance().set(&DataKey::Strategy, &strategy);
@@ -534,12 +604,7 @@ impl YieldVault {
 
         // Use SecureWhitelist module for whitelist operations
         match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
-            Ok(_) => {
-                // Also update the DataKey-based storage for backward compatibility
-                env.storage()
-                    .instance()
-                    .set(&DataKey::StrategyWhitelist(strategy), &approved);
-            }
+            Ok(_) => {}
             Err(_) => panic!("whitelist operation failed"),
         }
     }
@@ -801,7 +866,7 @@ impl YieldVault {
         let state = Self::get_state(&env);
         let total_assets = state.total_assets;
         let strategy_count = 2u32; // BENJI + Korean Debt are the standard active strategies
-        
+
         emergency::simulate_emergency_unwind(
             total_assets,
             strategy_count,
@@ -1137,7 +1202,10 @@ impl YieldVault {
 
         // During migration, accept both old and new signer sets
         let is_migration = current_time < migration_deadline
-            && env.storage().instance().has(&DataKey::GovernancePreviousSigners);
+            && env
+                .storage()
+                .instance()
+                .has(&DataKey::GovernancePreviousSigners);
 
         if is_migration {
             let old_signers: Vec<Address> = env
@@ -1152,8 +1220,12 @@ impl YieldVault {
             {
                 return;
             }
-            if permissions::MultiSignerValidator::verify_threshold(&old_signers, threshold, &approvals)
-                .is_ok()
+            if permissions::MultiSignerValidator::verify_threshold(
+                &old_signers,
+                threshold,
+                &approvals,
+            )
+            .is_ok()
             {
                 return;
             }
@@ -2212,6 +2284,8 @@ impl YieldVault {
         }
 
         let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
+        strategy_registration::require_active_registration(&env, &strategy_addr)
+            .map_err(Self::map_registration_error)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         // Cap check
@@ -2320,6 +2394,11 @@ impl YieldVault {
         if amount <= 0 {
             return Err(VaultError::InvalidAmount);
         }
+
+        strategy_registration::require_active_registration(&env, &from_strategy)
+            .map_err(Self::map_registration_error)?;
+        strategy_registration::require_active_registration(&env, &to_strategy)
+            .map_err(Self::map_registration_error)?;
 
         let from_client = StrategyClient::new(&env, &from_strategy);
         let to_client = StrategyClient::new(&env, &to_strategy);
@@ -2431,10 +2510,10 @@ impl YieldVault {
                     .instance()
                     .get(&DataKey::TreasuryRolloverExcess)
                     .unwrap_or(0);
-                let available_capacity = fee_math::MAX_TREASURY_ACCUMULATOR
-                    .saturating_sub(treasury_bal);
+                let available_capacity =
+                    fee_math::MAX_TREASURY_ACCUMULATOR.saturating_sub(treasury_bal);
                 let excess = fee_amount.saturating_sub(available_capacity);
-                
+
                 treasury_bal = fee_math::MAX_TREASURY_ACCUMULATOR;
                 let new_rollover = rollover.checked_add(excess).unwrap_or(i128::MAX);
                 env.storage()
@@ -2640,8 +2719,10 @@ impl YieldVault {
             &total_claimable,
         );
 
-        env.events()
-            .publish((symbol_short!("feeall"),), (treasury, total_claimable, rollover));
+        env.events().publish(
+            (symbol_short!("feeall"),),
+            (treasury, total_claimable, rollover),
+        );
     }
 
     /// Transfers the entire accumulated treasury balance to the treasury address.
