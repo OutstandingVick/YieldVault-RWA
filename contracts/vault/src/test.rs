@@ -2229,3 +2229,50 @@ fn test_admin_param_change_interval_applies_across_setters() {
     let blocked = vault.try_set_dao_threshold(&5);
     assert_eq!(blocked, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 }
+
+#[test]
+fn test_withdraw_auto_divest_liquidity_path() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (vault, usdc, usdc_sa, strategy, _admin, vault_id) = setup_vault_with_strategy(&env);
+    let user = Address::generate(&env);
+
+    // 1. Mint USDC to the user
+    usdc_sa.mint(&user, &10_000);
+
+    // 2. Deposit 10,000 USDC into the vault
+    vault.deposit(&user, &10_000);
+
+    // Assert that the vault has 10,000 USDC in idle assets
+    assert_eq!(vault.total_assets(), 10_000);
+    assert_eq!(usdc.balance(&vault_id), 10_000);
+
+    // 3. Invest 8,000 USDC into the strategy
+    vault.invest(&8_000).unwrap();
+
+    // Verify balances after investment
+    // Vault idle assets should be 2,000 (10,000 - 8,000)
+    // Strategy contract should hold 8,000 USDC
+    assert_eq!(usdc.balance(&vault_id), 2_000);
+    assert_eq!(usdc.balance(&strategy.address), 8_000);
+
+    // 4. Withdraw the user's full balance of shares (10,000 shares)
+    // This should trigger the auto-divest path:
+    //   assets_to_return = 10,000 USDC
+    //   idle USDC = 2,000 USDC
+    //   shortfall = 8,000 USDC
+    //   So it should call divest(8,000) to recall 8,000 USDC from the strategy.
+    vault.withdraw(&user, &10_000);
+
+    // 5. Verify results
+    // User should have received the full 10,000 USDC back
+    assert_eq!(usdc.balance(&user), 10_000);
+    // Vault should have 0 idle assets left
+    assert_eq!(usdc.balance(&vault_id), 0);
+    // Strategy should have 0 USDC left
+    assert_eq!(usdc.balance(&strategy.address), 0);
+    // Vault total assets and total shares should be 0
+    assert_eq!(vault.total_assets(), 0);
+}
+
