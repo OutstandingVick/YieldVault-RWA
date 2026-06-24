@@ -150,7 +150,10 @@ import {
 import { normalizeWalletAddress } from './walletUtils';
 import { emailQueueService } from './emailQueue';
 import { webhookDeduplicationStore } from './webhookDeduplication';
-import { requestIdStorage } from './requestContext';
+import { requestIdStorage, serializeContext, runWithSerializedContext, wrapWithContext } from './requestContext';
+import { healthProbeService, type DependencyName } from './healthProbe';
+import { writeAheadAuditLog } from './writeAheadAuditLog';
+import { scopedAdminTokenStore, type AdminPermission } from './scopedAdminTokens';
 
 declare global {
   namespace Express {
@@ -3517,6 +3520,304 @@ function getStellarRpcHealth(): string {
 function checkStellarRpcDependency(): boolean {
   return getStellarRpcHealth() === 'up';
 }
+
+// ─── Health Probe Registration (Issue #719) ─────────────────────────────────
+healthProbeService.register('database', async () => {
+  const health = await getDatabaseHealth();
+  return health.primary === 'up' ? 'up' : 'down';
+});
+healthProbeService.register('cache', async () => {
+  return getCacheHealth() as 'up' | 'down';
+});
+healthProbeService.register('stellarRpc', async () => {
+  return getStellarRpcHealth() as 'up' | 'down';
+});
+healthProbeService.register('prisma', async () => {
+  return await getPrismaHealth();
+});
+healthProbeService.register('queue', async () => {
+  return getJobHealthStatus() === 'up' ? 'up' : 'down';
+});
+
+/**
+ * GET /health/probes
+ * Returns per-dependency probe states with latency and last-error details.
+ * Issue #719: Health probe decomposition.
+ */
+app.get('/health/probes', async (_req: Request, res: Response) => {
+  const probes = await healthProbeService.checkAll();
+  const allHealthy = Object.values(probes).every((p) => p.status === 'up');
+
+  res.status(allHealthy ? 200 : 503).json({
+    status: allHealthy ? 'healthy' : 'degraded',
+    probes,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Write-Ahead Audit Log Endpoints (Issue #707) ───────────────────────────
+
+/**
+ * GET /admin/wal/entries
+ * Lists write-ahead audit log entries with optional filters.
+ */
+app.get('/admin/wal/entries', validateApiKey, (req: Request, res: Response) => {
+  const configType = typeof req.query.configType === 'string' ? req.query.configType : undefined;
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const status = typeof req.query.status === 'string' ? req.query.status as 'pending' | 'committed' | 'rolled_back' : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+
+  const entries = writeAheadAuditLog.list({ configType, actor, status, limit });
+
+  res.status(200).json({
+    entries,
+    count: entries.length,
+    metrics: writeAheadAuditLog.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/wal/entries/:id
+ * Returns a specific write-ahead audit log entry.
+ */
+app.get('/admin/wal/entries/:id', validateApiKey, (req: Request, res: Response) => {
+  const entry = writeAheadAuditLog.getEntry(req.params.id);
+  if (!entry) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Write-ahead audit log entry not found',
+    });
+    return;
+  }
+  res.status(200).json({ entry });
+});
+
+/**
+ * GET /admin/wal/metrics
+ * Returns metrics for the write-ahead audit log.
+ */
+app.get('/admin/wal/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: writeAheadAuditLog.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/wal/pending
+ * Returns currently pending (uncommitted) write-ahead entries.
+ */
+app.get('/admin/wal/pending', validateApiKey, (_req: Request, res: Response) => {
+  const pending = writeAheadAuditLog.getPendingEntries();
+  res.status(200).json({
+    entries: pending,
+    count: pending.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Scoped Admin Token Endpoints (Issue #723) ──────────────────────────────
+
+/**
+ * POST /admin/scoped-tokens
+ * Creates a new permission-scoped admin token.
+ * Requires super-admin API key.
+ */
+app.post('/admin/scoped-tokens', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to create scoped tokens',
+    });
+    return;
+  }
+
+  const { label, permissions, expiresInSeconds } = req.body;
+
+  if (typeof label !== 'string' || !label.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`label` (string) is required',
+    });
+    return;
+  }
+
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`permissions` (non-empty array) is required',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  try {
+    const { token, secret } = scopedAdminTokenStore.create({
+      label: label.trim(),
+      permissions,
+      expiresInSeconds: typeof expiresInSeconds === 'number' && expiresInSeconds > 0 ? expiresInSeconds : undefined,
+      createdBy: actor,
+    });
+
+    void recordAdminAuditLog(req, 'scoped-token.created', 201, {
+      keyId: token.keyId,
+      label: token.label,
+      permissions: token.permissions,
+      actor,
+    });
+
+    res.status(201).json({
+      message: 'Scoped admin token created',
+      keyId: token.keyId,
+      secret,
+      label: token.label,
+      permissions: token.permissions,
+      expiresAt: token.expiresAt,
+      createdAt: token.createdAt,
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: error instanceof Error ? error.message : 'Failed to create scoped token',
+    });
+  }
+});
+
+/**
+ * GET /admin/scoped-tokens
+ * Lists all scoped admin tokens (without secrets).
+ * Requires super-admin API key.
+ */
+app.get('/admin/scoped-tokens', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to list scoped tokens',
+    });
+    return;
+  }
+
+  const includeRevoked = req.query.includeRevoked === 'true';
+  const tokens = scopedAdminTokenStore.list({ includeRevoked });
+  const sanitized = tokens.map(({ hashedSecret, ...rest }) => rest);
+
+  res.status(200).json({
+    tokens: sanitized,
+    count: sanitized.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/scoped-tokens/:keyId/rotate
+ * Rotates the secret for an existing scoped token.
+ * Requires super-admin API key.
+ */
+app.post('/admin/scoped-tokens/:keyId/rotate', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to rotate scoped tokens',
+    });
+    return;
+  }
+
+  const result = scopedAdminTokenStore.rotate(req.params.keyId);
+  if (!result) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Scoped token not found or already revoked',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  void recordAdminAuditLog(req, 'scoped-token.rotated', 200, {
+    keyId: result.keyId,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Scoped token rotated',
+    keyId: result.keyId,
+    newSecret: result.newSecret,
+    rotatedAt: result.rotatedAt,
+  });
+});
+
+/**
+ * DELETE /admin/scoped-tokens/:keyId
+ * Revokes a scoped admin token.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/scoped-tokens/:keyId', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to revoke scoped tokens',
+    });
+    return;
+  }
+
+  const revoked = scopedAdminTokenStore.revoke(req.params.keyId);
+  if (!revoked) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Scoped token not found or already revoked',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  void recordAdminAuditLog(req, 'scoped-token.revoked', 200, {
+    keyId: req.params.keyId,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Scoped token revoked',
+    keyId: req.params.keyId,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/scoped-tokens/permissions
+ * Returns the list of valid permissions for scoped tokens.
+ */
+app.get('/admin/scoped-tokens/permissions', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    permissions: scopedAdminTokenStore.getValidPermissions(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Request Context Debug Endpoint (Issue #705) ────────────────────────────
+
+/**
+ * GET /admin/request-context
+ * Returns the current request's propagated context (requestId, correlationId,
+ * originService, parentJobId) to verify end-to-end propagation.
+ */
+app.get('/admin/request-context', validateApiKey, (req: Request, res: Response) => {
+  const ctx = serializeContext();
+  res.status(200).json({
+    context: ctx ?? { requestId: req.requestId, correlationId: req.correlationId },
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ─── Error Handler ──────────────────────────────────────────────────────────
 

@@ -4,6 +4,8 @@ import { AsyncLocalStorage } from 'async_hooks';
 export interface RequestContext {
   requestId: string;
   correlationId?: string;
+  originService?: string;
+  parentJobId?: string;
 }
 
 /**
@@ -27,6 +29,80 @@ export function getActiveRequestId(): string | undefined {
  */
 export function getActiveCorrelationId(): string | undefined {
   return requestIdStorage.getStore()?.correlationId;
+}
+
+/**
+ * Returns the full request context snapshot for serialization into job
+ * payloads, queue messages, or worker metadata.
+ */
+export function captureRequestContext(): RequestContext | null {
+  return requestIdStorage.getStore() ?? null;
+}
+
+/**
+ * Runs a callback within a restored request context. Use this to propagate
+ * request IDs across async job boundaries (queues, workers, setTimeout).
+ */
+export function runWithRequestContext<T>(
+  ctx: RequestContext,
+  fn: () => T,
+): T {
+  return requestIdStorage.run(ctx, fn);
+}
+
+/**
+ * Wraps an async task function so that the current request context is
+ * captured at enqueue time and restored when the task executes.
+ */
+export function wrapWithContext<T extends (...args: any[]) => any>(fn: T): T {
+  const captured = captureRequestContext();
+  if (!captured) return fn;
+
+  const wrapped = (...args: any[]) => {
+    return requestIdStorage.run(captured, () => fn(...args));
+  };
+  return wrapped as T;
+}
+
+/**
+ * Serializes the current request context into a plain object suitable
+ * for inclusion in job payloads or queue message headers.
+ */
+export function serializeContext(): Record<string, string> | null {
+  const ctx = requestIdStorage.getStore();
+  if (!ctx) return null;
+
+  const result: Record<string, string> = {
+    requestId: ctx.requestId,
+  };
+  if (ctx.correlationId) result.correlationId = ctx.correlationId;
+  if (ctx.originService) result.originService = ctx.originService;
+  if (ctx.parentJobId) result.parentJobId = ctx.parentJobId;
+
+  return result;
+}
+
+/**
+ * Deserializes a plain object back into a RequestContext and runs the
+ * callback within that context.
+ */
+export function runWithSerializedContext<T>(
+  serialized: Record<string, string> | null | undefined,
+  fn: () => T,
+): T {
+  if (!serialized || !serialized.requestId) {
+    const fallback: RequestContext = { requestId: createRequestId() };
+    return requestIdStorage.run(fallback, fn);
+  }
+
+  const ctx: RequestContext = {
+    requestId: serialized.requestId,
+    correlationId: serialized.correlationId,
+    originService: serialized.originService,
+    parentJobId: serialized.parentJobId,
+  };
+
+  return requestIdStorage.run(ctx, fn);
 }
 
 export function createRequestId(): string {
