@@ -11,13 +11,14 @@
 
 import { z, ZodError, ZodIssue, ZodTypeAny } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
+import { isValidStellarAddress } from '../sanitization';
 
 // ─── Shared field schemas ─────────────────────────────────────────────────────
 
-/** Stellar wallet address: permissive testnet/mainnet-shaped public key. */
+/** Stellar wallet address: validated via StrKey checksum (rejects muxed/malformed). */
 export const walletAddressSchema = z
   .string()
-  .regex(/^G[A-Za-z0-9]{55,63}$/, 'Invalid Stellar wallet address format');
+  .refine(isValidStellarAddress, { message: 'Invalid Stellar wallet address format' });
 
 /** Positive numeric amount (accepts number or numeric string) */
 export const amountSchema = z
