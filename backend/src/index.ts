@@ -104,6 +104,9 @@ import { latencyMonitoringService } from './latencyMonitoring';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
 import { getPrismaClient } from './prismaClient';
+import { errorBoundaryMiddleware } from './middleware/errorBoundary';
+import { diagnosticsBundleHandler } from './diagnosticsBundle';
+import { reconciliationReportHandler } from './reconciliationReport';
 import {
   verifyWebhookEndpoint,
   registerWebhookEndpoint,
@@ -3833,6 +3836,27 @@ app.get('/admin/request-context', validateApiKey, (req: Request, res: Response) 
     timestamp: new Date().toISOString(),
   });
 });
+
+// ─── Admin Diagnostics & Reconciliation (Issues #721, #724) ─────────────────
+
+/**
+ * GET /admin/diagnostics
+ * Returns a sanitized diagnostics bundle for incident triage.
+ * Requires admin API key authentication.
+ */
+app.get('/admin/diagnostics', validateApiKey, diagnosticsBundleHandler);
+
+/**
+ * GET /admin/reconciliation
+ * Returns a reconciliation report comparing ledger vs database state.
+ * Requires admin API key authentication.
+ */
+app.get('/admin/reconciliation', validateApiKey, reconciliationReportHandler);
+
+// ─── Typed Error Boundary (Issue #708) ──────────────────────────────────────
+// Mounted before the generic error handler so upstream dependency failures
+// are mapped to typed API errors with stable codes and retry hints.
+app.use(errorBoundaryMiddleware);
 
 // ─── Error Handler ──────────────────────────────────────────────────────────
 
