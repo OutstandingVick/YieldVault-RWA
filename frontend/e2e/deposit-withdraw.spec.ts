@@ -28,7 +28,7 @@ async function confirmDeposit(page: Page) {
 }
 
 async function confirmWithdrawal(page: Page) {
-  const confirmBtn = page.getByRole('button', { name: /Confirm withdrawal/i });
+  const confirmBtn = page.getByRole('button', { name: /Confirm withdraw/i });
   await expect(confirmBtn).toBeEnabled();
   await confirmBtn.click();
   await confirmInModal(page);
