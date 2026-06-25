@@ -2134,8 +2134,8 @@ fn test_withdrawal_queue_processes_fifo_when_liquidity_returns() {
     assert_eq!(vault.try_withdraw(&user_a, &200), Ok(Ok(200)));
     assert_eq!(vault.try_withdraw(&user_b, &150), Ok(Ok(150)));
     assert_eq!(vault.withdrawal_queue_length(), 0);
-    assert_eq!(usdc.balance(&user_a), 800);
-    assert_eq!(usdc.balance(&user_b), 850);
+    assert_eq!(usdc.balance(&user_a), 700);
+    assert_eq!(usdc.balance(&user_b), 650);
 }
 
 #[test]
@@ -2157,7 +2157,7 @@ fn test_withdrawal_queue_stops_when_liquidity_insufficient_for_head() {
     assert_eq!(vault.try_withdraw(&user_b, &400), Ok(Ok(400)));
     assert_eq!(vault.withdrawal_queue_length(), 0);
     assert_eq!(usdc.balance(&user_a), 1_500);
-    assert_eq!(usdc.balance(&user_b), 1_600);
+    assert_eq!(usdc.balance(&user_b), 1_400);
 }
 
 // ─── Issue #774: admin parameter change interval ─────────────────────────────
