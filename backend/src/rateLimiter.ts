@@ -383,8 +383,28 @@ export const adminLimiter: RequestHandler = createLimiter({
   windowMs: config.admin.windowMs,
 });
 
+/**
+ * Dedicated per-wallet rate limiter for deposit and withdrawal mutations.
+ * Configured via DEPOSITS_RATE_LIMIT_MAX / DEPOSITS_RATE_LIMIT_WINDOW_MS.
+ * Falls back to in-memory store when Redis is unconfigured; logs a warning so
+ * operators know the Redis-backed protection is not active.
+ */
+export const depositsLimiter: RequestHandler = (() => {
+  if (!redisClientManager.getClient()) {
+    console.log(
+      JSON.stringify({
+        level: 'warn',
+        event: 'deposits_limiter_fallback',
+        message:
+          'REDIS_URL not set; deposits/withdrawals rate limiter using in-memory store',
+        tier: 'deposits',
+      })
+    );
+  }
+  return createLimiter({ tier: 'deposits', max: config.deposits.max, windowMs: config.deposits.windowMs });
+})();
+
 /** Backward-compatibility aliases */
-export const depositsLimiter = writesLimiter;
 export const summaryLimiter = readsLimiter;
 export const defaultLimiter = readsLimiter;
 export const apiLimiter = readsLimiter;

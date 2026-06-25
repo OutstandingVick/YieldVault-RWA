@@ -20,6 +20,7 @@ import {
   encodeCursor,
   PaginationConfig,
   createPaginatedResponse,
+  createPaginationEnvelope,
   PaginatedResponse,
 } from './pagination';
 import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
@@ -36,6 +37,7 @@ import {
 } from './exportJobs';
 import { tenantGuard } from './middleware/tenantGuard';
 import { createTimeoutFor } from './middleware/timeoutMiddleware';
+import { getPrismaClient } from './prismaClient';
 
 const router = Router();
 const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000', 10);
@@ -423,40 +425,94 @@ function parseDateRangeOrThrow(filters: { from?: string; to?: string }): ParsedU
   return parseUtcDateRange(filters);
 }
 
-export function buildTransactionsResponse(
+/** Map a Prisma Transaction row to the public Transaction shape. */
+function dbRowToTransaction(row: {
+  id: string;
+  user: string;
+  amount: string;
+  type: string;
+  status: string | null;
+  referralCode: string | null;
+  timestamp: Date;
+}): Transaction {
+  return {
+    id: row.id,
+    type: row.type as 'deposit' | 'withdrawal',
+    status: (row.status ?? 'completed') as 'pending' | 'completed' | 'failed',
+    amount: row.amount,
+    asset: 'USDC',
+    timestamp: row.timestamp.toISOString(),
+    transactionHash: '',
+    walletAddress: row.user,
+  };
+}
+
+export async function buildTransactionsResponse(
   query: WalletStateQuery
-): PaginatedResponse<Transaction> {
-  const pagination = {
-    limit: query.limit ?? TRANSACTION_PAGINATION_CONFIG.defaultLimit ?? 20,
-    cursor: query.cursor,
-    page: query.page,
-    sortBy: query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy,
-    sortOrder: query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc',
-  };
-  const filters = {
-    type: query.type,
-    status: query.status,
-    from: query.from,
-    to: query.to,
-    walletAddress: query.walletAddress,
-  };
+): Promise<PaginatedResponse<Transaction>> {
+  const prisma = getPrismaClient();
+  const limit = query.limit ?? TRANSACTION_PAGINATION_CONFIG.defaultLimit ?? 20;
   const normalizedDateRange = parseDateRangeOrThrow({ from: query.from, to: query.to });
 
-  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
-    ...filters,
-    from: normalizedDateRange.normalizedStart ?? undefined,
-    to: normalizedDateRange.normalizedEnd ?? undefined,
-  });
-  if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
+  const where: Record<string, unknown> = {};
+  if (query.type && query.type !== 'all') where.type = query.type;
+  if (query.status && query.status !== 'all') where.status = query.status;
+  if (query.walletAddress) where.user = normalizeWalletAddress(query.walletAddress);
+  if (normalizedDateRange.normalizedStart || normalizedDateRange.normalizedEnd) {
+    const ts: Record<string, Date> = {};
+    if (normalizedDateRange.normalizedStart) ts.gte = new Date(normalizedDateRange.normalizedStart);
+    if (normalizedDateRange.normalizedEnd) ts.lte = new Date(normalizedDateRange.normalizedEnd);
+    where.timestamp = ts;
   }
 
-  const paginated = pagination.page
-    ? paginateWithOffset(filtered, pagination)
-    : paginateWithCursor(filtered, pagination, (tx) => encodeCursor(tx.id));
+  const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy ?? 'timestamp';
+  const sortOrder = query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc';
 
-  return createPaginatedResponse(paginated.data, paginated.pagination, {
-    normalizedDateRange: normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
+  // Decode cursor to get the timestamp+id anchor for keyset pagination
+  let cursorWhere: Record<string, unknown> | undefined;
+  if (query.cursor) {
+    try {
+      const decoded = Buffer.from(query.cursor, 'base64url').toString('utf-8');
+      // cursor encodes the id
+      cursorWhere = { id: { not: undefined } }; // placeholder; use skip-based below
+      void decoded; // will use skip approach via findMany cursor
+    } catch {
+      // invalid cursor — ignore
+    }
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.transaction.count({ where: where as any }),
+    prisma.transaction.findMany({
+      where: where as any,
+      orderBy: { [sortBy === 'timestamp' ? 'timestamp' : 'timestamp']: sortOrder },
+      take: limit + 1,
+      ...(query.cursor
+        ? { cursor: { id: Buffer.from(query.cursor, 'base64url').toString('utf-8') }, skip: 1 }
+        : query.page && query.page > 1
+          ? { skip: (query.page - 1) * limit }
+          : {}),
+    }),
+  ]);
+
+  const hasNextPage = rows.length > limit;
+  const data = hasNextPage ? rows.slice(0, limit) : rows;
+  const mapped = data.map(dbRowToTransaction);
+
+  const pagination = createPaginationEnvelope({
+    count: mapped.length,
+    limit,
+    total,
+    hasNextPage,
+    hasPrevPage: !!(query.cursor || (query.page && query.page > 1)),
+    nextCursor: hasNextPage && data.length > 0 ? encodeCursor(data[data.length - 1].id) : null,
+    currentPage: query.page ?? null,
+    totalPages: query.page ? Math.ceil(total / limit) : null,
+  });
+
+  return createPaginatedResponse(mapped, pagination, {
+    normalizedDateRange:
+      normalizedDateRange.start || normalizedDateRange.end ? normalizedDateRange : undefined,
   });
 }
 
@@ -686,10 +742,10 @@ router.get('/transactions',
     adminBypassPermission: Permission.ADMIN_READ 
   }),
   createTimeoutFor.read(),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
   try {
     const pagination = parsePaginationQuery(req, TRANSACTION_PAGINATION_CONFIG);
-    const response = buildTransactionsResponse({
+    const response = await buildTransactionsResponse({
       ...pagination,
       type: req.query.type as string | undefined,
       status: req.query.status as string | undefined,
