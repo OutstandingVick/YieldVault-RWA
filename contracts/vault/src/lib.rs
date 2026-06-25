@@ -335,6 +335,10 @@ pub enum VaultError {
     WithdrawalQueued = 21,
     /// Admin parameter change attempted before the minimum interval elapsed.
     AdminParamChangeTooSoon = 22,
+    /// No strategy has been configured on the vault.
+    StrategyNotConfigured = 23,
+    /// Vault does not have enough idle liquidity to satisfy the operation.
+    InsufficientLiquidity = 24,
 }
 
 #[contractclient(name = "KoreanDebtStrategyClient")]
@@ -712,7 +716,7 @@ impl YieldVault {
             }
             emergency::EmergencyActionKind::EmergencyDivest => {
                 let amount = proposal.divest_amount.expect("divest amount required");
-                Self::divest(env.clone(), amount);
+                Self::divest(env.clone(), amount).expect("divest failed");
             }
             emergency::EmergencyActionKind::ForceUpgrade => {
                 let hash = proposal.wasm_hash.clone().expect("wasm hash required");
@@ -1956,7 +1960,17 @@ impl YieldVault {
             .unwrap_or(0);
         if idle_ta < assets_to_return {
             let needed = assets_to_return.checked_sub(idle_ta).expect("underflow");
-            Self::divest(env.clone(), needed);
+            if let Err(e) = Self::divest(env.clone(), needed) {
+                // Strategy not configured or other divest error — queue the withdrawal
+                return Self::enqueue_withdrawal_for_liquidity(
+                    env,
+                    state,
+                    user,
+                    shares,
+                    assets_to_return,
+                )
+                .map_err(|_| e);
+            }
             idle_ta = env
                 .storage()
                 .instance()
@@ -2211,7 +2225,8 @@ impl YieldVault {
             return Err(VaultError::InvalidAmount);
         }
 
-        let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
+        let strategy_addr = Self::strategy(env.clone())
+            .ok_or(VaultError::StrategyNotConfigured)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         // Cap check
@@ -2246,7 +2261,7 @@ impl YieldVault {
             .get::<_, i128>(&DataKey::TotalAssets)
             .unwrap_or(0);
         if idle_ta < amount {
-            panic!("insufficient idle assets");
+            return Err(VaultError::InsufficientLiquidity);
         }
         let remaining_idle = idle_ta.checked_sub(amount).expect("underflow");
         if remaining_idle < Self::min_liquidity_buffer(env.clone()) {
@@ -2274,9 +2289,10 @@ impl YieldVault {
     }
 
     /// Recall funds from the strategy.
-    pub fn divest(env: Env, amount: i128) {
+    pub fn divest(env: Env, amount: i128) -> Result<(), VaultError> {
         // Can be called by admin or internally by withdraw
-        let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
+        let strategy_addr = Self::strategy(env.clone())
+            .ok_or(VaultError::StrategyNotConfigured)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         strategy_client.withdraw(&amount);
@@ -2302,6 +2318,7 @@ impl YieldVault {
             &DataKey::TotalAssets,
             &idle_ta.checked_add(amount).expect("overflow"),
         );
+        Ok(())
     }
 
     /// Rebalance funds between strategies with max slippage protection.

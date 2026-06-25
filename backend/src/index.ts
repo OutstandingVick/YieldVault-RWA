@@ -99,6 +99,7 @@ import {
   httpResponseTime,
   activeConnections,
   updateVaultMetrics,
+  syncJobGovernanceMetrics,
 } from './metrics';
 import { latencyMonitoringService } from './latencyMonitoring';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
@@ -552,6 +553,7 @@ app.use(maintenanceModeMiddleware);
  */
 app.get('/metrics', async (_req: Request, res: Response) => {
   try {
+    syncJobGovernanceMetrics();
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (err) {
