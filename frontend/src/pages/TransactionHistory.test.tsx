@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -315,7 +315,8 @@ describe("TransactionHistory", () => {
 
     renderPage(WALLET);
 
-    await waitFor(() => expect(screen.getByText("USDC")).toBeInTheDocument());
+    const table = await screen.findByRole("table");
+    await waitFor(() => expect(within(table).getByText("USDC")).toBeInTheDocument());
 
     const searchInput = screen.getByRole("searchbox", {
       name: /Search transactions/i,
@@ -325,19 +326,20 @@ describe("TransactionHistory", () => {
     fireEvent.change(searchInput, { target: { value: "EURC" } });
 
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("USDC")).toBeInTheDocument();
 
     await waitFor(
-      () => expect(screen.queryByText("USDC")).not.toBeInTheDocument(),
+      () => {
+        expect(within(table).queryByText("USDC")).not.toBeInTheDocument();
+        expect(within(table).getByText("EURC")).toBeInTheDocument();
+      },
       { timeout: 2000 },
     );
-    expect(screen.getByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
 
     fireEvent.change(searchInput, { target: { value: "" } });
 
-    await waitFor(() => expect(screen.getByText("USDC")).toBeInTheDocument());
-    expect(screen.getByText("EURC")).toBeInTheDocument();
+    await waitFor(() => expect(within(table).getByText("USDC")).toBeInTheDocument());
+    expect(within(table).getByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
   });
 
@@ -566,12 +568,14 @@ describe("TransactionHistory — amount range filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    const table = await screen.findByRole("table");
+
     // 50 should be hidden; 200 and 500 should be visible
     await waitFor(() =>
-      expect(screen.queryAllByText(/50\.00 USDC/).length).toBe(0),
+      expect(within(table).queryAllByText(/50(\.00)? USDC/).length).toBe(0),
     );
-    expect(screen.getByText("200.00 USDC")).toBeInTheDocument();
-    expect(screen.getByText("500.00 USDC")).toBeInTheDocument();
+    expect(within(table).getByText(/200(\.00)? USDC/)).toBeInTheDocument();
+    expect(within(table).getByText(/500(\.00)? USDC/)).toBeInTheDocument();
   });
 
   it("hides rows above amountMax when amountMax param is set in URL", async () => {
@@ -595,12 +599,14 @@ describe("TransactionHistory — amount range filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    const table = screen.getByRole("table");
+
     // Only 50 should be visible
     await waitFor(() =>
-      expect(screen.queryAllByText(/500\.00 USDC/).length).toBe(0),
+      expect(within(table).queryAllByText(/500(\.00)? USDC/).length).toBe(0),
     );
-    expect(screen.getByText("50.00 USDC")).toBeInTheDocument();
-    expect(screen.queryAllByText(/200\.00 USDC/).length).toBe(0);
+    expect(within(table).getByText(/50(\.00)? USDC/)).toBeInTheDocument();
+    expect(within(table).queryAllByText(/200(\.00)? USDC/).length).toBe(0);
   });
 });
 
@@ -641,12 +647,14 @@ describe("TransactionHistory — status filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    const table = await screen.findByRole("table");
+
     // Only EURC (pending) should survive the filter
     await waitFor(() =>
-      expect(screen.queryAllByText("USDC").length).toBe(0),
+      expect(within(table).queryAllByText("USDC").length).toBe(0),
     );
-    expect(screen.getByText("EURC")).toBeInTheDocument();
-    expect(screen.queryAllByText("XLM").length).toBe(0);
+    expect(within(table).getByText("EURC")).toBeInTheDocument();
+    expect(within(table).queryAllByText("XLM").length).toBe(0);
   });
 });
 

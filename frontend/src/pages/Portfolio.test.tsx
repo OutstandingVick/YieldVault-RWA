@@ -153,8 +153,9 @@ describe("Portfolio", () => {
   it("renders holdings in the reusable table", async () => {
     renderPortfolio();
 
+    const table = await screen.findByRole("table");
+    expect(table).toBeInTheDocument();
     expect(await screen.findByText(/Tokenized T-Bills/i)).toBeInTheDocument();
-    expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Asset/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Position ID:/i).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Copy position ID/i }).length).toBeGreaterThan(0);

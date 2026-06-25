@@ -57,6 +57,10 @@ if (typeof window !== 'undefined') {
     rect: vi.fn(),
     clip: vi.fn(),
   })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+  window.getComputedStyle = vi.fn(() => ({
+    getPropertyValue: () => "",
+  })) as unknown as typeof window.getComputedStyle;
 }
 
 

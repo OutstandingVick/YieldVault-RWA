@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Analytics from "./Analytics";
 import { VaultProvider } from "../context/VaultContext";
+import { PreferencesProvider } from "../context/PreferencesContext";
 import * as vaultDataHooks from "../hooks/useVaultData";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { VaultSummary } from "../lib/vaultApi";
@@ -49,9 +50,11 @@ function renderAnalytics() {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <VaultProvider>
-          <Analytics />
-        </VaultProvider>
+        <PreferencesProvider>
+          <VaultProvider>
+            <Analytics />
+          </VaultProvider>
+        </PreferencesProvider>
       </QueryClientProvider>
     </MemoryRouter>,
   );

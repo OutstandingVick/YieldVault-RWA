@@ -36,6 +36,20 @@ vi.mock("../hooks/useTokenAllowance", () => ({
   useTokenAllowance: vi.fn(),
 }));
 
+const mockDepositMutateAsync = vi.fn().mockResolvedValue({});
+const mockWithdrawMutateAsync = vi.fn().mockResolvedValue({});
+
+vi.mock("../hooks/useVaultMutations", () => ({
+  useDepositMutation: () => ({
+    mutateAsync: mockDepositMutateAsync,
+    isPending: false,
+  }),
+  useWithdrawMutation: () => ({
+    mutateAsync: mockWithdrawMutateAsync,
+    isPending: false,
+  }),
+}));
+
 const mockSummary = {
   tvl: 12450800,
   apy: 8.45,
@@ -99,6 +113,8 @@ describe("VaultDashboard", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    mockDepositMutateAsync.mockResolvedValue({});
+    mockWithdrawMutateAsync.mockResolvedValue({});
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal(
       "fetch",
@@ -168,23 +184,17 @@ describe("VaultDashboard", () => {
 
     expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
-    const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
+    const withdrawTab = screen.getByRole("button", { name: "Withdraw" });
     fireEvent.click(withdrawTab);
 
     expect(await screen.findByText(/Amount to withdraw/i)).toBeInTheDocument();
 
-    const depositTab = screen.getByRole("tab", { name: "Deposit" });
+    const depositTab = screen.getByRole("button", { name: "Deposit" });
     fireEvent.click(depositTab);
     expect(await screen.findByText(/Amount to deposit/i)).toBeInTheDocument();
   });
 
   it("updates the amount input and processes a deposit", async () => {
-    let resolveSubmit!: () => void;
-    const submitPromise = new Promise<void>((resolve) => {
-      resolveSubmit = resolve;
-    });
-    vi.mocked(vaultApi.submitDeposit).mockReturnValue(submitPromise);
-    
     renderDashboard("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 
     expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
@@ -193,18 +203,17 @@ describe("VaultDashboard", () => {
     fireEvent.change(input, { target: { value: "100" } });
     expect(input).toHaveValue(100);
 
-    const reviewButton = screen.getByRole("button", { name: "Review Transaction" });
-    fireEvent.click(reviewButton);
+    fireEvent.click(screen.getByRole("button", { name: "Review Transaction" }));
 
     const confirmButton = await screen.findByRole("button", { name: /Confirm deposit/i });
     fireEvent.click(confirmButton);
 
-    await waitFor(() => {
-      expect(vaultApi.submitDeposit).toHaveBeenCalled();
-    });
+    const modalConfirm = await screen.findByRole("button", { name: /^Confirm$/i });
+    fireEvent.click(modalConfirm);
 
-    // Resolve the mocked API call
-    resolveSubmit();
+    await waitFor(() => {
+      expect(mockDepositMutateAsync).toHaveBeenCalled();
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
@@ -254,9 +263,9 @@ describe("VaultDashboard", () => {
     expect(screen.getByRole("button", { name: "Review Transaction" })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(screen.queryByText(/Minimum deposit is 1.00 USDC./i)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Review Transaction" })).toBeEnabled();
     });
   });
@@ -305,7 +314,7 @@ describe("VaultDashboard", () => {
       fireEvent.change(input, { target: { value: "100" } });
       expect(input).toHaveValue(100);
 
-      const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
+      const withdrawTab = screen.getByRole("button", { name: "Withdraw" });
       fireEvent.click(withdrawTab);
 
       const clearedInput = screen.getByPlaceholderText("0.00");

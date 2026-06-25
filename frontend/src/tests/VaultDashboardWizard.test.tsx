@@ -151,6 +151,9 @@ describe("VaultDashboard Wizard", () => {
 
     fireEvent.click(screen.getByText("Confirm deposit"));
 
+    const modalConfirm = await screen.findByRole("button", { name: /^Confirm$/i });
+    fireEvent.click(modalConfirm);
+
     await waitFor(() => {
       expect(screen.getByText("Transaction Successful")).toBeInTheDocument();
     });

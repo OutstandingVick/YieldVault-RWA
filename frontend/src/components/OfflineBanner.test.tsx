@@ -176,16 +176,19 @@ describe("OfflineBanner", () => {
 
   it("should use correct icons for each state", async () => {
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
-    const { container: offlineContainer } = render(<OfflineBanner />);
+    const { container: offlineContainer, unmount: unmountOffline } = render(<OfflineBanner />);
     expect(offlineContainer.textContent).toContain("⚠️");
+    unmountOffline();
 
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
-    const { container: retryingContainer } = render(<OfflineBanner />);
+    const { container: retryingContainer, unmount: unmountRetrying } = render(<OfflineBanner />);
     await flushMicrotasks();
     expect(retryingContainer.textContent).toContain("🔄");
+    unmountRetrying();
 
     await renderOnlineSuccessBanner();
+    expect(screen.getByText(/Connection restored/i)).toBeInTheDocument();
     expect(document.body.textContent).toContain("✅");
   });
 });
