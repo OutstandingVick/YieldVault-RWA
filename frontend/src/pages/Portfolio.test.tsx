@@ -5,6 +5,17 @@ import Portfolio from "./Portfolio";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "../context/ToastContext";
 import { PreferencesProvider } from "../context/PreferencesContext";
+import * as portfolioApi from "../lib/portfolioApi";
+
+vi.mock("../lib/portfolioApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof portfolioApi>();
+  return {
+    ...actual,
+    getPortfolioHoldings: vi.fn(),
+  };
+});
+
+const mockGetPortfolioHoldings = vi.mocked(portfolioApi.getPortfolioHoldings);
 
 const mockHoldings = [
   {
@@ -123,19 +134,11 @@ function renderPortfolio(
 
 describe("Portfolio", () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(mockHoldings), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    );
+    mockGetPortfolioHoldings.mockResolvedValue(mockHoldings);
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("shows the onboarding panel when disconnected", () => {

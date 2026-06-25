@@ -229,6 +229,67 @@ export async function stubFreighterConnected(page: Page, address: string) {
   }, address);
 }
 
+/**
+ * Stub Freighter starting disconnected; user can connect via the in-app button.
+ */
+export async function stubFreighterManualConnect(page: Page, address: string) {
+  await page.addInitScript((addr) => {
+    const stub = { connected: false };
+    (window as unknown as Record<string, unknown>).__freighterStub = stub;
+
+    window.addEventListener('message', (event) => {
+      if (
+        event.source !== window ||
+        !event.data ||
+        event.data.source !== 'FREIGHTER_EXTERNAL_MSG_REQUEST'
+      ) {
+        return;
+      }
+
+      const { messageId, type } = event.data as { messageId: number; type: string };
+
+      let response: Record<string, unknown> = {
+        source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
+        messagedId: messageId,
+      };
+
+      switch (type) {
+        case 'REQUEST_ALLOWED_STATUS':
+        case 'SET_ALLOWED_STATUS':
+          response = { ...response, isAllowed: stub.connected };
+          break;
+        case 'REQUEST_ACCESS':
+        case 'SET_ALLOWED':
+          stub.connected = true;
+          response = { ...response, publicKey: addr, isAllowed: true };
+          break;
+        case 'REQUEST_PUBLIC_KEY':
+          response = { ...response, publicKey: stub.connected ? addr : '' };
+          break;
+        case 'REQUEST_CONNECTION_STATUS':
+          response = { ...response, isConnected: stub.connected };
+          break;
+        case 'REQUEST_NETWORK_DETAILS':
+          response = {
+            ...response,
+            networkDetails: {
+              network: 'TESTNET',
+              networkName: 'Test SDF Network',
+              networkUrl: 'https://horizon-testnet.stellar.org',
+              networkPassphrase: 'Test SDF Network ; September 2015',
+              sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+            },
+          };
+          break;
+        default:
+          return;
+      }
+
+      window.postMessage(response, window.location.origin);
+    });
+  }, address);
+}
+
 export async function stubFreighterDisconnected(page: Page) {
   await page.addInitScript(() => {
     const stub = { connected: false };

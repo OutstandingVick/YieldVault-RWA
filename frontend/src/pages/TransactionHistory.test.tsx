@@ -104,14 +104,14 @@ describe("TransactionHistory", () => {
     renderPage(WALLET);
 
     expect(
-      screen.getAllByText(/Loading transactions\.\.\./i).length,
+      screen.getAllByText(/Loading\.\.\./i).length,
     ).toBeGreaterThan(0);
 
     // Resolve to avoid act() warnings
     resolvePromise([]);
     await waitFor(() =>
       expect(
-        screen.queryByText(/Loading transactions\.\.\./i),
+        screen.queryByText(/Loading\.\.\./i),
       ).not.toBeInTheDocument(),
     );
   });
@@ -125,9 +125,7 @@ describe("TransactionHistory", () => {
     await waitFor(() =>
       expect(mockGetTransactions).toHaveBeenCalledWith({
         walletAddress: WALLET,
-        limit: 10,
-        order: "desc",
-        type: "all",
+        limit: 200,
       }),
     );
   });
@@ -296,16 +294,12 @@ describe("TransactionHistory", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    const filterSelect = screen.getByRole("combobox", {
-      name: /Filter by type/i,
-    });
-    const options = Array.from(filterSelect.querySelectorAll("option")).map(
-      (o) => o.textContent,
-    );
-
-    expect(options).toContain("All");
-    expect(options).toContain("Deposit");
-    expect(options).toContain("Withdrawal");
+    expect(
+      screen.getByRole("checkbox", { name: /Filter by Type Deposit/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: /Filter by Type Withdrawal/i }),
+    ).toBeInTheDocument();
   });
 
   it("filters transactions with a debounced client-side search input", async () => {
@@ -369,10 +363,9 @@ describe("TransactionHistory", () => {
     );
 
     // Apply a filter — should reset to page 1
-    const filterSelect = screen.getByRole("combobox", {
-      name: /Filter by type/i,
-    });
-    fireEvent.change(filterSelect, { target: { value: "deposit" } });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Filter by Type Deposit/i }),
+    );
 
     await waitFor(() =>
       expect(
@@ -414,25 +407,21 @@ describe("TransactionHistory", () => {
 
   // Req 7.2 — filtered empty state message
   it("shows filtered empty state message when filter yields no results", async () => {
-    // Only deposits — filtering by withdrawal should show filtered empty message
-    mockGetTransactions.mockImplementation(async (params: unknown) => {
-      const p = params as { type?: string };
-      if (p.type === "withdrawal") return [];
-      return [makeTransaction({ id: "1", type: "deposit", status: "completed" })];
-    });
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", type: "deposit", status: "completed" }),
+    ]);
 
     renderPage(WALLET);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    const filterSelect = screen.getByRole("combobox", {
-      name: /Filter by type/i,
-    });
-    fireEvent.change(filterSelect, { target: { value: "withdrawal" } });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Filter by Type Withdrawal/i }),
+    );
 
     await waitFor(() =>
       expect(
-        screen.getByText("No matches found"),
+        screen.getByText("No transactions found"),
       ).toBeInTheDocument(),
     );
   });

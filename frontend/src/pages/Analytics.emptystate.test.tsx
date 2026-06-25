@@ -80,10 +80,10 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.getByText("No data to display.")).toBeInTheDocument();
+    expect(screen.getByText("No analytics data yet")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Performance metrics will appear here once your assets start generating yield\./i,
+        /Vault analytics will appear once the first deposit is made\./i,
       ),
     ).toBeInTheDocument();
   });
@@ -111,7 +111,7 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.queryByText("No data to display.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No analytics data yet")).not.toBeInTheDocument();
   });
 
   it("does NOT show the empty state when TVL is non-zero", () => {
@@ -124,12 +124,12 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.queryByText("No data to display.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No analytics data yet")).not.toBeInTheDocument();
     // Metric cards should be visible
     expect(screen.getByText("Total Value Locked")).toBeInTheDocument();
   });
 
-  it("shows the 'Advanced Analytics Coming Soon' placeholder when data is present", () => {
+  it("shows the APY trend chart when data is present", () => {
     vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
       data: mockSummary,
       isLoading: false,
@@ -139,8 +139,6 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(
-      screen.getByText("Advanced Analytics Coming Soon"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("APY Trend")).toBeInTheDocument();
   });
 });

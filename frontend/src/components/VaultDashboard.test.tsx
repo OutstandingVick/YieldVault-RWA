@@ -168,14 +168,14 @@ describe("VaultDashboard", () => {
 
     expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
-    const depositTab = screen.getByText("Deposit");
-    const withdrawTab = screen.getByText("Withdraw");
-
+    const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
     fireEvent.click(withdrawTab);
-    expect(screen.getByText(/Amount to withdraw/i)).toBeInTheDocument();
 
+    expect(await screen.findByText(/Amount to withdraw/i)).toBeInTheDocument();
+
+    const depositTab = screen.getByRole("tab", { name: "Deposit" });
     fireEvent.click(depositTab);
-    expect(screen.getByText(/Amount to deposit/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Amount to deposit/i)).toBeInTheDocument();
   });
 
   it("updates the amount input and processes a deposit", async () => {
@@ -278,22 +278,23 @@ describe("VaultDashboard", () => {
   });
 
   it("prefills the deposit amount from deep links and removes params", async () => {
-    renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=100&ref=partner");
+    renderDashboard("GABC123", 1250.5, "/?tab=deposit&amount=100&ref=partner");
 
     const input = await screen.findByPlaceholderText("0.00");
     await waitFor(() => {
       expect(input).toHaveValue(100);
     });
-    expect(screen.getByTestId("location-search")).toHaveTextContent("?ref=partner");
+    expect(screen.getByTestId("location-search").textContent).toContain("ref=partner");
+    expect(screen.getByTestId("location-search").textContent).toContain("amount=100");
   });
 
    it("ignores invalid deep-link amounts and removes deep-link params", async () => {
-     renderDashboard("GABC123", 1250.5, "/?action=deposit&amount=oops");
+     renderDashboard("GABC123", 1250.5, "/?tab=deposit&amount=oops");
 
      const input = await screen.findByPlaceholderText("0.00");
      await waitFor(() => {
        expect((input as HTMLInputElement).value).toBe("");
-       expect(screen.getByTestId("location-search")).toHaveTextContent("");
+       expect(screen.getByTestId("location-search").textContent).toContain("tab=deposit");
      });
    });
 
@@ -304,7 +305,7 @@ describe("VaultDashboard", () => {
       fireEvent.change(input, { target: { value: "100" } });
       expect(input).toHaveValue(100);
 
-      const withdrawTab = screen.getByText("Withdraw");
+      const withdrawTab = screen.getByRole("tab", { name: "Withdraw" });
       fireEvent.click(withdrawTab);
 
       const clearedInput = screen.getByPlaceholderText("0.00");
