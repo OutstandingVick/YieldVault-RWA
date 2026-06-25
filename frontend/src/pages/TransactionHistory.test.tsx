@@ -395,14 +395,15 @@ describe("TransactionHistory", () => {
 
     renderPage(WALLET);
 
-    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    await waitFor(() => expect(mockGetTransactions).toHaveBeenCalled());
 
-    const table = screen.getByRole("table");
-    const depositBadge = within(table).getByText(/^deposit$/i);
-    const withdrawalBadge = within(table).getByText(/^withdrawal$/i);
-
-    expect(depositBadge).toBeInTheDocument();
-    expect(withdrawalBadge).toBeInTheDocument();
+    await waitFor(() => {
+      const cellTexts = screen
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent?.toLowerCase() ?? "");
+      expect(cellTexts.some((text) => text.includes("deposit"))).toBe(true);
+      expect(cellTexts.some((text) => text.includes("withdrawal"))).toBe(true);
+    });
   });
 
   // Req 7.1 — empty state when no transactions
