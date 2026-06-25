@@ -112,6 +112,7 @@ const portfolioHoldings = [
 export async function interceptApiRoutes(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem('hasSeenWalkthrough', 'true');
+    window.sessionStorage.removeItem('yieldvault_vault_form_draft');
 
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {

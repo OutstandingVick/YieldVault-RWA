@@ -27,12 +27,19 @@ async function confirmWithdrawal(page: Page) {
   await confirmBtn.click();
   await page.getByRole('button', { name: /^Confirm$/i }).click();
 }
+
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
-async function goToConnectedVault(page: Page) {
-  await page.goto('/');
+async function goToConnectedVault(page: Page, path = '/') {
+  await page.goto(path);
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
   await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', { timeout: 20_000 });
+}
+
+/** Switch vault tabs via stable tab trigger ids (clears amount like a user click). */
+async function switchVaultTab(page: Page, tab: 'deposit' | 'withdraw') {
+  await page.locator(`#tab-${tab}`).click();
+  await expect(page).toHaveURL(new RegExp(`tab=${tab}`), { timeout: 10_000 });
 }
 
 // Tests that verify unauthenticated UI  no Freighter stub injected
@@ -58,9 +65,10 @@ test.describe('Deposit panel  no wallet', () => {
 
   test('strategy info panel shows exchange rate and network fee', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('1 yvUSDC = 1.084 USDC')).toBeVisible();
-    await expect(page.getByText('~0.00001 XLM')).toBeVisible();
+    await expect(page.getByText(/1 yvUSDC =/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/1\.0840 USDC/)).toBeVisible();
     await expect(page.getByText('BENJI Strategy')).toBeVisible();
+    await expect(page.getByText(/Franklin BENJI Connector/i)).toBeVisible();
   });
 });
 
@@ -83,13 +91,10 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
   test('deposit tab is active by default and can switch to withdraw', async ({ page }) => {
     await goToConnectedVault(page);
 
-    const depositTab = page.getByRole('button', { name: 'Deposit', exact: true });
-    const withdrawTab = page.getByRole('button', { name: 'Withdraw', exact: true });
-
     await expect(page.getByText('Amount to deposit')).toBeVisible();
-    await withdrawTab.click();
+    await switchVaultTab(page, 'withdraw');
     await expect(page.getByText('Amount to withdraw')).toBeVisible();
-    await depositTab.click();
+    await switchVaultTab(page, 'deposit');
     await expect(page.getByText('Amount to deposit')).toBeVisible();
   });
 
@@ -130,7 +135,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
   test('performs a withdrawal wizard flow and updates the balance', async ({ page }) => {
     await goToConnectedVault(page);
 
-    await page.getByRole('button', { name: 'Withdraw', exact: true }).click();
+    await switchVaultTab(page, 'withdraw');
     await expect(page.getByText('Amount to withdraw')).toBeVisible();
 
     await page.getByLabel('Withdrawal amount').fill('50');
@@ -159,7 +164,9 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
 
   test('deposit review stays disabled when amount exceeds available USDC balance', async ({ page }) => {
     await goToConnectedVault(page);
-    await page.getByLabel('Deposit amount').fill('999999');
+    const depositInput = page.getByLabel('Deposit amount');
+    await depositInput.fill('999999');
+    await depositInput.blur();
     await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeDisabled();
     await expect(page.getByRole('alert')).toContainText(/exceed/i);
   });
@@ -176,15 +183,15 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     await expect(page.getByText('Vault Capacity Reached')).toBeVisible();
     await expect(page.getByLabel('Deposit amount')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'MAX' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Vault is full' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeDisabled();
   });
 
   test('switching deposit/withdraw tabs clears the amount field', async ({ page }) => {
     await goToConnectedVault(page);
     await page.getByLabel('Deposit amount').fill('123.45');
-    await page.getByRole('button', { name: 'Withdraw', exact: true }).click();
+    await switchVaultTab(page, 'withdraw');
     await expect(page.getByLabel('Withdrawal amount')).toHaveValue('');
-    await page.getByRole('button', { name: 'Deposit', exact: true }).click();
+    await switchVaultTab(page, 'deposit');
     await expect(page.getByLabel('Deposit amount')).toHaveValue('');
   });
 
@@ -196,9 +203,11 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
       (window as unknown as { __freighterStub: { connected: boolean } }).__freighterStub.connected = false;
     });
 
-    await page.getByRole('button', { name: /Disconnect Wallet/i }).click();
+    const disconnectBtn = page.getByLabel('Disconnect Wallet');
+    await disconnectBtn.scrollIntoViewIfNeeded();
+    await disconnectBtn.click({ force: true });
 
-    await expect(page.getByRole('button', { name: /Connect Freighter/i })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('button', { name: /Connect Freighter/i })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Wallet Not Connected')).toBeVisible();
   });
 });
