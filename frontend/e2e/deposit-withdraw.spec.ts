@@ -13,6 +13,20 @@ import {
 
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
 const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+
+async function confirmDeposit(page: Page) {
+  const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
+  await expect(confirmBtn).toBeEnabled();
+  await confirmBtn.click();
+  await page.getByRole('button', { name: /^Confirm$/i }).click();
+}
+
+async function confirmWithdrawal(page: Page) {
+  const confirmBtn = page.getByRole('button', { name: /Confirm withdrawal/i });
+  await expect(confirmBtn).toBeEnabled();
+  await confirmBtn.click();
+  await page.getByRole('button', { name: /^Confirm$/i }).click();
+}
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 async function goToConnectedVault(page: Page) {
@@ -69,8 +83,8 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
   test('deposit tab is active by default and can switch to withdraw', async ({ page }) => {
     await goToConnectedVault(page);
 
-    const depositTab = page.getByRole('tab', { name: 'Deposit', exact: true });
-    const withdrawTab = page.getByRole('tab', { name: 'Withdraw', exact: true });
+    const depositTab = page.getByRole('button', { name: 'Deposit', exact: true });
+    const withdrawTab = page.getByRole('button', { name: 'Withdraw', exact: true });
 
     await expect(page.getByText('Amount to deposit')).toBeVisible();
     await withdrawTab.click();
@@ -103,9 +117,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
 
     // Step 2: Review
     await expect(page.getByText('Confirm Transaction')).toBeVisible();
-    const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
-    await expect(confirmBtn).toBeEnabled();
-    await confirmBtn.click();
+    await confirmDeposit(page);
 
     // Step 3: Result
     await expect(page.getByText('Transaction Successful')).toBeVisible({
@@ -118,7 +130,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
   test('performs a withdrawal wizard flow and updates the balance', async ({ page }) => {
     await goToConnectedVault(page);
 
-    await page.getByRole('tab', { name: 'Withdraw', exact: true }).click();
+    await page.getByRole('button', { name: 'Withdraw', exact: true }).click();
     await expect(page.getByText('Amount to withdraw')).toBeVisible();
 
     await page.getByLabel('Withdrawal amount').fill('50');
@@ -128,16 +140,14 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
 
     // Step 2: Review
     await expect(page.getByText('Confirm Transaction')).toBeVisible();
-    const confirmBtn = page.getByRole('button', { name: /Confirm withdrawal/i });
-    await expect(confirmBtn).toBeEnabled();
-    await confirmBtn.click();
+    await confirmWithdrawal(page);
 
     // Step 3: Result
     await expect(page.getByText('Transaction Successful')).toBeVisible({
       timeout: 15_000,
     });
     await page.getByRole('button', { name: /Done/i }).click();
-    await expect(page.getByRole('tab', { name: 'Withdraw', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Withdraw', exact: true })).toBeVisible();
   });
 
   test('deposit review stays disabled with an empty amount field', async ({ page }) => {
@@ -172,9 +182,9 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
   test('switching deposit/withdraw tabs clears the amount field', async ({ page }) => {
     await goToConnectedVault(page);
     await page.getByLabel('Deposit amount').fill('123.45');
-    await page.getByRole('tab', { name: 'Withdraw', exact: true }).click();
+    await page.getByRole('button', { name: 'Withdraw', exact: true }).click();
     await expect(page.getByLabel('Withdrawal amount')).toHaveValue('');
-    await page.getByRole('tab', { name: 'Deposit', exact: true }).click();
+    await page.getByRole('button', { name: 'Deposit', exact: true }).click();
     await expect(page.getByLabel('Deposit amount')).toHaveValue('');
   });
 

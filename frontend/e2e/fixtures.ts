@@ -112,6 +112,46 @@ const portfolioHoldings = [
 export async function interceptApiRoutes(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem('hasSeenWalkthrough', 'true');
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+
+      if (url.includes('horizon-testnet.stellar.org') && url.includes('/accounts/')) {
+        const accountId =
+          url.split('/accounts/')[1]?.split(/[/?]/)[0] ?? 'unknown';
+
+        return new Response(
+          JSON.stringify({
+            id: accountId,
+            account_id: accountId,
+            sequence: '12884901882',
+            subentry_count: 0,
+            balances: [
+              { asset_type: 'native', balance: '5.0000000' },
+              {
+                asset_type: 'credit_alphanum4',
+                asset_code: 'USDC',
+                asset_issuer:
+                  'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
+                balance: '1250.5000000',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      return originalFetch(input, init);
+    };
   });
 
   await page.route('**/mock-api/vault-summary.json', (route) =>
