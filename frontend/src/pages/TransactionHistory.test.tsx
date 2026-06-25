@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
+import { PreferencesProvider } from "../context/PreferencesContext";
+import { getPreferenceStorageKey } from "../lib/userPreferenceStore";
 
 // Hoisted so it can be referenced inside vi.mock factories
 const mockNetworkConfig = vi.hoisted(() => ({
@@ -64,7 +66,9 @@ function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
-        <TransactionHistory walletAddress={walletAddress} />
+        <PreferencesProvider walletAddress={walletAddress}>
+          <TransactionHistory walletAddress={walletAddress} />
+        </PreferencesProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -276,16 +280,15 @@ describe("TransactionHistory", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Rows per page/i }), {
       target: { value: "50" },
     });
-    expect(localStorage.getItem(`yieldvault:transactions:page-size:${WALLET}`)).toBe("50");
+    const stored = JSON.parse(localStorage.getItem(getPreferenceStorageKey(WALLET))!);
+    expect(stored.data.tables.transactionPageSize).toBe(50);
 
     unmount();
     renderPage(SECOND_WALLET);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     expect(screen.getByRole("combobox", { name: /Rows per page/i })).toHaveValue("10");
-    expect(
-      localStorage.getItem(`yieldvault:transactions:page-size:${SECOND_WALLET}`),
-    ).toBeNull();
+    expect(localStorage.getItem(getPreferenceStorageKey(SECOND_WALLET))).toBeNull();
   });
 
   // Req 5.1 — filter control renders All / Deposit / Withdrawal options

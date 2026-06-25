@@ -301,6 +301,7 @@ const Settings: React.FC = () => {
   const {
     preferences,
     resolvedTheme,
+    tableDensity,
     setTheme,
     setLocale,
     setCurrency,
@@ -308,6 +309,8 @@ const Settings: React.FC = () => {
     toggleCompactMode,
     toggleShowBalances,
     resetToDefaults,
+    setTableDensity,
+    resetUserPreferenceStore,
   } = usePreferencesContext();
   const { t } = useTranslation();
 
@@ -316,6 +319,7 @@ const Settings: React.FC = () => {
   const handleReset = () => {
     if (resetConfirm) {
       resetToDefaults();
+      resetUserPreferenceStore();
       setResetConfirm(false);
     } else {
       setResetConfirm(true);
@@ -383,6 +387,36 @@ const Settings: React.FC = () => {
               {t("settings.appearance.resolvingTo").replace("{{theme}}", resolvedTheme)}
             </p>
           )}
+        </div>
+
+        <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
+
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '12px' }}>
+            Table density
+          </label>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {(["compact", "comfortable", "spacious"] as const).map((density) => (
+              <button
+                key={density}
+                type="button"
+                onClick={() => setTableDensity(density)}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  border: tableDensity === density ? '1px solid var(--accent-cyan)' : '1px solid var(--border-glass)',
+                  background: tableDensity === density ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  textTransform: 'capitalize',
+                }}
+              >
+                {density}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
