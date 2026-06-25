@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import confetti from "canvas-confetti";
 import {
   Activity,
   AlertCircle,
@@ -45,10 +44,7 @@ import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
-import {
-  clearVaultFormDraft,
-  saveVaultFormDraft,
-} from "../lib/formDraftStorage";
+import { saveVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import confetti from "canvas-confetti";
 import TransactionConflictResolver from "./TransactionConflictResolver";
@@ -289,30 +285,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     resetApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
-
-  const resetWizard = () => {
-    setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
-    setTransactionResult(null);
-    clearVaultFormDraft();
-  };
-
-  const goToReview = () => {
-    if (Object.keys(errors).length > 0) {
-      toast.warning({
-        title: "Please fix validation errors",
-        description: errors.amount || "Please enter a valid amount",
-      });
-      formFocus.focusFirstError();
-      return;
-    }
-
-    dashboardUrl.setStep("review");
-    window.setTimeout(() => {
-      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
-    }, 0);
-  };
 
   useEffect(() => {
     const handleDeposit = () => {
