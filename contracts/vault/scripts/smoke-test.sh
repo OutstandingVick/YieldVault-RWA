@@ -4,6 +4,9 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # smoke-test.sh — Deploy vault WASM to Stellar testnet and run a smoke test.
 #
+# Local contributors can prepare a funded wallet before running this script:
+#   TESTNET_SECRET_KEY=S... node scripts/fund-testnet-account.js
+#
 # Required environment variables (set by the caller / CI step):
 #   TESTNET_SECRET_KEY     — Stellar secret key (S... format) for the deployer account
 #   TESTNET_TOKEN_ADDRESS  — Stellar contract address (C... format) for the token
