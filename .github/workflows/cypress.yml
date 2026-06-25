@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - 'frontend/**'
+      - 'backend/openapi.json'
+      - 'frontend/src/types/**'
+      - '.github/workflows/cypress.yml'
   push:
     branches:
       - main
     paths:
       - 'frontend/**'
+      - 'backend/openapi.json'
+      - 'frontend/src/types/**'
+      - '.github/workflows/cypress.yml'
 
 jobs:
   cypress-run:
