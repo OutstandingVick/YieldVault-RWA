@@ -577,14 +577,21 @@ impl YieldVault {
     pub fn set_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        Self::assert_admin_param_interval(&env)?;
 
-        // Check whitelist using SecureWhitelist module
         if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
             panic!("strategy not whitelisted");
         }
 
-        match strategy_registration::read_registration_state(&env, &strategy) {
+        let registration = strategy_registration::read_registration_state(&env, &strategy);
+        if let Some(state) = registration {
+            if state == STATE_RETIRED || (state != STATE_PENDING && state != STATE_ACTIVE) {
+                return Err(VaultError::InvalidMigrationTarget);
+            }
+        }
+
+        Self::assert_admin_param_interval(&env)?;
+
+        match registration {
             Some(STATE_ACTIVE) => {}
             Some(STATE_PENDING) => {
                 strategy_registration::activate_strategy_internal(&env, &strategy)
@@ -924,7 +931,7 @@ impl YieldVault {
     }
 
     pub fn set_per_user_cap(env: Env, cap: i128) -> Result<(), VaultError> {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         env.storage().instance().set(&DataKey::PerUserCap, &cap);
@@ -2598,14 +2605,15 @@ impl YieldVault {
 
     fn assert_admin_param_interval(env: &Env) -> Result<(), VaultError> {
         let guard = Self::admin_param_guard(env);
+        if guard.admin_last_change_ts == 0 {
+            return Ok(());
+        }
         let now = env.ledger().timestamp();
-        if guard.admin_last_change_ts > 0
-            && now
-                < guard
-                    .admin_last_change_ts
-                    .checked_add(guard.admin_min_interval_secs)
-                    .expect("overflow")
-        {
+        let deadline = guard
+            .admin_last_change_ts
+            .checked_add(guard.admin_min_interval_secs)
+            .expect("overflow");
+        if now < deadline {
             return Err(VaultError::AdminParamChangeTooSoon);
         }
         Ok(())
@@ -2613,7 +2621,8 @@ impl YieldVault {
 
     fn record_admin_param_change(env: &Env) {
         let mut meta = Self::withdrawal_queue_meta(env);
-        meta.admin_last_change_ts = env.ledger().timestamp();
+        let ts = env.ledger().timestamp();
+        meta.admin_last_change_ts = if ts == 0 { 1 } else { ts };
         Self::set_withdrawal_queue_meta(env, &meta);
     }
 
@@ -2633,7 +2642,6 @@ impl YieldVault {
         let mut meta = Self::withdrawal_queue_meta(&env);
         meta.admin_min_interval_secs = seconds;
         Self::set_withdrawal_queue_meta(&env, &meta);
-        Self::record_admin_param_change(&env);
         Ok(())
     }
 
