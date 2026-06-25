@@ -37,6 +37,7 @@ describe("useTransactionFilters — defaults", () => {
 
     expect(result.current.filters).toEqual({
       search: "",
+      asset: "",
       types: [],
       statuses: [],
       dateFrom: "",
@@ -178,6 +179,7 @@ describe("useTransactionFilters — clearAll", () => {
 
     expect(result.current.filters).toEqual({
       search: "",
+      asset: "",
       types: [],
       statuses: [],
       dateFrom: "",

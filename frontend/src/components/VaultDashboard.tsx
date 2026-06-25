@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import {
   Activity,
@@ -50,7 +50,6 @@ import {
   saveVaultFormDraft,
 } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
-import confetti from "canvas-confetti";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
   isTransactionConflict,
@@ -284,35 +283,23 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
   }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
 
+  const previousTabRef = useRef(dashboardUrl.state.tab);
+  useEffect(() => {
+    if (previousTabRef.current === dashboardUrl.state.tab) {
+      return;
+    }
+    previousTabRef.current = dashboardUrl.state.tab;
+    if (!dashboardUrl.state.amount) {
+      setValues({ amount: "" });
+    }
+    resetApproval();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval]);
+
   // Reset approval when deposit amount changes
   useEffect(() => {
     resetApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
-
-  const resetWizard = () => {
-    setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
-    setTransactionResult(null);
-    clearVaultFormDraft();
-  };
-
-  const goToReview = () => {
-    if (Object.keys(errors).length > 0) {
-      toast.warning({
-        title: "Please fix validation errors",
-        description: errors.amount || "Please enter a valid amount",
-      });
-      formFocus.focusFirstError();
-      return;
-    }
-
-    dashboardUrl.setStep("review");
-    window.setTimeout(() => {
-      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
-    }, 0);
-  };
 
   useEffect(() => {
     const handleDeposit = () => {
@@ -386,6 +373,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
+    clearVaultFormDraft();
     if (walletAddress) {
       transactionIntent.clearIntent();
     }
@@ -397,6 +385,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         title: "Please fix validation errors",
         description: errors.amount || "Please enter a valid amount",
       });
+      formFocus.focusFirstError();
       return;
     }
 

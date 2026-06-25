@@ -34,64 +34,15 @@ import { networkConfig } from "../config/network";
 
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useTranslation } from "../i18n";
+import { useUserPreferenceStore } from "../hooks/useUserPreferenceStore";
+import type { TransactionPageSize } from "../lib/userPreferenceStore";
 
 interface TransactionHistoryProps {
   walletAddress: string | null;
 }
 
 type ViewMode = "paginated" | "infinite";
-const DEFAULT_PAGE_SIZE = 10;
 const INFINITE_SCROLL_BATCH_SIZE = 20;
-const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
-
-function getPageSizeStorageKey(walletAddress: string | null): string {
-  return `yieldvault:transactions:page-size:${walletAddress ?? "guest"}`;
-}
-
-function getViewModeStorageKey(walletAddress: string | null): string {
-  return `yieldvault:transactions:view-mode:${walletAddress ?? "guest"}`;
-}
-
-function loadPreferredPageSize(walletAddress: string | null): number {
-  try {
-    const raw = localStorage.getItem(getPageSizeStorageKey(walletAddress));
-    const parsed = raw ? Number(raw) : Number.NaN;
-    if (PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number])) {
-      return parsed;
-    }
-  } catch {
-    // localStorage unavailable; fall back to defaults
-  }
-  return DEFAULT_PAGE_SIZE;
-}
-
-function persistPreferredPageSize(walletAddress: string | null, pageSize: number): void {
-  try {
-    localStorage.setItem(getPageSizeStorageKey(walletAddress), String(pageSize));
-  } catch {
-    // localStorage unavailable; silently ignore
-  }
-}
-
-function loadViewMode(walletAddress: string | null): ViewMode {
-  try {
-    const raw = localStorage.getItem(getViewModeStorageKey(walletAddress));
-    if (raw === "paginated" || raw === "infinite") {
-      return raw;
-    }
-  } catch {
-    // localStorage unavailable
-  }
-  return "paginated";
-}
-
-function persistViewMode(walletAddress: string | null, mode: ViewMode): void {
-  try {
-    localStorage.setItem(getViewModeStorageKey(walletAddress), mode);
-  } catch {
-    // localStorage unavailable
-  }
-}
 const STATUS_COLOR_MAP: Record<Transaction["status"], "success" | "warning" | "error"> = {
   completed: "success",
   pending: "warning",
@@ -150,6 +101,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
   const { t } = useTranslation();
+  const {
+    tables: tablePreferences,
+    setTransactionViewMode,
+    setTransactionPageSize,
+  } = useUserPreferenceStore(walletAddress);
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
   const transactions = React.useMemo(
@@ -242,13 +198,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
     : null;
 
-  const preferredPageSize = React.useMemo(
-    () => loadPreferredPageSize(walletAddress),
-    [walletAddress],
-  );
-
-  // View mode state
-  const [viewMode, setViewMode] = useState<ViewMode>(() => loadViewMode(walletAddress));
+  const preferredPageSize = tablePreferences.transactionPageSize;
+  const viewMode: ViewMode = tablePreferences.transactionViewMode;
 
   // Infinite scroll state
   const [visibleCount, setVisibleCount] = useState(INFINITE_SCROLL_BATCH_SIZE);
@@ -409,8 +360,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
   // View mode toggle handler
   const handleViewModeChange = (mode: ViewMode) => {
-    setViewMode(mode);
-    persistViewMode(walletAddress, mode);
+    setTransactionViewMode(mode);
     if (mode === "infinite") {
       setVisibleCount(INFINITE_SCROLL_BATCH_SIZE);
     }
@@ -581,8 +531,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                       aria-label="Rows per page"
                       value={state.pageSize}
                       onChange={(e) => {
-                        const nextSize = Number(e.target.value);
-                        persistPreferredPageSize(walletAddress, nextSize);
+                        const nextSize = Number(e.target.value) as TransactionPageSize;
+                        setTransactionPageSize(nextSize);
                         setPageSize(nextSize);
                       }}
                       className="portfolio-select"
