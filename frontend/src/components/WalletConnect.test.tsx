@@ -41,6 +41,7 @@ describe('WalletConnect', () => {
     });
 
     afterEach(() => {
+        vi.clearAllTimers();
         vi.useRealTimers();
     });
 
