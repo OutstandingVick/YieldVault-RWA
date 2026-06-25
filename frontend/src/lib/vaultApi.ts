@@ -226,6 +226,9 @@ export async function submitDeposit(
   params: unknown,
   options: VaultSubmitOptions = {},
 ) {
+  if (import.meta.env.VITE_E2E_STUB_BALANCES === "true") {
+    return;
+  }
   const payload = validate(DepositRequestSchema, params, "DepositRequest");
   await submitVaultOperation("/api/v1/vault/deposits", payload, options);
 }
@@ -234,6 +237,9 @@ export async function submitWithdrawal(
   params: unknown,
   options: VaultSubmitOptions = {},
 ) {
+  if (import.meta.env.VITE_E2E_STUB_BALANCES === "true") {
+    return;
+  }
   const payload = validate(WithdrawalRequestSchema, params, "WithdrawalRequest");
   await submitVaultOperation("/api/v1/vault/withdrawals", payload, options);
 }

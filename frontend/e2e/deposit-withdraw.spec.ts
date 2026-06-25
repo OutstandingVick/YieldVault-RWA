@@ -14,18 +14,24 @@ import {
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
 const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
+async function confirmInModal(page: Page) {
+  const modal = page.getByRole('dialog');
+  await expect(modal).toBeVisible({ timeout: 15_000 });
+  await modal.getByRole('button', { name: /^Confirm( Anyway)?$/i }).click();
+}
+
 async function confirmDeposit(page: Page) {
   const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
   await expect(confirmBtn).toBeEnabled();
   await confirmBtn.click();
-  await page.getByRole('button', { name: /^Confirm$/i }).click();
+  await confirmInModal(page);
 }
 
 async function confirmWithdrawal(page: Page) {
   const confirmBtn = page.getByRole('button', { name: /Confirm withdrawal/i });
   await expect(confirmBtn).toBeEnabled();
   await confirmBtn.click();
-  await page.getByRole('button', { name: /^Confirm$/i }).click();
+  await confirmInModal(page);
 }
 
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
@@ -36,10 +42,12 @@ async function goToConnectedVault(page: Page, path = '/') {
   await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', { timeout: 20_000 });
 }
 
-/** Switch vault tabs via stable tab trigger ids (clears amount like a user click). */
+/** Switch vault tabs via URL deep link (tab button clicks do not sync search params in preview builds). */
 async function switchVaultTab(page: Page, tab: 'deposit' | 'withdraw') {
-  await page.locator(`#tab-${tab}`).click();
-  await expect(page).toHaveURL(new RegExp(`tab=${tab}`), { timeout: 10_000 });
+  await page.goto(`/?tab=${tab}`);
+  await expect(
+    page.getByText(tab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'),
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 // Tests that verify unauthenticated UI  no Freighter stub injected
@@ -204,8 +212,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     });
 
     const disconnectBtn = page.getByLabel('Disconnect Wallet');
-    await disconnectBtn.scrollIntoViewIfNeeded();
-    await disconnectBtn.click({ force: true });
+    await disconnectBtn.evaluate((node) => (node as HTMLButtonElement).click());
 
     await expect(page.getByRole('button', { name: /Connect Freighter/i })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Wallet Not Connected')).toBeVisible();

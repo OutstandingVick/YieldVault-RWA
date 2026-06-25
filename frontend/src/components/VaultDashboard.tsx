@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import {
   Activity,
@@ -282,6 +282,18 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setValues({ amount: parsedAmount.toString() });
     }
   }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
+
+  const previousTabRef = useRef(dashboardUrl.state.tab);
+  useEffect(() => {
+    if (previousTabRef.current === dashboardUrl.state.tab) {
+      return;
+    }
+    previousTabRef.current = dashboardUrl.state.tab;
+    if (!dashboardUrl.state.amount) {
+      setValues({ amount: "" });
+    }
+    resetApproval();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval]);
 
   // Reset approval when deposit amount changes
   useEffect(() => {
