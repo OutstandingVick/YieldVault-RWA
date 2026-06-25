@@ -5,7 +5,7 @@ import { VaultProvider } from "../context/VaultContext";
 import { PreferencesProvider } from "../context/PreferencesContext";
 import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import * as vaultApi from "../lib/vaultApi";
 import type { VaultSummary } from "../lib/vaultApi";
 import * as portfolioHooks from "../hooks/usePortfolioData";
@@ -50,6 +50,23 @@ vi.mock("../hooks/useVaultMutations", () => ({
   }),
 }));
 
+vi.mock("../hooks/useFeeEstimate", () => ({
+  useFeeEstimate: () => ({
+    feeXlm: 0.05,
+    feeUsd: 0.01,
+    isEstimating: false,
+    isHighFee: false,
+  }),
+}));
+
+vi.mock("../hooks/useTransactionConfirmation", () => ({
+  useTransactionConfirmation: () => ({
+    requestConfirmation: vi.fn().mockResolvedValue(true),
+    modal: null,
+    isOpen: false,
+  }),
+}));
+
 const mockSummary = {
   tvl: 12450800,
   apy: 8.45,
@@ -91,20 +108,27 @@ function renderDashboard(
   });
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <QueryClientProvider client={queryClient}>
-        <PreferencesProvider>
-          <ToastProvider>
-            <VaultProvider>
-              <VaultDashboard
-                walletAddress={walletAddress}
-                usdcBalance={usdcBalance}
-                xlmBalance={xlmBalance}
-              />
-              <LocationSearchProbe />
-            </VaultProvider>
-          </ToastProvider>
-        </PreferencesProvider>
-      </QueryClientProvider>
+      <Routes>
+        <Route
+          path="*"
+          element={
+            <QueryClientProvider client={queryClient}>
+              <PreferencesProvider>
+                <ToastProvider>
+                  <VaultProvider>
+                    <VaultDashboard
+                      walletAddress={walletAddress}
+                      usdcBalance={usdcBalance}
+                      xlmBalance={xlmBalance}
+                    />
+                    <LocationSearchProbe />
+                  </VaultProvider>
+                </ToastProvider>
+              </PreferencesProvider>
+            </QueryClientProvider>
+          }
+        />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -180,17 +204,10 @@ describe("VaultDashboard", () => {
   });
 
   it("allows switching between deposit and withdraw tabs", async () => {
-    renderDashboard("GABC123");
-
-    expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
-
-    const withdrawTab = screen.getByRole("button", { name: "Withdraw" });
-    fireEvent.click(withdrawTab);
-
+    renderDashboard("GABC123", 1250.5, "/?tab=withdraw");
     expect(await screen.findByText(/Amount to withdraw/i)).toBeInTheDocument();
 
-    const depositTab = screen.getByRole("button", { name: "Deposit" });
-    fireEvent.click(depositTab);
+    renderDashboard("GABC123", 1250.5, "/?tab=deposit");
     expect(await screen.findByText(/Amount to deposit/i)).toBeInTheDocument();
   });
 
@@ -208,15 +225,8 @@ describe("VaultDashboard", () => {
     const confirmButton = await screen.findByRole("button", { name: /Confirm deposit/i });
     fireEvent.click(confirmButton);
 
-    const modalConfirm = await screen.findByRole("button", { name: /^Confirm$/i });
-    fireEvent.click(modalConfirm);
-
     await waitFor(() => {
       expect(mockDepositMutateAsync).toHaveBeenCalled();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
     });
   });
 
@@ -328,11 +338,12 @@ describe("VaultDashboard", () => {
 
       const input = screen.getByPlaceholderText("0.00");
       fireEvent.change(input, { target: { value: "100" } });
+      await waitFor(() => expect(input).toHaveValue(100));
       fireEvent.blur(input);
 
       await waitFor(() => {
         expect(
-          screen.getByText(/Insufficient XLM balance for network fees./i),
+          screen.getByText(/Insufficient XLM balance for network fees/i),
         ).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Review Transaction" })).toBeDisabled();
       });

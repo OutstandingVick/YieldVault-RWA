@@ -73,12 +73,12 @@ describe('YieldVault Smoke Tests', () => {
   });
 
   it('should navigate to deposit flow', () => {
-    cy.contains('[role="tab"]', 'Deposit').click({ force: true });
+    cy.contains('button', 'Deposit').click({ force: true });
     cy.contains('Amount to deposit').should('be.visible');
   });
 
   it('should navigate to withdrawal flow', () => {
-    cy.contains('[role="tab"]', 'Withdraw').click({ force: true });
+    cy.contains('button', 'Withdraw').click({ force: true });
     cy.contains('Amount to withdraw').should('be.visible');
   });
 
@@ -93,7 +93,7 @@ describe('YieldVault Smoke Tests', () => {
       const hasWalletPrompt = $body
         .text()
         .includes('Please connect your wallet to view your transaction history.');
-      const hasLoading = $body.text().includes('Loading transactions...');
+      const hasLoading = $body.text().includes('Loading...');
       expect(hasTable || hasEmptyState || hasWalletPrompt || hasLoading).to.eq(true);
     });
   });

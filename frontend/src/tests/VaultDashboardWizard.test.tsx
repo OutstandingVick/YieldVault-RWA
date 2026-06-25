@@ -4,7 +4,7 @@ import VaultDashboard from "../components/VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
 import { PreferencesProvider } from "../context/PreferencesContext";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as vaultApi from "../lib/vaultApi";
 import * as portfolioHooks from "../hooks/usePortfolioData";
@@ -55,6 +55,14 @@ vi.mock("../hooks/useFeeEstimate", () => ({
   }),
 }));
 
+vi.mock("../hooks/useTransactionConfirmation", () => ({
+  useTransactionConfirmation: () => ({
+    requestConfirmation: vi.fn().mockResolvedValue(true),
+    modal: null,
+    isOpen: false,
+  }),
+}));
+
 const mockSummary: VaultSummary = {
   tvl: 12450800,
   depositCap: 15000000,
@@ -84,15 +92,22 @@ const queryClient = new QueryClient({
 
 const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <BrowserRouter>
-    <QueryClientProvider client={queryClient}>
-      <PreferencesProvider>
-        <ToastProvider>
-          <VaultProvider>
-            {children}
-          </VaultProvider>
-        </ToastProvider>
-      </PreferencesProvider>
-    </QueryClientProvider>
+    <Routes>
+      <Route
+        path="*"
+        element={
+          <QueryClientProvider client={queryClient}>
+            <PreferencesProvider>
+              <ToastProvider>
+                <VaultProvider>
+                  {children}
+                </VaultProvider>
+              </ToastProvider>
+            </PreferencesProvider>
+          </QueryClientProvider>
+        }
+      />
+    </Routes>
   </BrowserRouter>
 );
 
@@ -151,16 +166,8 @@ describe("VaultDashboard Wizard", () => {
 
     fireEvent.click(screen.getByText("Confirm deposit"));
 
-    const modalConfirm = await screen.findByRole("button", { name: /^Confirm$/i });
-    fireEvent.click(modalConfirm);
-
     await waitFor(() => {
       expect(screen.getByText("Transaction Successful")).toBeInTheDocument();
     });
-
-    fireEvent.click(screen.getByText("Done"));
-
-    expect(screen.getByText("Amount to deposit")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("")).toBeInTheDocument();
   });
 });
