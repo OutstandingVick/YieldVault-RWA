@@ -34,7 +34,7 @@ import { networkConfig } from "../config/network";
 
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useTranslation } from "../i18n";
-import { usePreferencesContext } from "../context/PreferencesContext";
+import { useUserPreferenceStore } from "../hooks/useUserPreferenceStore";
 import type { TransactionPageSize } from "../lib/userPreferenceStore";
 
 interface TransactionHistoryProps {
@@ -102,10 +102,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 }) => {
   const { t } = useTranslation();
   const {
-    userPreferenceStore,
+    tables: tablePreferences,
     setTransactionViewMode,
     setTransactionPageSize,
-  } = usePreferencesContext();
+  } = useUserPreferenceStore(walletAddress);
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
   const transactions = React.useMemo(
@@ -198,8 +198,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
     : null;
 
-  const preferredPageSize = userPreferenceStore.tables.transactionPageSize;
-  const viewMode: ViewMode = userPreferenceStore.tables.transactionViewMode;
+  const preferredPageSize = tablePreferences.transactionPageSize;
+  const viewMode: ViewMode = tablePreferences.transactionViewMode;
 
   // Infinite scroll state
   const [visibleCount, setVisibleCount] = useState(INFINITE_SCROLL_BATCH_SIZE);

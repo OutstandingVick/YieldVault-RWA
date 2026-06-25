@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
-import { PreferencesProvider } from "../context/PreferencesContext";
 import { getPreferenceStorageKey } from "../lib/userPreferenceStore";
 
 // Hoisted so it can be referenced inside vi.mock factories
@@ -66,9 +65,7 @@ function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
-        <PreferencesProvider walletAddress={walletAddress}>
-          <TransactionHistory walletAddress={walletAddress} />
-        </PreferencesProvider>
+        <TransactionHistory walletAddress={walletAddress} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -91,7 +88,7 @@ describe("TransactionHistory", () => {
   it("renders connect-wallet prompt when walletAddress is null", () => {
     renderPage(null);
 
-    expect(screen.getByText(/Connect your wallet/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Connect your wallet/i })).toBeInTheDocument();
     expect(mockGetTransactions).not.toHaveBeenCalled();
   });
 

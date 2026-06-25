@@ -2762,6 +2762,9 @@ button {
 
   .infinite-scroll-progress {
     max-width: 100%;
+  }
+}
+
 /* ── TransactionFilterPanel ──────────────────────────────────────────────── */
 
 .tx-filter-panel {

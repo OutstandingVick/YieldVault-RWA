@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import VaultDashboard from "../components/VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
+import { PreferencesProvider } from "../context/PreferencesContext";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -43,11 +44,13 @@ const queryClient = new QueryClient({
 const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <BrowserRouter>
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <VaultProvider>
-          {children}
-        </VaultProvider>
-      </ToastProvider>
+      <PreferencesProvider>
+        <ToastProvider>
+          <VaultProvider>
+            {children}
+          </VaultProvider>
+        </ToastProvider>
+      </PreferencesProvider>
     </QueryClientProvider>
   </BrowserRouter>
 );
