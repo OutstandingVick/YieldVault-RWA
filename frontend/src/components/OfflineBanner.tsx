@@ -42,13 +42,13 @@ export default function OfflineBanner({ lastKnownTvl, lastKnownBalance }: Offlin
       if (timeoutId !== undefined) {
         window.clearTimeout(timeoutId);
       }
-      setBannerState("offline");
+      queueMicrotask(() => setBannerState("offline"));
     } else if (isRetrying) {
       // Online but queries are retrying
-      setBannerState("retrying");
+      queueMicrotask(() => setBannerState("retrying"));
     } else if (bannerState === "offline") {
       // Transitioned from offline to online
-      setBannerState("online_success");
+      queueMicrotask(() => setBannerState("online_success"));
       
       // Instantly trigger fresh HTTP requests for all active dashboard widgets
       queryClient.invalidateQueries();
