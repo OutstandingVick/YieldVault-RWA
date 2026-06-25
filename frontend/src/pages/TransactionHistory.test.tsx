@@ -1,11 +1,12 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
-import { getPreferenceStorageKey } from "../lib/userPreferenceStore";
+import { getPreferenceStorageKey, setTransactionPageSize, setTransactionViewMode } from "../lib/userPreferenceStore";
+import { PreferencesProvider } from "../context/PreferencesContext";
 
 // Hoisted so it can be referenced inside vi.mock factories
 const mockNetworkConfig = vi.hoisted(() => ({
@@ -57,6 +58,11 @@ function makeManyTransactions(count: number): Transaction[] {
   );
 }
 
+function UrlProbe() {
+  const [params] = useSearchParams();
+  return <div data-testid="url-probe">{params.toString()}</div>;
+}
+
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -65,7 +71,17 @@ function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
-        <TransactionHistory walletAddress={walletAddress} />
+        <Routes>
+          <Route
+            path="*"
+            element={
+              <PreferencesProvider walletAddress={walletAddress}>
+                <TransactionHistory walletAddress={walletAddress} />
+                <UrlProbe />
+              </PreferencesProvider>
+            }
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -345,35 +361,29 @@ describe("TransactionHistory", () => {
 
   // Req 5.3 — applying filter resets page to 1
   it("resets page to 1 when filter is applied", async () => {
+    setTransactionViewMode("paginated", WALLET);
+    setTransactionPageSize(10, WALLET);
     // 15 transactions so we have 2 pages
     mockGetTransactions.mockResolvedValue(makeManyTransactions(15));
 
-    renderPage(WALLET);
+    renderPage(WALLET, ["/?page=2&pageSize=10"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    // Navigate to page 2
-    const nextBtn =
-      screen.queryByRole("button", { name: /Go to next page/i }) ??
-      screen.getAllByRole("button", { name: /Next/i })[0];
-    fireEvent.click(nextBtn);
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { current: "page", name: /Go to page 2/i }),
-      ).toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("url-probe").textContent).toMatch(/(?:^|&)page=2(?:&|$)/);
+    });
 
     // Apply a filter — should reset to page 1
     fireEvent.click(
       screen.getByRole("checkbox", { name: /Filter by Type Deposit/i }),
     );
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { current: "page", name: /Go to page 1/i }),
-      ).toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      const params = screen.getByTestId("url-probe").textContent ?? "";
+      expect(params).toMatch(/(?:^|&)page=1(?:&|$)/);
+      expect(params).toContain("types=deposit");
+    });
   });
 
   // Req 6.1 — type badge renders with distinct class per type
@@ -387,8 +397,9 @@ describe("TransactionHistory", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    const depositBadge = screen.getByText("deposit");
-    const withdrawalBadge = screen.getByText("withdrawal");
+    const table = screen.getByRole("table");
+    const depositBadge = within(table).getByText(/^deposit$/i);
+    const withdrawalBadge = within(table).getByText(/^withdrawal$/i);
 
     expect(depositBadge).toBeInTheDocument();
     expect(withdrawalBadge).toBeInTheDocument();

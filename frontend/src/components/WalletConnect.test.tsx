@@ -81,7 +81,7 @@ describe('WalletConnect', () => {
 
     it('shows loading state while connecting', async () => {
         mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
-        mockedFreighter.setAllowed.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 100)));
+        mockedFreighter.setAllowed.mockImplementation(() => new Promise(() => undefined));
         
         render(
             <WalletConnectWrapper 
