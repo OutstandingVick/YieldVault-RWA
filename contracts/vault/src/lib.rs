@@ -2903,7 +2903,6 @@ impl YieldVault {
     }
 
     pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
-        strategy.require_auth();
         if amount <= 0 {
             panic!("yield amount must be > 0");
         }
@@ -2913,6 +2912,10 @@ impl YieldVault {
             .instance()
             .get(&DataKey::BenjiStrategy)
             .unwrap();
+        // Enforce that the caller is exactly the configured strategy before any state reads.
+        // require_strategy_auth checks both caller identity and Soroban auth in one call,
+        // preventing an attacker from inflating total_assets by calling with a different address.
+        crate::permissions::require_strategy_auth(&strategy, &configured);
         if strategy != configured {
             panic!("unauthorized strategy");
         }
