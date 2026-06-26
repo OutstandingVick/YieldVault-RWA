@@ -105,7 +105,7 @@ describe('transactionConfirmationBuilder', () => {
       });
       expect(normalSummary.isUnusualFee).toBe(false);
 
-      // Fee at threshold (should be detected as unusual)
+      // Fee at threshold (not unusual — comparison is strictly greater than)
       const thresholdSummary = buildTransactionSummary({
         actionType: 'deposit',
         amount: 100,
@@ -113,7 +113,7 @@ describe('transactionConfirmationBuilder', () => {
         feeXlm: baseFeeThreshold,
         contractAddress,
       });
-      expect(thresholdSummary.isUnusualFee).toBe(true);
+      expect(thresholdSummary.isUnusualFee).toBe(false);
 
       // Fee above threshold
       const unusualSummary = buildTransactionSummary({

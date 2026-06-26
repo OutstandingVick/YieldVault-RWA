@@ -26,6 +26,7 @@ export {
   WifiOff,
   X,
   DollarSign,
+  ExternalLink,
   Percent,
   Briefcase,
   Share2,

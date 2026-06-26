@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Activity, TrendingUp, DollarSign, Percent, Briefcase, Share2 } from "../components/icons";
 import { useTranslation } from "../i18n";
 import ApiStatusBanner from "../components/ApiStatusBanner";
@@ -90,6 +90,10 @@ const PortfolioSummaryCard: React.FC<{
 
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const toast = useToast();
+  const toastRef = useRef(toast);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
   const navigate = useNavigate();
   const { preferences } = usePreferencesContext();
   const { t } = useTranslation();
@@ -156,14 +160,14 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
         }
         if (isValidationError(unknownError)) {
           setError(unknownError);
-          toast.error({
+          toastRef.current.error({
             title: t("portfolio.validationFailed"),
             description: unknownError.userMessage,
           });
         } else {
           const nextError = normalizeApiError(unknownError);
           setError(nextError);
-          toast.error({
+          toastRef.current.error({
             title: t("portfolio.syncFailed"),
             description: nextError.userMessage,
           });
@@ -180,7 +184,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
     return () => {
       isMounted = false;
     };
-  }, [toast, walletAddress, urlState.filters.status]);
+  }, [walletAddress, urlState.filters.status, t]);
 
   const filteredHoldings = React.useMemo(() => {
     if (!urlState.filters.status || urlState.filters.status === "all") {

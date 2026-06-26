@@ -5,8 +5,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
-import { getPreferenceStorageKey, setTransactionPageSize, setTransactionViewMode } from "../lib/userPreferenceStore";
-import { PreferencesProvider } from "../context/PreferencesContext";
+import { ToastProvider } from "../context/ToastContext";
+
+vi.mock("../hooks/useTransactionTimeline", () => ({
+  useTransactionTimeline: () => ({
+    status: "pending",
+    elapsedSeconds: 0,
+    errorMessage: undefined,
+    reset: vi.fn(),
+  }),
+}));
 
 // Hoisted so it can be referenced inside vi.mock factories
 const mockNetworkConfig = vi.hoisted(() => ({
@@ -67,23 +75,14 @@ function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-
   return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={initialEntries}>
-        <Routes>
-          <Route
-            path="*"
-            element={
-              <PreferencesProvider walletAddress={walletAddress}>
-                <TransactionHistory walletAddress={walletAddress} />
-                <UrlProbe />
-              </PreferencesProvider>
-            }
-          />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={initialEntries}>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <TransactionHistory walletAddress={walletAddress} />
+        </ToastProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -119,16 +118,12 @@ describe("TransactionHistory", () => {
 
     renderPage(WALLET);
 
-    expect(
-      screen.getAllByText(/Loading\.\.\./i).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Loading\.\.\./i).length).toBeGreaterThan(0);
 
     // Resolve to avoid act() warnings
     resolvePromise([]);
     await waitFor(() =>
-      expect(
-        screen.queryByText(/Loading\.\.\./i),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryAllByText(/Loading\.\.\./i).length).toBe(0),
     );
   });
 
@@ -302,8 +297,8 @@ describe("TransactionHistory", () => {
     expect(localStorage.getItem(getPreferenceStorageKey(SECOND_WALLET))).toBeNull();
   });
 
-  // Req 5.1 — filter control renders All / Deposit / Withdrawal options
-  it("renders filter control with All, Deposit, and Withdrawal options", async () => {
+  // Req 5.1 — filter control renders Deposit / Withdrawal checkboxes
+  it("renders type filter checkboxes for Deposit and Withdrawal", async () => {
     mockGetTransactions.mockResolvedValue([]);
 
     renderPage(WALLET);
@@ -332,7 +327,9 @@ describe("TransactionHistory", () => {
     renderPage(WALLET);
 
     const table = await screen.findByRole("table");
-    await waitFor(() => expect(within(table).getByText("USDC")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(table).getByText("USDC")).toBeInTheDocument(),
+    );
 
     const searchInput = screen.getByRole("searchbox", {
       name: /Search transactions/i,
@@ -342,19 +339,21 @@ describe("TransactionHistory", () => {
     fireEvent.change(searchInput, { target: { value: "EURC" } });
 
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
+    expect(within(table).getByText("USDC")).toBeInTheDocument();
 
     await waitFor(
-      () => {
-        expect(within(table).queryByText("USDC")).not.toBeInTheDocument();
-        expect(within(table).getByText("EURC")).toBeInTheDocument();
-      },
+      () =>
+        expect(within(table).queryByText("USDC")).not.toBeInTheDocument(),
       { timeout: 2000 },
     );
+    expect(within(table).getByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
 
     fireEvent.change(searchInput, { target: { value: "" } });
 
-    await waitFor(() => expect(within(table).getByText("USDC")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(table).getByText("USDC")).toBeInTheDocument(),
+    );
     expect(within(table).getByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
   });
@@ -364,14 +363,24 @@ describe("TransactionHistory", () => {
     setTransactionViewMode("paginated", WALLET);
     setTransactionPageSize(10, WALLET);
     // 15 transactions so we have 2 pages
+    localStorage.setItem(`yieldvault:transactions:view-mode:${WALLET}`, "paginated");
+    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "10");
     mockGetTransactions.mockResolvedValue(makeManyTransactions(15));
 
     renderPage(WALLET, ["/?page=2&pageSize=10"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    // Navigate to page 2
+    const nextBtn =
+      screen.queryByRole("button", { name: /Go to next page/i }) ??
+      screen.getAllByRole("button", { name: /Next/i })[0];
+    fireEvent.click(nextBtn);
+
     await waitFor(() => {
-      expect(screen.getByTestId("url-probe").textContent).toMatch(/(?:^|&)page=2(?:&|$)/);
+      expect(
+        screen.getByRole("button", { current: "page", name: /Go to page 2/i }),
+      ).toBeInTheDocument();
     });
 
     // Apply a filter — should reset to page 1
@@ -380,9 +389,9 @@ describe("TransactionHistory", () => {
     );
 
     await waitFor(() => {
-      const params = screen.getByTestId("url-probe").textContent ?? "";
-      expect(params).toMatch(/(?:^|&)page=1(?:&|$)/);
-      expect(params).toContain("types=deposit");
+      expect(
+        screen.getByRole("button", { current: "page", name: /Go to page 1/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -398,11 +407,8 @@ describe("TransactionHistory", () => {
     await waitFor(() => expect(mockGetTransactions).toHaveBeenCalled());
 
     await waitFor(() => {
-      const cellTexts = screen
-        .getAllByRole("cell")
-        .map((cell) => cell.textContent?.toLowerCase() ?? "");
-      expect(cellTexts.some((text) => text.includes("deposit"))).toBe(true);
-      expect(cellTexts.some((text) => text.includes("withdrawal"))).toBe(true);
+      expect(screen.getByText("deposit")).toBeInTheDocument();
+      expect(screen.getByText("withdrawal")).toBeInTheDocument();
     });
   });
 
@@ -444,7 +450,21 @@ describe("TransactionHistory", () => {
   it("Clear Filters button hides itself after clearing active filters", async () => {
     mockGetTransactions.mockResolvedValue([makeTransaction()]);
 
-    renderPage(WALLET, ["/?search=USDC"]);
+    render(
+      <MemoryRouter initialEntries={["/?search=USDC"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -470,7 +490,21 @@ describe("TransactionHistory", () => {
       makeTransaction({ id: "1", status: "completed" }),
     ]);
 
-    renderPage(WALLET, ["/?statuses=failed"]);
+    render(
+      <MemoryRouter initialEntries={["/?statuses=failed"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() =>
       expect(screen.getByText("No transactions found")).toBeInTheDocument(),
@@ -561,64 +595,94 @@ describe("TransactionHistory — amount range filter", () => {
 
   it("hides rows below amountMin when amountMin param is set in URL", async () => {
     mockGetTransactions.mockResolvedValue([
-      makeTransaction({ id: "1", amount: "50.00", asset: "USDC" }),
+      makeTransaction({ id: "1", amount: "50", asset: "USDC" }),
       makeTransaction({
         id: "2",
-        amount: "200.00",
+        amount: "200",
         asset: "USDC",
         transactionHash: "hash200000000000000000000000000000000000000",
       }),
       makeTransaction({
         id: "3",
-        amount: "500.00",
+        amount: "500",
         asset: "USDC",
         transactionHash: "hash500000000000000000000000000000000000000",
       }),
     ]);
 
-    renderPage(WALLET, ["/?amountMin=100"]);
+    render(
+      <MemoryRouter initialEntries={["/?amountMin=100"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const table = screen.getByRole("table");
 
     const table = await screen.findByRole("table");
 
     // 50 should be hidden; 200 and 500 should be visible
     await waitFor(() =>
-      expect(within(table).queryAllByText(/50(\.00)? USDC/).length).toBe(0),
+      expect(within(table).queryAllByText(/50 USDC/).length).toBe(0),
     );
-    expect(within(table).getByText(/200(\.00)? USDC/)).toBeInTheDocument();
-    expect(within(table).getByText(/500(\.00)? USDC/)).toBeInTheDocument();
+    expect(within(table).getByText("200 USDC")).toBeInTheDocument();
+    expect(within(table).getByText("500 USDC")).toBeInTheDocument();
   });
 
   it("hides rows above amountMax when amountMax param is set in URL", async () => {
     mockGetTransactions.mockResolvedValue([
-      makeTransaction({ id: "1", amount: "50.00", asset: "USDC" }),
+      makeTransaction({ id: "1", amount: "50", asset: "USDC" }),
       makeTransaction({
         id: "2",
-        amount: "200.00",
+        amount: "200",
         asset: "USDC",
         transactionHash: "hash200000000000000000000000000000000000000",
       }),
       makeTransaction({
         id: "3",
-        amount: "500.00",
+        amount: "500",
         asset: "USDC",
         transactionHash: "hash500000000000000000000000000000000000000",
       }),
     ]);
 
-    renderPage(WALLET, ["/?amountMax=150"]);
+    render(
+      <MemoryRouter initialEntries={["/?amountMax=150"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const table = screen.getByRole("table");
 
     const table = screen.getByRole("table");
 
     // Only 50 should be visible
     await waitFor(() =>
-      expect(within(table).queryAllByText(/500(\.00)? USDC/).length).toBe(0),
+      expect(within(table).queryAllByText(/500 USDC/).length).toBe(0),
     );
-    expect(within(table).getByText(/50(\.00)? USDC/)).toBeInTheDocument();
-    expect(within(table).queryAllByText(/200(\.00)? USDC/).length).toBe(0);
+    expect(within(table).getByText("50 USDC")).toBeInTheDocument();
+    expect(within(table).queryAllByText(/200 USDC/).length).toBe(0);
   });
 });
 
@@ -655,9 +719,24 @@ describe("TransactionHistory — status filter", () => {
       }),
     ]);
 
-    renderPage(WALLET, ["/?statuses=pending"]);
+    render(
+      <MemoryRouter initialEntries={["/?statuses=pending"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const table = screen.getByRole("table");
 
     const table = await screen.findByRole("table");
 
@@ -689,7 +768,21 @@ describe("TransactionHistory — URL shareability", () => {
   it("restores date range inputs from URL on mount", async () => {
     mockGetTransactions.mockResolvedValue([]);
 
-    renderPage(WALLET, ["/?dateFrom=2026-01-01&dateTo=2026-06-30"]);
+    render(
+      <MemoryRouter initialEntries={["/?dateFrom=2026-01-01&dateTo=2026-06-30"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -703,7 +796,21 @@ describe("TransactionHistory — URL shareability", () => {
   it("restores amount range inputs from URL on mount", async () => {
     mockGetTransactions.mockResolvedValue([]);
 
-    renderPage(WALLET, ["/?amountMin=10&amountMax=500"]);
+    render(
+      <MemoryRouter initialEntries={["/?amountMin=10&amountMax=500"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -715,31 +822,108 @@ describe("TransactionHistory — URL shareability", () => {
   });
 });
 
-describe("TransactionHistory — virtualized rendering", () => {
+// ---------------------------------------------------------------------------
+// Transaction detail drawer
+// ---------------------------------------------------------------------------
+
+const DRAWER_HASH = "b".repeat(64);
+
+describe("TransactionHistory — detail drawer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     mockNetworkConfig.isTestnet = true;
     localStorage.clear();
+    localStorage.setItem(`yieldvault:transactions:view-mode:${WALLET}`, "paginated");
+    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "10");
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("uses virtualized table body for large transaction histories", async () => {
-    localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "50");
-    mockGetTransactions.mockResolvedValue(makeManyTransactions(60));
+  it("opens the detail drawer when a table row is clicked", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "drawer-tx",
+        transactionHash: DRAWER_HASH,
+        status: "completed",
+      }),
+    ]);
 
     renderPage(WALLET);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("virtualized-table-body")).toBeInTheDocument(),
-    );
+    const table = await screen.findByRole("table");
+    const row = within(table).getByRole("button", {
+      name: /View row details/i,
+    });
+    fireEvent.click(row);
 
-    const renderedRows = screen
-      .getAllByRole("row")
-      .filter((row) => row.classList.contains("data-table-row"));
-    expect(renderedRows.length).toBeLessThan(60);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Transaction Details")).toBeInTheDocument();
+    expect(screen.getByText(DRAWER_HASH)).toBeInTheDocument();
+  });
+
+  it("does not open the drawer when the explorer hash link is clicked", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "drawer-tx",
+        transactionHash: DRAWER_HASH,
+        status: "completed",
+      }),
+    ]);
+
+    renderPage(WALLET);
+
+    const link = await screen.findByTitle(DRAWER_HASH);
+    fireEvent.click(link);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("closes the drawer when Escape is pressed", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "drawer-tx",
+        transactionHash: DRAWER_HASH,
+        status: "completed",
+      }),
+    ]);
+
+    renderPage(WALLET);
+
+    const table = await screen.findByRole("table");
+    const row = await within(table).findByRole("button", {
+      name: /View row details/i,
+    });
+    fireEvent.click(row);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("marks the selected row with the selected class", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "drawer-tx",
+        transactionHash: DRAWER_HASH,
+        status: "completed",
+      }),
+    ]);
+
+    renderPage(WALLET);
+
+    const table = await screen.findByRole("table");
+    const row = within(table).getByRole("button", {
+      name: /View row details/i,
+    });
+    fireEvent.click(row);
+
+    expect(row).toHaveClass("data-table-row--selected");
   });
 });

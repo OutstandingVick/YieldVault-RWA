@@ -366,8 +366,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const resetWizard = () => {
     setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
+    dashboardUrl.setState({ step: "amount", amount: "" });
+    clearVaultFormDraft();
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
@@ -909,9 +909,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             value={dashboardUrl.state.tab}
             defaultValue="deposit"
             onValueChange={(value) => {
-              dashboardUrl.setTab(value as TransactionTab);
+              dashboardUrl.setState({
+                tab: value as TransactionTab,
+                amount: "",
+              });
               setValues({ amount: "" });
-              dashboardUrl.setAmount("");
             }}
           >
             {dashboardUrl.state.step === "amount" && (

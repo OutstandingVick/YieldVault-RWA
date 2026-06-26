@@ -142,6 +142,7 @@ describe("Analytics — empty state", () => {
 
     renderAnalytics();
 
-    expect(screen.getByText("APY Trend")).toBeInTheDocument();
+    expect(screen.getByText("Total Value Locked")).toBeInTheDocument();
+    expect(screen.getByText("Vault Participants")).toBeInTheDocument();
   });
 });

@@ -88,6 +88,7 @@ export const en = {
     previous: "Previous",
     next: "Next",
     sortBy: "Sort by",
+    viewRowDetails: "View row details",
   },
   shortcuts: {
     title: "Keyboard Shortcuts",
@@ -434,6 +435,14 @@ export const en = {
     liveStatus: "Live Status",
     dismissTimeline: "Dismiss timeline",
     tableCaption: "Transaction history",
+  },
+  txDetail: {
+    title: "Transaction Details",
+    description: "Review the full details of this transaction.",
+    viewReceipt: "View Receipt",
+    hashLabel: "transaction hash",
+    viewOnExplorer: "View on Stellar Explorer",
+    liveStatusSection: "Live Status",
   },
   portfolio: {
     pageTitle: "Portfolio",
