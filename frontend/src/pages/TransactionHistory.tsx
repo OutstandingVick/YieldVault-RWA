@@ -10,10 +10,9 @@ import {
 import PageHeader from "../components/PageHeader";
 import { SkeletonText } from "../components/Skeleton";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
-import TransactionTimeline from "../components/TransactionTimeline";
+import TransactionDetailDrawer from "../components/TransactionDetailDrawer";
 import EmptyState from "../components/ui/EmptyState";
 import { Activity, Loader2, Wallet } from "../components/icons";
-import { useTransactionTimeline } from "../hooks/useTransactionTimeline";
 import {
   normalizeApiError,
   isValidationError,
@@ -49,54 +48,6 @@ const STATUS_COLOR_MAP: Record<Transaction["status"], "success" | "warning" | "e
   failed: "error",
 };
 
-/** Inline panel shown below a pending transaction row to track its live state. */
-const PendingTimelinePanel: React.FC<{ txHash: string; onDismiss: () => void }> = ({
-  txHash,
-  onDismiss,
-}) => {
-  const { status, elapsedSeconds, errorMessage } = useTransactionTimeline({ txHash });
-  const { t } = useTranslation();
-
-  return (
-    <div
-      className="glass-panel"
-      style={{
-        padding: "16px 20px",
-        margin: "8px 0",
-        border: "1px solid var(--border-glass-glow)",
-        borderRadius: "var(--radius-md)",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-secondary)" }}>
-          {t("txHistory.liveStatus")}
-        </span>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label={t("txHistory.dismissTimeline")}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--text-tertiary)",
-            fontSize: "var(--text-sm)",
-            padding: "2px 6px",
-          }}
-        >
-          ✕
-        </button>
-      </div>
-      <TransactionTimeline
-        status={status}
-        txHash={txHash}
-        elapsedSeconds={elapsedSeconds}
-        errorMessage={errorMessage}
-      />
-    </div>
-  );
-};
-
 const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
@@ -113,7 +64,15 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     [queryTransactions],
   );
 
-  const [selectedPendingHash, setSelectedPendingHash] = useState<string | null>(null);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+
+  const handleRowSelect = useCallback((row: Transaction) => {
+    setSelectedTransaction(row);
+  }, []);
+
+  const handleDrawerClose = useCallback(() => {
+    setSelectedTransaction(null);
+  }, []);
 
   const columns: DataTableColumn<Transaction>[] = React.useMemo(() => [
     {
@@ -131,28 +90,13 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       header: t("txHistory.statusHeader"),
       sortable: true,
       cell: (row) => (
-        <button
-          type="button"
-          onClick={row.status === "pending" ? () => setSelectedPendingHash(
-            selectedPendingHash === row.transactionHash ? null : row.transactionHash
-          ) : undefined}
-          style={{
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: row.status === "pending" ? "pointer" : "default",
-          }}
-          title={row.status === "pending" ? t("txHistory.clickToTrack") : undefined}
-          aria-expanded={row.status === "pending" ? selectedPendingHash === row.transactionHash : undefined}
+        <Badge
+          variant="status"
+          color={STATUS_COLOR_MAP[row.status]}
+          icon={row.status === "pending" ? <Loader2 size={12} className="animate-spin" /> : undefined}
         >
-          <Badge
-            variant="status"
-            color={STATUS_COLOR_MAP[row.status]}
-            icon={row.status === "pending" ? <Loader2 size={12} className="animate-spin" /> : undefined}
-          >
-            {row.status}
-          </Badge>
-        </button>
+          {row.status}
+        </Badge>
       ),
     },
     {
@@ -185,6 +129,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
           )}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={(event) => event.stopPropagation()}
           style={{ color: "var(--accent-cyan)", textDecoration: "none" }}
           title={row.transactionHash}
         >
@@ -192,7 +137,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         </a>
       ),
     },
-  ], [selectedPendingHash, t]);
+  ], [t]);
 
   const error = queryError 
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
@@ -447,6 +392,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     sortBy: state.sortBy,
     sortDirection: state.sortDirection,
     onSortChange: setSort,
+    onRowClick: handleRowSelect,
+    selectedRowKey: selectedTransaction?.id,
   } as const;
 
   return (
@@ -666,13 +613,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
               />
             )}
 
-            {/* Live timeline for selected pending transaction */}
-            {selectedPendingHash && (
-              <PendingTimelinePanel
-                txHash={selectedPendingHash}
-                onDismiss={() => setSelectedPendingHash(null)}
-              />
-            )}
+            <TransactionDetailDrawer
+              transaction={selectedTransaction}
+              isOpen={!!selectedTransaction}
+              onClose={handleDrawerClose}
+            />
           </section>
         </div>
       )}

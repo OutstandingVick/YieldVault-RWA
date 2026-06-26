@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
-import confetti from "canvas-confetti";
+import React, { useEffect, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -45,10 +44,7 @@ import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
-import {
-  clearVaultFormDraft,
-  saveVaultFormDraft,
-} from "../lib/formDraftStorage";
+import { saveVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
@@ -234,7 +230,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleChange,
     handleBlur,
     setValues,
-    setFieldError
+    setFieldError,
+    resetErrors,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
@@ -293,7 +290,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setValues({ amount: "" });
     }
     resetApproval();
-  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval]);
+    resetErrors();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval, resetErrors]);
 
   // Reset approval when deposit amount changes
   useEffect(() => {
@@ -368,8 +366,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const resetWizard = () => {
     setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
+    dashboardUrl.setState({ step: "amount", amount: "" });
+    clearVaultFormDraft();
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
@@ -391,6 +389,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
     staleGuard.captureReviewSnapshot();
     dashboardUrl.setStep("review");
+    window.setTimeout(() => {
+      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
+    }, 0);
   };
 
   const executeTransaction = async (
@@ -908,9 +909,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             value={dashboardUrl.state.tab}
             defaultValue="deposit"
             onValueChange={(value) => {
-              dashboardUrl.setTab(value as TransactionTab);
+              dashboardUrl.setState({
+                tab: value as TransactionTab,
+                amount: "",
+              });
               setValues({ amount: "" });
-              dashboardUrl.setAmount("");
             }}
           >
             {dashboardUrl.state.step === "amount" && (

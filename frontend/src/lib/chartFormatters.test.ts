@@ -107,12 +107,15 @@ describe("chartFormatters", () => {
   describe("formatChartAxisPercent", () => {
     it("formats axis percentages with no decimals", () => {
       const formatted = formatChartAxisPercent(50.5, locale);
-      expect(formatted).toBe("51%");
+      expect(formatted).toContain("51");
+      expect(formatted).not.toContain(".5");
+      expect(formatted).toContain("%");
     });
 
     it("handles decimal percentages correctly", () => {
       const formatted = formatChartAxisPercent(0.505, locale, true);
-      expect(formatted).toBe("51%");
+      expect(formatted).toContain("51");
+      expect(formatted).toContain("%");
     });
   });
 

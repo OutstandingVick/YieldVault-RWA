@@ -32,6 +32,8 @@ interface VirtualizedDataTableProps<T> {
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   renderRowDetails?: (row: T) => ReactNode;
+  onRowClick?: (row: T) => void;
+  selectedRowKey?: string | null;
   isLoading?: boolean;
   skeletonRows?: number;
   /** Fixed viewport height for the scrollable body. */
@@ -61,6 +63,8 @@ export function VirtualizedDataTable<T>({
   onPageChange,
   onPageSizeChange,
   renderRowDetails,
+  onRowClick,
+  selectedRowKey,
   isLoading = false,
   skeletonRows = 5,
   maxHeight = 600,
@@ -68,6 +72,18 @@ export function VirtualizedDataTable<T>({
   const { t } = useTranslation();
   const delayedLoading = useDelayedLoading(isLoading);
   const parentRef = useRef<HTMLDivElement>(null);
+
+  const handleRowKeyDown = (
+    event: KeyboardEvent<HTMLTableRowElement>,
+    row: T,
+  ) => {
+    if (!onRowClick) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onRowClick(row);
+    }
+  };
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
@@ -181,13 +197,21 @@ export function VirtualizedDataTable<T>({
                 )}
                 {virtualRows.map((virtualRow) => {
                   const row = rows[virtualRow.index];
+                  const key = rowKey(row);
+                  const isSelected = selectedRowKey === key;
+
                   return (
                     <tr
-                      key={rowKey(row)}
-                      tabIndex={0}
-                      className="data-table-row"
+                      key={key}
+                      tabIndex={onRowClick ? 0 : undefined}
+                      className={`data-table-row${onRowClick ? " data-table-row--interactive" : ""}${isSelected ? " data-table-row--selected" : ""}`}
                       data-index={virtualRow.index}
                       style={{ height: VIRTUALIZED_ROW_HEIGHT }}
+                      onClick={onRowClick ? () => onRowClick(row) : undefined}
+                      onKeyDown={(event) => handleRowKeyDown(event, row)}
+                      aria-selected={onRowClick ? isSelected : undefined}
+                      role={onRowClick ? "button" : undefined}
+                      aria-label={onRowClick ? t("dataTable.viewRowDetails") : undefined}
                     >
                       {columns.map((column, columnIndex) => {
                         const content = column.cell

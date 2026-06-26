@@ -454,15 +454,13 @@ export async function buildTransactionsResponse(
   const limit = query.limit ?? TRANSACTION_PAGINATION_CONFIG.defaultLimit ?? 20;
   const normalizedDateRange = parseDateRangeOrThrow({ from: query.from, to: query.to });
 
-  const where: Record<string, unknown> = {};
-  if (query.type && query.type !== 'all') where.type = query.type;
-  if (query.status && query.status !== 'all') where.status = query.status;
-  if (query.walletAddress) where.user = normalizeWalletAddress(query.walletAddress);
-  if (normalizedDateRange.normalizedStart || normalizedDateRange.normalizedEnd) {
-    const ts: Record<string, Date> = {};
-    if (normalizedDateRange.normalizedStart) ts.gte = new Date(normalizedDateRange.normalizedStart);
-    if (normalizedDateRange.normalizedEnd) ts.lte = new Date(normalizedDateRange.normalizedEnd);
-    where.timestamp = ts;
+  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
+    ...filters,
+    from: normalizedDateRange.normalizedStart ?? undefined,
+    to: normalizedDateRange.normalizedEnd ?? undefined,
+  });
+  if (pagination.sortBy) {
+    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['timestamp', 'id']);
   }
 
   const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy ?? 'timestamp';
@@ -643,7 +641,7 @@ export function buildPortfolioHoldingsResponse(
 
   let filtered = filterPortfolioHoldings(MOCK_PORTFOLIO_HOLDINGS, filters);
   if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
+    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['valueUsd', 'id']);
   }
 
   const paginated = paginateWithCursor(filtered, pagination, (holding) =>
@@ -673,7 +671,7 @@ export function buildVaultHistoryResponse(
     to: normalizedDateRange.normalizedEnd?.slice(0, 10),
   });
   if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder);
+    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['date']);
   }
 
   const paginated = paginateWithCursor(filtered, pagination, (point) =>

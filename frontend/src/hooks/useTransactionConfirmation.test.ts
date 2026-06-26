@@ -122,7 +122,7 @@ describe('useTransactionConfirmation', () => {
 
     it('does not render modal before requestConfirmation is called', () => {
       const { result } = renderHook(() => useTransactionConfirmation());
-      expect(result.current.modal).toBeUndefined();
+      expect(result.current.modal).toBeNull();
     });
   });
 

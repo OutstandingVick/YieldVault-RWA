@@ -51,6 +51,11 @@ export const en = {
       checkingStatus: "Looking for an existing Freighter session on this device",
       errorStatus: "Connection failed - try again or check Freighter",
     },
+    heartbeat: {
+      healthy: "Wallet session healthy",
+      degraded: "Wallet session degraded",
+      unhealthy: "Wallet session unhealthy",
+    },
   },
   toast: {
     walletConnected: {
@@ -83,6 +88,7 @@ export const en = {
     previous: "Previous",
     next: "Next",
     sortBy: "Sort by",
+    viewRowDetails: "View row details",
   },
   shortcuts: {
     title: "Keyboard Shortcuts",
@@ -323,6 +329,8 @@ export const en = {
       compactModeDesc: "Reduce spacing to fit more information on screen.",
       showBalances: "Show Balances",
       showBalancesDesc: "Display wallet and vault balances throughout the app.",
+      maskSensitiveValues: "Mask Sensitive Values",
+      maskSensitiveValuesDesc: "Mask balances and wallet identifiers by default. Toggle off to reveal when you need full detail.",
     },
     language: {
       title: "Language & Region",
@@ -428,6 +436,14 @@ export const en = {
     dismissTimeline: "Dismiss timeline",
     tableCaption: "Transaction history",
   },
+  txDetail: {
+    title: "Transaction Details",
+    description: "Review the full details of this transaction.",
+    viewReceipt: "View Receipt",
+    hashLabel: "transaction hash",
+    viewOnExplorer: "View on Stellar Explorer",
+    liveStatusSection: "Live Status",
+  },
   portfolio: {
     pageTitle: "Portfolio",
     pageDesc: "Overview of your deposited real-world assets.",
@@ -458,6 +474,12 @@ export const en = {
     pendingStatus: "Pending",
     searchPlaceholder: "Search asset, vault, issuer...",
     tableCaption: "Portfolio holdings",
+  },
+  networkQuality: {
+    fast: "Fast network",
+    normal: "Normal network",
+    slow: "Slow network — reduced refresh rate",
+    degraded: "Degraded network — data may be stale",
   },
   analytics: {
     tag: "Live Analytics",

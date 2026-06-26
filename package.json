@@ -1,8 +1,12 @@
 {
   "devDependencies": {
-    "husky": "^9.1.7"
+    "husky": "^9.1.7",
+    "tsx": "^4.0.0",
+    "vitest": "^4.1.5"
   },
   "scripts": {
-    "prepare": "husky"
+    "prepare": "husky",
+    "validate:frontend-env": "tsx scripts/validate-frontend-env.ts",
+    "test:validate-frontend-env": "vitest run --config scripts/vitest.config.ts"
   }
 }
