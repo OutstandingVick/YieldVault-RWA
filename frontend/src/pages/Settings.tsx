@@ -308,6 +308,7 @@ const Settings: React.FC = () => {
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     resetToDefaults,
     setTableDensity,
     resetUserPreferenceStore,
@@ -436,6 +437,13 @@ const Settings: React.FC = () => {
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.showBalancesDesc")}</div>
             </div>
             <Toggle id="settings-show-balances" checked={preferences.showBalances} onChange={toggleShowBalances} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0' }}>
+            <div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>{t("settings.appearance.maskSensitiveValues")}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.maskSensitiveValuesDesc")}</div>
+            </div>
+            <Toggle id="settings-mask-sensitive" checked={preferences.maskSensitiveValues} onChange={toggleMaskSensitiveValues} />
           </div>
         </div>
       </SettingsSection>
