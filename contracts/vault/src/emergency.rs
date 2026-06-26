@@ -49,43 +49,43 @@ pub struct EmergencyUnwindResult {
     pub feasible: bool,
 }
 
+use crate::{DataKey, EmergencyStorageKey};
+
 pub fn read_proposal(env: &Env, id: u32) -> Option<EmergencyProposal> {
     env.storage()
         .instance()
-        .get(&crate::DataKey::EmergencyProposal(id))
+        .get(&DataKey::Emergency(EmergencyStorageKey::Proposal(id)))
 }
 
 pub fn write_proposal(env: &Env, id: u32, proposal: &EmergencyProposal) {
     env.storage()
         .instance()
-        .set(&crate::DataKey::EmergencyProposal(id), proposal);
+        .set(&DataKey::Emergency(EmergencyStorageKey::Proposal(id)), proposal);
 }
 
 pub fn next_proposal_id(env: &Env) -> u32 {
     let nonce: u32 = env
         .storage()
         .instance()
-        .get(&crate::DataKey::EmergencyProposalNonce)
+        .get(&DataKey::Emergency(EmergencyStorageKey::ProposalNonce))
         .unwrap_or(0);
     let next = nonce.checked_add(1).expect("proposal nonce overflow");
     env.storage()
         .instance()
-        .set(&crate::DataKey::EmergencyProposalNonce, &next);
+        .set(&DataKey::Emergency(EmergencyStorageKey::ProposalNonce), &next);
     next
 }
 
 pub fn primary_approver(env: &Env) -> Option<Address> {
     env.storage()
         .instance()
-        .get::<_, crate::EmergencyApprovers>(&crate::DataKey::EmergencyApprovers)
-        .map(|approvers| approvers.primary)
+        .get(&DataKey::Emergency(EmergencyStorageKey::ApproverPrimary))
 }
 
 pub fn secondary_approver(env: &Env) -> Option<Address> {
     env.storage()
         .instance()
-        .get::<_, crate::EmergencyApprovers>(&crate::DataKey::EmergencyApprovers)
-        .map(|approvers| approvers.secondary)
+        .get(&DataKey::Emergency(EmergencyStorageKey::ApproverSecondary))
 }
 
 pub fn require_distinct_approvers(primary: &Address, secondary: &Address) {

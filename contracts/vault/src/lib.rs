@@ -183,9 +183,7 @@ pub enum DataKey {
     BenjiStrategy,
     KoreanDebtStrategy,
     PauseReason,
-    EmergencyApprovers,
-    EmergencyProposalNonce,
-    EmergencyProposal(u32),
+    Emergency(EmergencyStorageKey),
     Proposal(u32),
     Vote(VoteKey),
     ShareBalance(Address),
@@ -222,11 +220,31 @@ pub enum DataKey {
     // Maximum entries allowed in a single batch_deposit call
     MaxBatchSize,
     // Dispute window duration in seconds for emergency proposals (default 3600 = 1 hour)
-    EmergencyDisputeWindow,
+    // (stored under Emergency(EmergencyStorageKey::DisputeWindow))
     // FIFO withdrawal queue + admin param guard metadata
     WithdrawalQueueMeta,
     WithdrawalQueueEntry(u64),
-    GovernanceConfig,
+    // Multisig governance configuration (nested to keep DataKey variant count within Soroban limits)
+    Governance(GovernanceStorageKey),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EmergencyStorageKey {
+    ApproverPrimary,
+    ApproverSecondary,
+    ProposalNonce,
+    Proposal(u32),
+    DisputeWindow,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GovernanceStorageKey {
+    Signers,
+    Threshold,
+    MigrationDeadline,
+    PreviousSigners,
 }
 
 #[contracttype]
@@ -641,10 +659,12 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         emergency::require_distinct_approvers(&primary, &secondary);
-        env.storage().instance().set(
-            &DataKey::EmergencyApprovers,
-            &EmergencyApprovers { primary, secondary },
-        );
+        env.storage()
+            .instance()
+            .set(&DataKey::Emergency(EmergencyStorageKey::ApproverPrimary), &primary);
+        env.storage()
+            .instance()
+            .set(&DataKey::Emergency(EmergencyStorageKey::ApproverSecondary), &secondary);
     }
 
     pub fn emergency_approver_primary(env: Env) -> Option<Address> {
@@ -675,7 +695,7 @@ impl YieldVault {
         let window_secs: u64 = env
             .storage()
             .instance()
-            .get(&DataKey::EmergencyDisputeWindow)
+            .get(&DataKey::Emergency(EmergencyStorageKey::DisputeWindow))
             .unwrap_or(3_600u64);
         let dispute_deadline = env
             .ledger()
@@ -798,14 +818,14 @@ impl YieldVault {
         assert!(seconds > 0, "dispute window must be positive");
         env.storage()
             .instance()
-            .set(&DataKey::EmergencyDisputeWindow, &seconds);
+            .set(&DataKey::Emergency(EmergencyStorageKey::DisputeWindow), &seconds);
     }
 
     /// Returns the configured dispute window in seconds (default 3600).
     pub fn emergency_dispute_window(env: Env) -> u64 {
         env.storage()
             .instance()
-            .get(&DataKey::EmergencyDisputeWindow)
+            .get(&DataKey::Emergency(EmergencyStorageKey::DisputeWindow))
             .unwrap_or(3_600u64)
     }
 
@@ -1111,18 +1131,20 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold > signers.len() {
+        if threshold == 0 || (threshold as u32) > signers.len() {
             panic!("invalid threshold: must be > 0 and <= signer set size");
         }
 
         // Store previous signers for migration (if any exist)
-        let mut previous_signers = Vec::new(&env);
-        if let Some(existing) = env
-            .storage()
-            .instance()
-            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
-        {
-            previous_signers = existing.signers;
+        if env.storage().instance().has(&DataKey::Governance(GovernanceStorageKey::Signers)) {
+            let old_signers: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::Governance(GovernanceStorageKey::Signers))
+                .unwrap();
+            env.storage()
+                .instance()
+                .set(&DataKey::Governance(GovernanceStorageKey::PreviousSigners), &old_signers);
         }
 
         let config = GovernanceConfig {
@@ -1133,7 +1155,13 @@ impl YieldVault {
         };
         env.storage()
             .instance()
-            .set(&DataKey::GovernanceConfig, &config);
+            .set(&DataKey::Governance(GovernanceStorageKey::Signers), &signers);
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance(GovernanceStorageKey::Threshold), &threshold);
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance(GovernanceStorageKey::MigrationDeadline), &migration_deadline);
 
         env.events()
             .publish((symbol_short!("govset"),), (threshold, migration_deadline));
@@ -1141,18 +1169,14 @@ impl YieldVault {
 
     /// Get the active governance signer set.
     pub fn governance_signers(env: Env) -> Option<Vec<Address>> {
-        env.storage()
-            .instance()
-            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
-            .map(|config| config.signers)
+        env.storage().instance().get(&DataKey::Governance(GovernanceStorageKey::Signers))
     }
 
     /// Get the required signature threshold for governance operations.
     pub fn governance_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
-            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
-            .map(|config| config.threshold)
+            .get(&DataKey::Governance(GovernanceStorageKey::Threshold))
             .unwrap_or(1)
     }
 
@@ -1168,23 +1192,31 @@ impl YieldVault {
         let config: GovernanceConfig = env
             .storage()
             .instance()
-            .get(&DataKey::GovernanceConfig)
+            .get(&DataKey::Governance(GovernanceStorageKey::Signers))
             .expect("governance signers not configured");
-        let signers = config.signers;
-        let threshold = config.threshold;
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Governance(GovernanceStorageKey::Threshold))
+            .unwrap_or(1);
 
         let current_time = env.ledger().timestamp();
-        let migration_deadline = config.migration_deadline;
+        let migration_deadline: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Governance(GovernanceStorageKey::MigrationDeadline))
+            .unwrap_or(0);
 
         // During migration, accept both old and new signer sets
         let is_migration = current_time < migration_deadline
-            && env
-                .storage()
-                .instance()
-                .has(&DataKey::GovernancePreviousSigners);
+            && env.storage().instance().has(&DataKey::Governance(GovernanceStorageKey::PreviousSigners));
 
         if is_migration {
-            let old_signers = config.previous_signers;
+            let old_signers: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::Governance(GovernanceStorageKey::PreviousSigners))
+                .unwrap();
 
             // Try new signer set first, then fall back to old set
             if permissions::MultiSignerValidator::verify_threshold(&signers, threshold, &approvals)
@@ -1217,14 +1249,10 @@ impl YieldVault {
         if let Some(mut config) = env
             .storage()
             .instance()
-            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
-        {
-            config.previous_signers = Vec::new(&env);
-            config.migration_deadline = 0;
-            env.storage()
-                .instance()
-                .set(&DataKey::GovernanceConfig, &config);
-        }
+            .remove(&DataKey::Governance(GovernanceStorageKey::PreviousSigners));
+        env.storage()
+            .instance()
+            .remove(&DataKey::Governance(GovernanceStorageKey::MigrationDeadline));
 
         env.events().publish((symbol_short!("govfin"),), ());
     }
