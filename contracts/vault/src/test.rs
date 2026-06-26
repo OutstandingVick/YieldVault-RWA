@@ -2102,6 +2102,208 @@ fn test_whitelist_consistency_with_set_strategy() {
     assert!(!vault.is_strategy_whitelisted(&benji_strategy));
 }
 
+// ─── Strategy heartbeat ───────────────────────────────────────────────────────
+
+#[test]
+fn test_default_strategy_heartbeat() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+    assert_eq!(vault.strategy_heartbeat(), 3600);
+}
+
+#[test]
+fn test_set_strategy_heartbeat() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _) = setup_vault(&env);
+    vault.set_strategy_heartbeat(&7200);
+    assert_eq!(vault.strategy_heartbeat(), 7200);
+}
+
+#[test]
+fn test_zero_strategy_heartbeat_disables_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &100);
+
+    let benji_token = create_token(&env, &token_admin);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+    vault.set_strategy_heartbeat(&0);
+    vault.deposit(&user, &100);
+
+    vault.invest(&60);
+    assert_eq!(usdc.balance(&strategy_id), 60);
+}
+
+#[test]
+fn test_record_strategy_heartbeat_stores_timestamp() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let benji_token = create_token(&env, &token_admin);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+
+    assert!(vault.strategy_last_heartbeat(&strategy_id).is_none());
+    vault.record_strategy_heartbeat(&strategy_id);
+    assert_eq!(
+        vault.strategy_last_heartbeat(&strategy_id),
+        Some(env.ledger().timestamp())
+    );
+}
+
+#[test]
+fn test_invest_blocks_without_strategy_heartbeat() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &100);
+
+    let benji_token = create_token(&env, &token_admin);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+    vault.deposit(&user, &100);
+
+    let blocked = vault.try_invest(&60);
+    assert!(matches!(
+        blocked,
+        Err(Ok(VaultError::StrategyHeartbeatExpired))
+    ));
+}
+
+#[test]
+fn test_invest_blocks_when_strategy_heartbeat_expired() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+    usdc_admin_client.mint(&user, &100);
+
+    let benji_token = create_token(&env, &token_admin);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+    vault.set_strategy_heartbeat(&60);
+    vault.record_strategy_heartbeat(&strategy_id);
+    vault.deposit(&user, &100);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 61;
+    });
+
+    let blocked = vault.try_invest(&60);
+    assert!(matches!(
+        blocked,
+        Err(Ok(VaultError::StrategyHeartbeatExpired))
+    ));
+}
+
+#[test]
+fn test_rebalance_blocks_when_target_strategy_heartbeat_expired() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let usdc_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+
+    let benji_token = create_token(&env, &token_admin);
+    let benji_admin_client = token::StellarAssetClient::new(&env, &benji_token.address);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+
+    let from_strategy_id = env.register(BenjiStrategy, ());
+    let from_strategy = BenjiStrategyClient::new(&env, &from_strategy_id);
+    let to_strategy_id = env.register(BenjiStrategy, ());
+    let to_strategy = BenjiStrategyClient::new(&env, &to_strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    from_strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    to_strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.whitelist_strategy(&from_strategy_id, &true);
+    vault.whitelist_strategy(&to_strategy_id, &true);
+    vault.set_strategy_heartbeat(&60);
+    vault.record_strategy_heartbeat(&from_strategy_id);
+
+    usdc_admin_client.mint(&from_strategy_id, &100);
+    benji_admin_client.mint(&from_strategy_id, &100);
+
+    let blocked = vault.try_rebalance(&from_strategy_id, &to_strategy_id, &50, &45, &45);
+    assert!(matches!(
+        blocked,
+        Err(Ok(VaultError::StrategyHeartbeatExpired))
+    ));
+}
+
+#[test]
+#[should_panic(expected = "strategy not whitelisted")]
+fn test_record_strategy_heartbeat_requires_whitelist() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let strategy_id = Address::generate(&env);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.record_strategy_heartbeat(&strategy_id);
+}
+
 // ─── Issue #740: withdrawal queue sequencing ─────────────────────────────────
 
 fn setup_vault_with_strategy(

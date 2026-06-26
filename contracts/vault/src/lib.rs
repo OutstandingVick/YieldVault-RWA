@@ -76,6 +76,7 @@ mod test;
 pub mod upgrade;
 
 pub mod oracle;
+pub mod strategy_heartbeat;
 pub mod whitelist;
 
 use crate::strategy::StrategyClient;
@@ -232,6 +233,8 @@ pub enum DataKeyExt {
     TreasuryClaimEpochEnd,
     TreasuryClaimedThisEpoch,
     TreasuryClaimEpochDuration,
+    StrategyHeartbeat,
+    StrategyLastHeartbeat(Address),
 }
 
 #[contracttype]
@@ -371,6 +374,7 @@ pub enum VaultError {
     OracleValidationFailed = 27,
     /// Treasury claim quota exceeded for the current epoch.
     ClaimQuotaExceeded = 28,
+    StrategyHeartbeatExpired = 29,
 }
 
 #[contractclient(name = "OracleClient")]
@@ -2269,6 +2273,7 @@ impl YieldVault {
 
         let strategy_addr = Self::strategy(env.clone())
             .ok_or(VaultError::StrategyNotConfigured)?;
+        Self::ensure_strategy_heartbeat_fresh_for(&env, &strategy_addr)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         // Cap check
@@ -2380,6 +2385,8 @@ impl YieldVault {
             return Err(VaultError::InvalidAmount);
         }
 
+        Self::ensure_strategy_heartbeat_fresh_for(&env, &from_strategy)?;
+        Self::ensure_strategy_heartbeat_fresh_for(&env, &to_strategy)?;
         let from_client = StrategyClient::new(&env, &from_strategy);
         let to_client = StrategyClient::new(&env, &to_strategy);
         let token_addr = Self::token(env.clone());
@@ -2948,6 +2955,26 @@ impl YieldVault {
             .unwrap_or(crate::oracle::DEFAULT_HEARTBEAT_SECONDS)
     }
 
+
+    pub fn set_strategy_heartbeat(env: Env, seconds: u64) {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        env.storage().instance().set(&DataKeyExt::StrategyHeartbeat, &seconds);
+    }
+    pub fn strategy_heartbeat(env: Env) -> u64 {
+        env.storage().instance().get(&DataKeyExt::StrategyHeartbeat).unwrap_or(crate::strategy_heartbeat::DEFAULT_STRATEGY_HEARTBEAT_SECONDS)
+    }
+    pub fn record_strategy_heartbeat(env: Env, strategy: Address) {
+        strategy.require_auth();
+        if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) { panic!("strategy not whitelisted"); }
+        let now = env.ledger().timestamp();
+        env.storage().instance().set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
+        env.events().publish((symbol_short!("strathb"),), (strategy, now));
+    }
+    pub fn strategy_last_heartbeat(env: Env, strategy: Address) -> Option<u64> {
+        env.storage().instance().get(&DataKeyExt::StrategyLastHeartbeat(strategy))
+    }
+
     /// Set the maximum strategy allocation cap.
     pub fn set_strategy_cap(env: Env, strategy: Address, cap: i128) {
         let admin: Address = get_admin(&env).expect("Admin not set");
@@ -3065,6 +3092,11 @@ impl YieldVault {
             (current_version, target_version),
         );
         Ok(())
+    }
+
+
+    fn ensure_strategy_heartbeat_fresh_for(env: &Env, strategy: &Address) -> Result<(), VaultError> {
+        crate::strategy_heartbeat::ensure_strategy_heartbeat_fresh(env, strategy, Self::strategy_heartbeat(env.clone()))
     }
 
     fn raise_strategy_watermark(env: &Env, strategy: &Address, candidate: i128) {
