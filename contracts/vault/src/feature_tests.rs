@@ -70,8 +70,7 @@ fn test_dual_approval_emergency_pause() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 3_601);
 
     vault
-        .confirm_emergency_action(&secondary, &proposal_id)
-        .unwrap();
+        .confirm_emergency_action(&secondary, &proposal_id);
 
     assert!(vault.is_paused());
     assert_eq!(vault.pause_reason(), Some(PauseReason::SecurityIncident));
@@ -180,8 +179,7 @@ fn test_confirm_allowed_after_dispute_window() {
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 3_601);
     vault
-        .confirm_emergency_action(&secondary, &proposal_id)
-        .unwrap();
+        .confirm_emergency_action(&secondary, &proposal_id);
     assert!(vault.is_paused());
 }
 
@@ -203,7 +201,7 @@ fn test_admin_can_cancel_during_dispute_window() {
         &None,
     );
 
-    vault.cancel_emergency_action(&proposal_id).unwrap();
+    vault.cancel_emergency_action(&proposal_id);
 
     let proposal = vault.emergency_proposal(&proposal_id).unwrap();
     assert!(proposal.cancelled);
@@ -228,7 +226,7 @@ fn test_cancelled_proposal_cannot_be_confirmed() {
         &None,
     );
 
-    vault.cancel_emergency_action(&proposal_id).unwrap();
+    vault.cancel_emergency_action(&proposal_id);
 
     // Even after the window passes, a cancelled proposal must be rejected.
     env.ledger().set_timestamp(env.ledger().timestamp() + 3_601);
@@ -305,7 +303,6 @@ fn test_custom_dispute_window_respected() {
     // Allowed after 10 minutes.
     env.ledger().set_timestamp(env.ledger().timestamp() + 61);
     vault
-        .confirm_emergency_action(&secondary, &proposal_id)
-        .unwrap();
+        .confirm_emergency_action(&secondary, &proposal_id);
     assert!(vault.is_paused());
 }
