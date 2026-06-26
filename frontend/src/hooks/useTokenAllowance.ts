@@ -8,10 +8,16 @@ export type ApprovalStatus = "idle" | "pending" | "confirmed" | "error";
  * In production this would call the USDC contract's `allowance(owner, spender)`
  * view function and submit an `approve(spender, amount)` transaction.
  */
+const e2ePreApproved = import.meta.env.VITE_E2E_STUB_BALANCES === "true";
+
 export function useTokenAllowance(walletAddress: string | null) {
-  // Simulate: new wallets start with 0 allowance
-  const [allowance, setAllowance] = useState<number>(0);
-  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("idle");
+  // Simulate: new wallets start with 0 allowance (pre-approved in E2E builds)
+  const [allowance, setAllowance] = useState<number>(
+    e2ePreApproved ? Number.MAX_SAFE_INTEGER : 0,
+  );
+  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>(
+    e2ePreApproved ? "confirmed" : "idle",
+  );
 
   const needsApproval = (depositAmount: number) =>
     walletAddress !== null && allowance < depositAmount && depositAmount > 0;

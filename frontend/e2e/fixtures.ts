@@ -112,6 +112,47 @@ const portfolioHoldings = [
 export async function interceptApiRoutes(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem('hasSeenWalkthrough', 'true');
+    window.sessionStorage.removeItem('yieldvault_vault_form_draft');
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+
+      if (url.includes('horizon-testnet.stellar.org') && url.includes('/accounts/')) {
+        const accountId =
+          url.split('/accounts/')[1]?.split(/[/?]/)[0] ?? 'unknown';
+
+        return new Response(
+          JSON.stringify({
+            id: accountId,
+            account_id: accountId,
+            sequence: '12884901882',
+            subentry_count: 0,
+            balances: [
+              { asset_type: 'native', balance: '5.0000000' },
+              {
+                asset_type: 'credit_alphanum4',
+                asset_code: 'USDC',
+                asset_issuer:
+                  'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
+                balance: '1250.5000000',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      return originalFetch(input, init);
+    };
   });
 
   await page.route('**/mock-api/vault-summary.json', (route) =>
@@ -203,6 +244,67 @@ export async function stubFreighterConnected(page: Page, address: string) {
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
         case 'REQUEST_ACCESS':
+          response = { ...response, publicKey: stub.connected ? addr : '' };
+          break;
+        case 'REQUEST_CONNECTION_STATUS':
+          response = { ...response, isConnected: stub.connected };
+          break;
+        case 'REQUEST_NETWORK_DETAILS':
+          response = {
+            ...response,
+            networkDetails: {
+              network: 'TESTNET',
+              networkName: 'Test SDF Network',
+              networkUrl: 'https://horizon-testnet.stellar.org',
+              networkPassphrase: 'Test SDF Network ; September 2015',
+              sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+            },
+          };
+          break;
+        default:
+          return;
+      }
+
+      window.postMessage(response, window.location.origin);
+    });
+  }, address);
+}
+
+/**
+ * Stub Freighter starting disconnected; user can connect via the in-app button.
+ */
+export async function stubFreighterManualConnect(page: Page, address: string) {
+  await page.addInitScript((addr) => {
+    const stub = { connected: false };
+    (window as unknown as Record<string, unknown>).__freighterStub = stub;
+
+    window.addEventListener('message', (event) => {
+      if (
+        event.source !== window ||
+        !event.data ||
+        event.data.source !== 'FREIGHTER_EXTERNAL_MSG_REQUEST'
+      ) {
+        return;
+      }
+
+      const { messageId, type } = event.data as { messageId: number; type: string };
+
+      let response: Record<string, unknown> = {
+        source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
+        messagedId: messageId,
+      };
+
+      switch (type) {
+        case 'REQUEST_ALLOWED_STATUS':
+        case 'SET_ALLOWED_STATUS':
+          response = { ...response, isAllowed: stub.connected };
+          break;
+        case 'REQUEST_ACCESS':
+        case 'SET_ALLOWED':
+          stub.connected = true;
+          response = { ...response, publicKey: addr, isAllowed: true };
+          break;
+        case 'REQUEST_PUBLIC_KEY':
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
         case 'REQUEST_CONNECTION_STATUS':

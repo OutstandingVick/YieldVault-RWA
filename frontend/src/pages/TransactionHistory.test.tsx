@@ -1,10 +1,12 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
+import { getPreferenceStorageKey, setTransactionPageSize, setTransactionViewMode } from "../lib/userPreferenceStore";
+import { PreferencesProvider } from "../context/PreferencesContext";
 
 // Hoisted so it can be referenced inside vi.mock factories
 const mockNetworkConfig = vi.hoisted(() => ({
@@ -56,6 +58,11 @@ function makeManyTransactions(count: number): Transaction[] {
   );
 }
 
+function UrlProbe() {
+  const [params] = useSearchParams();
+  return <div data-testid="url-probe">{params.toString()}</div>;
+}
+
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -64,7 +71,17 @@ function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
-        <TransactionHistory walletAddress={walletAddress} />
+        <Routes>
+          <Route
+            path="*"
+            element={
+              <PreferencesProvider walletAddress={walletAddress}>
+                <TransactionHistory walletAddress={walletAddress} />
+                <UrlProbe />
+              </PreferencesProvider>
+            }
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -87,7 +104,7 @@ describe("TransactionHistory", () => {
   it("renders connect-wallet prompt when walletAddress is null", () => {
     renderPage(null);
 
-    expect(screen.getByText(/Connect your wallet/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Connect your wallet/i })).toBeInTheDocument();
     expect(mockGetTransactions).not.toHaveBeenCalled();
   });
 
@@ -103,14 +120,14 @@ describe("TransactionHistory", () => {
     renderPage(WALLET);
 
     expect(
-      screen.getAllByText(/Loading transactions\.\.\./i).length,
+      screen.getAllByText(/Loading\.\.\./i).length,
     ).toBeGreaterThan(0);
 
     // Resolve to avoid act() warnings
     resolvePromise([]);
     await waitFor(() =>
       expect(
-        screen.queryByText(/Loading transactions\.\.\./i),
+        screen.queryByText(/Loading\.\.\./i),
       ).not.toBeInTheDocument(),
     );
   });
@@ -124,9 +141,7 @@ describe("TransactionHistory", () => {
     await waitFor(() =>
       expect(mockGetTransactions).toHaveBeenCalledWith({
         walletAddress: WALLET,
-        limit: 10,
-        order: "desc",
-        type: "all",
+        limit: 200,
       }),
     );
   });
@@ -276,16 +291,15 @@ describe("TransactionHistory", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Rows per page/i }), {
       target: { value: "50" },
     });
-    expect(localStorage.getItem(`yieldvault:transactions:page-size:${WALLET}`)).toBe("50");
+    const stored = JSON.parse(localStorage.getItem(getPreferenceStorageKey(WALLET))!);
+    expect(stored.data.tables.transactionPageSize).toBe(50);
 
     unmount();
     renderPage(SECOND_WALLET);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     expect(screen.getByRole("combobox", { name: /Rows per page/i })).toHaveValue("10");
-    expect(
-      localStorage.getItem(`yieldvault:transactions:page-size:${SECOND_WALLET}`),
-    ).toBeNull();
+    expect(localStorage.getItem(getPreferenceStorageKey(SECOND_WALLET))).toBeNull();
   });
 
   // Req 5.1 — filter control renders All / Deposit / Withdrawal options
@@ -296,16 +310,12 @@ describe("TransactionHistory", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    const filterSelect = screen.getByRole("combobox", {
-      name: /Filter by type/i,
-    });
-    const options = Array.from(filterSelect.querySelectorAll("option")).map(
-      (o) => o.textContent,
-    );
-
-    expect(options).toContain("All");
-    expect(options).toContain("Deposit");
-    expect(options).toContain("Withdrawal");
+    expect(
+      screen.getByRole("checkbox", { name: /Filter by Type Deposit/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: /Filter by Type Withdrawal/i }),
+    ).toBeInTheDocument();
   });
 
   it("filters transactions with a debounced client-side search input", async () => {
@@ -321,7 +331,8 @@ describe("TransactionHistory", () => {
 
     renderPage(WALLET);
 
-    await waitFor(() => expect(screen.getByText("USDC")).toBeInTheDocument());
+    const table = await screen.findByRole("table");
+    await waitFor(() => expect(within(table).getByText("USDC")).toBeInTheDocument());
 
     const searchInput = screen.getByRole("searchbox", {
       name: /Search transactions/i,
@@ -331,54 +342,48 @@ describe("TransactionHistory", () => {
     fireEvent.change(searchInput, { target: { value: "EURC" } });
 
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("USDC")).toBeInTheDocument();
 
     await waitFor(
-      () => expect(screen.queryByText("USDC")).not.toBeInTheDocument(),
+      () => {
+        expect(within(table).queryByText("USDC")).not.toBeInTheDocument();
+        expect(within(table).getByText("EURC")).toBeInTheDocument();
+      },
       { timeout: 2000 },
     );
-    expect(screen.getByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
 
     fireEvent.change(searchInput, { target: { value: "" } });
 
-    await waitFor(() => expect(screen.getByText("USDC")).toBeInTheDocument());
-    expect(screen.getByText("EURC")).toBeInTheDocument();
+    await waitFor(() => expect(within(table).getByText("USDC")).toBeInTheDocument());
+    expect(within(table).getByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
   });
 
   // Req 5.3 — applying filter resets page to 1
   it("resets page to 1 when filter is applied", async () => {
+    setTransactionViewMode("paginated", WALLET);
+    setTransactionPageSize(10, WALLET);
     // 15 transactions so we have 2 pages
     mockGetTransactions.mockResolvedValue(makeManyTransactions(15));
 
-    renderPage(WALLET);
+    renderPage(WALLET, ["/?page=2&pageSize=10"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    // Navigate to page 2
-    const nextBtn =
-      screen.queryByRole("button", { name: /Go to next page/i }) ??
-      screen.getAllByRole("button", { name: /Next/i })[0];
-    fireEvent.click(nextBtn);
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { current: "page", name: /Go to page 2/i }),
-      ).toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("url-probe").textContent).toMatch(/(?:^|&)page=2(?:&|$)/);
+    });
 
     // Apply a filter — should reset to page 1
-    const filterSelect = screen.getByRole("combobox", {
-      name: /Filter by type/i,
-    });
-    fireEvent.change(filterSelect, { target: { value: "deposit" } });
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { current: "page", name: /Go to page 1/i }),
-      ).toBeInTheDocument(),
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Filter by Type Deposit/i }),
     );
+
+    await waitFor(() => {
+      const params = screen.getByTestId("url-probe").textContent ?? "";
+      expect(params).toMatch(/(?:^|&)page=1(?:&|$)/);
+      expect(params).toContain("types=deposit");
+    });
   });
 
   // Req 6.1 — type badge renders with distinct class per type
@@ -390,13 +395,15 @@ describe("TransactionHistory", () => {
 
     renderPage(WALLET);
 
-    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    await waitFor(() => expect(mockGetTransactions).toHaveBeenCalled());
 
-    const depositBadge = screen.getByText("deposit");
-    const withdrawalBadge = screen.getByText("withdrawal");
-
-    expect(depositBadge).toBeInTheDocument();
-    expect(withdrawalBadge).toBeInTheDocument();
+    await waitFor(() => {
+      const cellTexts = screen
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent?.toLowerCase() ?? "");
+      expect(cellTexts.some((text) => text.includes("deposit"))).toBe(true);
+      expect(cellTexts.some((text) => text.includes("withdrawal"))).toBe(true);
+    });
   });
 
   // Req 7.1 — empty state when no transactions
@@ -414,25 +421,21 @@ describe("TransactionHistory", () => {
 
   // Req 7.2 — filtered empty state message
   it("shows filtered empty state message when filter yields no results", async () => {
-    // Only deposits — filtering by withdrawal should show filtered empty message
-    mockGetTransactions.mockImplementation(async (params: unknown) => {
-      const p = params as { type?: string };
-      if (p.type === "withdrawal") return [];
-      return [makeTransaction({ id: "1", type: "deposit", status: "completed" })];
-    });
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", type: "deposit", status: "completed" }),
+    ]);
 
     renderPage(WALLET);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
-    const filterSelect = screen.getByRole("combobox", {
-      name: /Filter by type/i,
-    });
-    fireEvent.change(filterSelect, { target: { value: "withdrawal" } });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Filter by Type Withdrawal/i }),
+    );
 
     await waitFor(() =>
       expect(
-        screen.getByText("No matches found"),
+        screen.getByText("No transactions found"),
       ).toBeInTheDocument(),
     );
   });
@@ -577,12 +580,14 @@ describe("TransactionHistory — amount range filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    const table = await screen.findByRole("table");
+
     // 50 should be hidden; 200 and 500 should be visible
     await waitFor(() =>
-      expect(screen.queryAllByText(/50\.00 USDC/).length).toBe(0),
+      expect(within(table).queryAllByText(/50(\.00)? USDC/).length).toBe(0),
     );
-    expect(screen.getByText("200.00 USDC")).toBeInTheDocument();
-    expect(screen.getByText("500.00 USDC")).toBeInTheDocument();
+    expect(within(table).getByText(/200(\.00)? USDC/)).toBeInTheDocument();
+    expect(within(table).getByText(/500(\.00)? USDC/)).toBeInTheDocument();
   });
 
   it("hides rows above amountMax when amountMax param is set in URL", async () => {
@@ -606,12 +611,14 @@ describe("TransactionHistory — amount range filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    const table = screen.getByRole("table");
+
     // Only 50 should be visible
     await waitFor(() =>
-      expect(screen.queryAllByText(/500\.00 USDC/).length).toBe(0),
+      expect(within(table).queryAllByText(/500(\.00)? USDC/).length).toBe(0),
     );
-    expect(screen.getByText("50.00 USDC")).toBeInTheDocument();
-    expect(screen.queryAllByText(/200\.00 USDC/).length).toBe(0);
+    expect(within(table).getByText(/50(\.00)? USDC/)).toBeInTheDocument();
+    expect(within(table).queryAllByText(/200(\.00)? USDC/).length).toBe(0);
   });
 });
 
@@ -652,12 +659,14 @@ describe("TransactionHistory — status filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
+    const table = await screen.findByRole("table");
+
     // Only EURC (pending) should survive the filter
     await waitFor(() =>
-      expect(screen.queryAllByText("USDC").length).toBe(0),
+      expect(within(table).queryAllByText("USDC").length).toBe(0),
     );
-    expect(screen.getByText("EURC")).toBeInTheDocument();
-    expect(screen.queryAllByText("XLM").length).toBe(0);
+    expect(within(table).getByText("EURC")).toBeInTheDocument();
+    expect(within(table).queryAllByText("XLM").length).toBe(0);
   });
 });
 

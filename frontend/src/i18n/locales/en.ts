@@ -328,6 +328,8 @@ export const en = {
       compactModeDesc: "Reduce spacing to fit more information on screen.",
       showBalances: "Show Balances",
       showBalancesDesc: "Display wallet and vault balances throughout the app.",
+      maskSensitiveValues: "Mask Sensitive Values",
+      maskSensitiveValuesDesc: "Mask balances and wallet identifiers by default. Toggle off to reveal when you need full detail.",
     },
     language: {
       title: "Language & Region",

@@ -77,7 +77,7 @@ export function useTransactionConfirmation(): UseTransactionConfirmationReturn {
     []
   );
 
-  const modal = state.summary && (
+  const modal = state.summary ? (
     <TransactionConfirmationModal
       isOpen={state.isOpen}
       summary={state.summary}
@@ -85,7 +85,7 @@ export function useTransactionConfirmation(): UseTransactionConfirmationReturn {
       onCancel={handleCancel}
       isLoading={state.isLoading}
     />
-  );
+  ) : undefined;
 
   return {
     requestConfirmation,

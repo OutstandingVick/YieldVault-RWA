@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { Activity, TrendingUp, DollarSign, Percent, Briefcase, Share2 } from "../components/icons";
 import { useTranslation } from "../i18n";
 import ApiStatusBanner from "../components/ApiStatusBanner";
@@ -31,6 +31,7 @@ import EmptyState from "../components/ui/EmptyState";
 import FirstTimePortfolioPanel from "../components/FirstTimePortfolioPanel";
 import { useNavigate } from "react-router-dom";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
+import { displayBalance } from "../lib/maskSensitiveValues";
 
 interface PortfolioProps {
   walletAddress: string | null;
@@ -98,6 +99,22 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const [showShareModal, setShowShareModal] = useState(false);
   const locale = preferences.locale;
   const currency = preferences.currency;
+
+  const formatSensitiveCurrency = useCallback((amount: number, withSign = false) => {
+    if (!preferences.showBalances) {
+      return "—";
+    }
+    const formatted = displayBalance(amount, preferences.maskSensitiveValues, (value) =>
+      formatCurrency(value, currency, 2, locale),
+    );
+    if (withSign && amount > 0 && !preferences.maskSensitiveValues) {
+      return `+${formatted}`;
+    }
+    if (withSign && amount >= 0 && preferences.maskSensitiveValues) {
+      return `+${formatted}`;
+    }
+    return formatted;
+  }, [preferences.showBalances, preferences.maskSensitiveValues, currency, locale]);
 
   const { state: urlState, setSearch, setSort, setPage, setPageSize, setFilters, reset } = useUrlState<{ status: string, search: string }>({
     defaultSortBy: "valueUsd",
@@ -272,7 +289,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       header: t("portfolio.valueHeader"),
       sortable: true,
       align: "right",
-      cell: (row) => <span>{formatCurrency(row.valueUsd, currency, 2, locale)}</span>,
+      cell: (row) => <span>{formatSensitiveCurrency(row.valueUsd)}</span>,
     },
     {
       id: "unrealizedGainUsd",
@@ -289,12 +306,11 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
             fontWeight: 600,
           }}
         >
-          {row.unrealizedGainUsd >= 0 ? "+" : ""}
-          {formatCurrency(row.unrealizedGainUsd, currency, 2, locale)}
+          {formatSensitiveCurrency(row.unrealizedGainUsd, true)}
         </span>
       ),
     },
-  ], [currency, locale]);
+  ], [formatSensitiveCurrency, t]);
 
   // Compute trend values
   const totalNetValueTrend = useMemo(() => {
@@ -313,8 +329,8 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
   const cumulativeYieldTrend = useMemo(() => {
     if (totalGain === 0) return "--";
-    return `${formatCurrency(totalGain, currency, 2, locale)} realized`;
-  }, [currency, locale, totalGain]);
+    return `${formatSensitiveCurrency(totalGain)} realized`;
+  }, [totalGain, formatSensitiveCurrency]);
 
   const weightedApyTrend = useMemo(() => {
     if (holdings.length === 0) return "N/A";
@@ -395,14 +411,14 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           >
             <PortfolioSummaryCard
               label={t("portfolio.totalNetValue")}
-              value={formatCurrency(totalValue, currency, 2, locale)}
+              value={formatSensitiveCurrency(totalValue)}
               icon={<DollarSign size={20} color="var(--accent-cyan)" />}
               trend={totalNetValueTrend}
               trendPositive={totalGain >= 0}
             />
             <PortfolioSummaryCard
               label={t("portfolio.cumulativeYield")}
-              value={`${totalGain >= 0 ? '+' : ''}${formatCurrency(totalGain, currency, 2, locale)}`}
+              value={formatSensitiveCurrency(totalGain, true)}
               icon={<TrendingUp size={20} color="var(--accent-purple)" />}
               trend={cumulativeYieldTrend}
               trendPositive={totalGain >= 0}

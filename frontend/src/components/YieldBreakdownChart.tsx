@@ -2,6 +2,10 @@ import React, { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -10,6 +14,7 @@ import {
 } from "recharts";
 import { TrendingUp } from "./icons";
 import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
+import { ChartModeToggle } from "./ChartModeToggle";
 import { usePreferencesContext } from "../context/PreferencesContext";
 import { formatCurrency, formatDate } from "../lib/formatters";
 import { formatChartCurrency, createChartCurrencyTickFormatter } from "../lib/chartFormatters";
@@ -87,8 +92,9 @@ function YieldTooltip({ active, payload, label, locale, currency }: TooltipProps
 }
 
 const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) => {
-  const { preferences } = usePreferencesContext();
+  const { preferences, chartModes, setChartMode } = usePreferencesContext();
   const [period, setPeriod] = useState<YieldPeriod>("30D");
+  const chartMode = chartModes.yieldBreakdown;
   const locale = preferences.locale;
   const currency = preferences.currency;
 
@@ -142,6 +148,12 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
         </div>
 
         {/* Period toggle */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
+        <ChartModeToggle
+          value={chartMode}
+          onChange={(mode) => setChartMode("yieldBreakdown", mode)}
+          aria-label="Yield breakdown chart mode"
+        />
         <div
           role="group"
           aria-label="Select yield period"
@@ -175,6 +187,7 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
             </button>
           ))}
         </div>
+        </div>
       </div>
 
       {/* Chart */}
@@ -193,6 +206,23 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
           />
         ) : (
           <ResponsiveContainer width="100%" height="100%">
+            {chartMode === "bar" ? (
+              <BarChart data={data} margin={{ top: 8, right: 8, left: -20, bottom: 0 }} aria-label="Daily yield earnings bar chart">
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 11 }} tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)} minTickGap={28} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 11 }} tickFormatter={createChartCurrencyTickFormatter(currency, locale, true)} />
+                <Tooltip content={(props: { active?: boolean; payload?: ReadonlyArray<{ value?: number }>; label?: string }) => <YieldTooltip {...props} locale={locale} currency={currency} />} />
+                <Bar dataKey="yield" fill="var(--accent-purple)" radius={[4, 4, 0, 0]} animationDuration={600} />
+              </BarChart>
+            ) : chartMode === "area" ? (
+              <AreaChart data={data} margin={{ top: 8, right: 8, left: -20, bottom: 0 }} aria-label="Daily yield earnings area chart">
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 11 }} tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)} minTickGap={28} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 11 }} tickFormatter={createChartCurrencyTickFormatter(currency, locale, true)} />
+                <Tooltip content={(props: { active?: boolean; payload?: ReadonlyArray<{ value?: number }>; label?: string }) => <YieldTooltip {...props} locale={locale} currency={currency} />} />
+                <Area type="monotone" dataKey="yield" stroke="var(--accent-purple)" strokeWidth={2} fill="var(--accent-purple)" fillOpacity={0.2} animationDuration={600} />
+              </AreaChart>
+            ) : (
             <LineChart
               data={data}
               margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
@@ -239,6 +269,7 @@ const YieldBreakdownChart: React.FC<YieldBreakdownChartProps> = ({ totalGain }) 
                 animationDuration={600}
               />
             </LineChart>
+            )}
           </ResponsiveContainer>
         )}
       </div>

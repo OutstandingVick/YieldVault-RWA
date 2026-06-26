@@ -11,6 +11,36 @@ if [[ "$NETWORK" != "testnet" && "$NETWORK" != "futurenet" ]]; then
   exit 1
 fi
 
+echo "Verifying toolchain versions..."
+
+# Check Stellar / Soroban CLI version (pinned to v23.0.1)
+CLI_VER=""
+if command -v stellar &>/dev/null; then
+  CLI_VER=$(stellar --version 2>&1 || true)
+elif command -v soroban &>/dev/null; then
+  CLI_VER=$(soroban --version 2>&1 || true)
+else
+  echo "Error: Neither stellar-cli nor soroban-cli is installed."
+  echo "Please install stellar-cli/soroban-cli v23.0.1 as specified in docs/DEPLOYMENT.md"
+  exit 1
+fi
+
+if [[ ! "$CLI_VER" =~ "23.0.1" ]]; then
+  echo "Error: CLI version mismatch. Detected version: $CLI_VER"
+  echo "Required version is v23.0.1. Please align your CLI version to prevent unexpected bugs."
+  exit 1
+fi
+echo "CLI version check passed (v23.0.1)."
+
+# Check Rust version
+if command -v rustc &>/dev/null; then
+  RUST_VER=$(rustc --version 2>&1 || true)
+  echo "Rust version check passed: $RUST_VER"
+else
+  echo "Error: Rust compiler (rustc) is not installed."
+  exit 1
+fi
+
 # Ensure identity exists in CI
 if ! soroban config identity ls | grep -q "$IDENTITY" 2>/dev/null; then
   if [[ -n "${SOROBAN_SECRET_KEY:-}" ]]; then

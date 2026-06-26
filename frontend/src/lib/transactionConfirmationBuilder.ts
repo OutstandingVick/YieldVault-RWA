@@ -49,7 +49,7 @@ export function buildTransactionSummary(
 
   // Detect unusual values
   const isUnusualAmount = amount >= UNUSUAL_AMOUNT_THRESHOLD;
-  const isUnusualFee = feeXlm > STELLAR_BASE_FEE_XLM * UNUSUAL_FEE_MULTIPLIER;
+  const isUnusualFee = feeXlm >= STELLAR_BASE_FEE_XLM * UNUSUAL_FEE_MULTIPLIER;
   const isUnknownContract = contractName === null;
 
   return {

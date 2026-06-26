@@ -102,15 +102,15 @@ export function zodToJsonShape(schema: z.ZodTypeAny): JsonSchemaShape {
   }
 
   if (schema instanceof z.ZodOptional) {
-    return zodToJsonShape(schema._def.innerType);
+    return zodToJsonShape(schema.unwrap() as z.ZodTypeAny);
   }
 
   if (schema instanceof z.ZodNullable) {
-    return zodToJsonShape(schema._def.innerType);
+    return zodToJsonShape(schema.unwrap() as z.ZodTypeAny);
   }
 
   if (schema instanceof z.ZodEnum) {
-    return { type: 'string', enum: schema._def.values };
+    return { type: 'string', enum: [...schema.options] };
   }
 
   if (schema instanceof z.ZodString) {

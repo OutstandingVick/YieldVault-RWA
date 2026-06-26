@@ -314,6 +314,8 @@ export const es = {
       compactModeDesc: "Reduce el espaciado para mostrar más información en pantalla.",
       showBalances: "Mostrar saldos",
       showBalancesDesc: "Muestra los saldos de billetera y bóveda en toda la app.",
+      maskSensitiveValues: "Ocultar valores sensibles",
+      maskSensitiveValuesDesc: "Enmascara saldos e identificadores por defecto. Desactiva para ver el detalle completo.",
     },
     language: {
       title: "Idioma y región",

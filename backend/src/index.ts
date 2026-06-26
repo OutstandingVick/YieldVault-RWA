@@ -35,6 +35,8 @@ import {
 import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
 import { startDbBackupScheduler } from './dbBackupJob';
+import { startPositionReconciliationScheduler } from './positionReconciliationJob';
+import { setupSwagger } from './swagger';
 import { sorobanCircuitBreaker } from './circuitBreaker';
 import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
 import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
@@ -49,6 +51,7 @@ import {
   setWithdrawalLimitOverride,
   listWithdrawalLimitAuditEntries,
 } from './middleware/withdrawalDailyLimit';
+import { adaptiveThrottleMiddleware } from './middleware/adaptiveThrottle';
 import {
   validateApiKey,
   authenticateApiKeyValue,
@@ -97,8 +100,10 @@ import {
   httpResponseTime,
   activeConnections,
   updateVaultMetrics,
+  syncJobGovernanceMetrics,
 } from './metrics';
 import { latencyMonitoringService } from './latencyMonitoring';
+import { listEndpointSlaRegistry } from './endpointSlaRegistry';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
 import { getPrismaClient } from './prismaClient';
@@ -149,6 +154,16 @@ import {
 } from './bulkExportJobs';
 import { normalizeWalletAddress } from './walletUtils';
 import { emailQueueService } from './emailQueue';
+import {
+  createOrResumeTransactionBackfill,
+  getTransactionBackfillJob,
+  listTransactionBackfillJobs,
+} from './transactionBackfill';
+import {
+  createExportManifest,
+  getExportManifestById,
+  listExportManifests,
+} from './exportManifest';
 
 declare global {
   namespace Express {
@@ -521,6 +536,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === '/health' || req.path === '/ready') return next();
   return readsLimiter(req, res, next);
 });
+app.use(adaptiveThrottleMiddleware);
 
 // Capture immutable admin audit records for every /admin request.
 // Apply admin-tier rate limiting to all /admin endpoints.
@@ -542,6 +558,7 @@ app.use(maintenanceModeMiddleware);
  */
 app.get('/metrics', async (_req: Request, res: Response) => {
   try {
+    syncJobGovernanceMetrics();
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (err) {
@@ -566,6 +583,17 @@ app.get('/admin/latency-status', validateApiKey, (_req: Request, res: Response) 
 });
 
 /**
+ * GET /admin/sla/registry
+ * Returns the canonical endpoint SLA / latency budget registry for monitoring and alerts.
+ */
+app.get('/admin/sla/registry', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    endpoints: listEndpointSlaRegistry(),
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+/**
  * GET /health
  * Returns immediately with service health status
  * Includes critical dependencies health (Stellar RPC, database, cache)
@@ -576,11 +604,21 @@ app.get('/health', async (_req: Request, res: Response) => {
   const dbHealth = await getDatabaseHealth();
   const prismaHealth = await getPrismaHealth();
   const circuitSnapshot = sorobanCircuitBreaker.toHealthSnapshot();
+  const lastIndexedLedger = await (async () => {
+    try {
+      const cursor = await prisma.eventCursor.findUnique({ where: { id: 1 } });
+      return cursor?.lastLedgerSeq ?? 0;
+    } catch {
+      return 0;
+    }
+  })();
+
   const health = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: nodeEnv,
+    lastIndexedLedger,
     checks: {
       api: 'up',
       cache: getCacheHealth(),
@@ -639,6 +677,9 @@ app.get('/ready', async (_req: Request, res: Response) => {
 app.get('/maintenance/status', (_req: Request, res: Response) => {
   res.status(200).json(buildMaintenanceStatusPayload());
 });
+
+// Enable Swagger UI documentation
+setupSwagger(app);
 
 // ─── Versioned API v1 Router ──────────────────────────────────────────────
 const apiV1 = express.Router();
@@ -3011,6 +3052,159 @@ app.get('/admin/jobs/metrics', validateApiKey, (req: Request, res: Response) => 
 });
 
 /**
+ * POST /admin/transactions/backfill - controlled backfill of missing ledger index ranges
+ */
+app.post('/admin/transactions/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const startLedger = Number(req.body?.startLedger);
+  const endLedger = Number(req.body?.endLedger);
+  const batchSize = req.body?.batchSize === undefined ? undefined : Number(req.body.batchSize);
+  const dryRun = Boolean(req.body?.dryRun);
+  const rpcUrl = String(req.body?.rpcUrl || process.env.STELLAR_RPC_URL || '').trim();
+  const contractId = String(req.body?.contractId || process.env.VAULT_CONTRACT_ID || '').trim();
+
+  if (!Number.isInteger(startLedger) || !Number.isInteger(endLedger)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'startLedger and endLedger must be integers',
+    });
+    return;
+  }
+
+  if (!rpcUrl) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'rpcUrl is required (or set STELLAR_RPC_URL)',
+    });
+    return;
+  }
+
+  if (!contractId) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'contractId is required (or set VAULT_CONTRACT_ID)',
+    });
+    return;
+  }
+
+  try {
+    const job = await createOrResumeTransactionBackfill({
+      startLedger,
+      endLedger,
+      batchSize,
+      dryRun,
+      rpcUrl,
+      contractId,
+    });
+
+    res.status(202).json({
+      message: 'Backfill accepted',
+      job,
+    });
+  } catch (error) {
+    res.status(422).json({
+      error: 'Unprocessable Entity',
+      status: 422,
+      message: error instanceof Error ? error.message : 'Backfill request failed',
+    });
+  }
+});
+
+/**
+ * GET /admin/transactions/backfill - list recent backfill jobs
+ */
+app.get('/admin/transactions/backfill', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '20'), 10);
+  res.status(200).json({
+    data: listTransactionBackfillJobs(limit),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/transactions/backfill/:jobId - fetch a specific backfill job
+ */
+app.get('/admin/transactions/backfill/:jobId', validateApiKey, (req: Request, res: Response) => {
+  const job = getTransactionBackfillJob(String(req.params.jobId));
+  if (!job) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Backfill job not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    job,
+  });
+});
+
+/**
+ * POST /admin/reports/exports - generate a report export and immutable manifest record
+ */
+app.post('/admin/reports/exports', validateApiKey, (req: Request, res: Response) => {
+  const reportType = String(req.body?.reportType || 'transactions').trim();
+  const requester = resolveActingAdminAddress(req);
+  const filters =
+    req.body?.filters && typeof req.body.filters === 'object'
+      ? (req.body.filters as Record<string, unknown>)
+      : {};
+
+  const mockRows = [
+    {
+      reportType,
+      generatedAt: new Date().toISOString(),
+      filters,
+    },
+  ];
+
+  const manifest = createExportManifest({
+    requester,
+    reportType,
+    filters,
+    rows: mockRows,
+  });
+
+  res.status(201).json({
+    message: 'Export generated and manifest recorded',
+    manifest,
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests - list immutable export manifests
+ */
+app.get('/admin/reports/exports/manifests', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '50'), 10);
+  res.status(200).json({
+    data: listExportManifests(limit),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests/:id - fetch a manifest by id
+ */
+app.get('/admin/reports/exports/manifests/:id', validateApiKey, (req: Request, res: Response) => {
+  const manifest = getExportManifestById(String(req.params.id));
+  if (!manifest) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Export manifest not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    manifest,
+  });
+});
+
+/**
  * GET /admin/jobs/dashboard - lightweight HTML dashboard for operators
  */
 app.get('/admin/jobs/dashboard', validateApiKey, (_req: Request, res: Response) => {
@@ -3156,7 +3350,250 @@ app.get('/admin/idempotency/metrics', validateApiKey, (_req: Request, res: Respo
   });
 });
 
-// ─── Vault Metrics Poll Cycle ────────────────────────────────────────────────
+// ─── Webhook Deduplication Admin Endpoints (Issue #710) ──────────────────────
+
+/**
+ * GET /admin/webhooks/deduplication/metrics
+ * Returns observability counters for the webhook replay-safe deduplication store.
+ * Requires API key authentication.
+ */
+app.get('/admin/webhooks/deduplication/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/webhooks/deduplication/entries
+ * Lists active event fingerprints held in the deduplication store.
+ * Optional ?prefix=<string> filters by event id prefix.
+ * Requires API key authentication.
+ */
+app.get('/admin/webhooks/deduplication/entries', validateApiKey, (req: Request, res: Response) => {
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : undefined;
+  const entries = webhookDeduplicationStore.inspect(prefix);
+  res.status(200).json({
+    entries,
+    count: entries.length,
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/deduplication/:eventId
+ * Removes a single event fingerprint from the deduplication store.
+ * Requires API key authentication.
+ */
+app.delete('/admin/webhooks/deduplication/:eventId', validateApiKey, (req: Request, res: Response) => {
+  const eventId = decodeURIComponent(req.params.eventId);
+
+  if (isDryRunRequest(req)) {
+    const exists = webhookDeduplicationStore.has(eventId);
+    res.status(exists ? 200 : 404).json({
+      dryRun: true,
+      message: exists
+        ? `Deduplication entry '${eventId}' would be removed`
+        : `Deduplication entry '${eventId}' not found`,
+      eventId,
+      wouldDelete: exists,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const removed = webhookDeduplicationStore.remove(eventId);
+  if (!removed) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: `Deduplication entry '${eventId}' not found`,
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'webhook.dedup.entry.removed', 200, { eventId });
+
+  res.status(200).json({
+    message: `Deduplication entry '${eventId}' removed`,
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/deduplication
+ * Flushes the entire webhook deduplication store.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/webhooks/deduplication', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to flush the webhook deduplication store',
+    });
+    return;
+  }
+
+  const metrics = webhookDeduplicationStore.getMetrics();
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: 'Webhook deduplication store flush dry-run preview',
+      wouldFlush: true,
+      activeFingerprints: metrics.activeFingerprints,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  webhookDeduplicationStore.flush();
+
+  void recordAdminAuditLog(req, 'webhook.dedup.store.flushed', 200, {
+    flushedCount: metrics.activeFingerprints,
+  });
+
+  res.status(200).json({
+    message: 'Webhook deduplication store flushed',
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Wallet Activity Heatmap Endpoint (Issue #712) ───────────────────────────
+
+/**
+ * GET /admin/analytics/wallet-activity/heatmap
+ *
+ * Returns aggregated wallet activity counts bucketed by calendar date for use
+ * in admin analytics dashboards.  Raw wallet records are never exposed; only
+ * the per-bucket counts and the summary statistics are returned.
+ *
+ * Query parameters:
+ *   from        ISO-8601 date or datetime (inclusive).  Defaults to 30 days ago.
+ *   to          ISO-8601 date or datetime (inclusive).  Defaults to today.
+ *   granularity day | week | month.  Defaults to day.
+ *   walletAddress  Optional address to scope results to a single wallet.
+ *
+ * Requires API key authentication.
+ */
+app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: Request, res: Response) => {
+  const granularity =
+    req.query.granularity === 'week' || req.query.granularity === 'month'
+      ? (req.query.granularity as 'week' | 'month')
+      : 'day';
+
+  let rangeStart: string;
+  let rangeEnd: string;
+
+  try {
+    const parsed = parseUtcDateRange({
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    });
+    const defaultStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const defaultEnd = new Date().toISOString().slice(0, 10);
+    rangeStart = parsed.start ?? defaultStart;
+    rangeEnd = parsed.end ?? defaultEnd;
+  } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(error.status).json({
+        error: 'Bad Request',
+        status: error.status,
+        message: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to parse date range',
+    });
+    return;
+  }
+
+  const walletAddress =
+    typeof req.query.walletAddress === 'string' && req.query.walletAddress.trim()
+      ? normalizeWalletAddress(req.query.walletAddress.trim())
+      : undefined;
+
+  try {
+    const where: Record<string, unknown> = {
+      timestamp: {
+        gte: new Date(rangeStart + 'T00:00:00.000Z'),
+        lte: new Date(rangeEnd + 'T23:59:59.999Z'),
+      },
+    };
+
+    if (walletAddress) {
+      where.user = walletAddress;
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: where as any,
+      select: { timestamp: true },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    function bucketKey(date: Date, g: 'day' | 'week' | 'month'): string {
+      const y = date.getUTCFullYear();
+      const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(date.getUTCDate()).padStart(2, '0');
+      if (g === 'month') return `${y}-${m}`;
+      if (g === 'week') {
+        const dayOfWeek = date.getUTCDay();
+        const mondayOffset = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek) * 86400000;
+        const monday = new Date(date.getTime() + mondayOffset);
+        const wy = monday.getUTCFullYear();
+        const wm = String(monday.getUTCMonth() + 1).padStart(2, '0');
+        const wd = String(monday.getUTCDate()).padStart(2, '0');
+        return `${wy}-${wm}-${wd}`;
+      }
+      return `${y}-${m}-${d}`;
+    }
+
+    const buckets = new Map<string, number>();
+    for (const tx of transactions) {
+      const key = bucketKey(new Date(tx.timestamp), granularity);
+      buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    }
+
+    const heatmap = Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([bucket, count]) => ({ bucket, count }));
+
+    const totalActivity = heatmap.reduce((sum, b) => sum + b.count, 0);
+    const peakBucket = heatmap.reduce(
+      (max, b) => (b.count > (max?.count ?? -1) ? b : max),
+      null as { bucket: string; count: number } | null,
+    );
+
+    res.status(200).json({
+      heatmap,
+      summary: {
+        totalActivity,
+        bucketCount: heatmap.length,
+        granularity,
+        rangeStart,
+        rangeEnd,
+        walletAddress: walletAddress ?? null,
+        peakBucket: peakBucket ?? null,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to aggregate wallet activity',
+    });
+  }
+});
+
+
 
 /**
  * Mock vault metrics poll cycle
@@ -3273,6 +3710,325 @@ function checkStellarRpcDependency(): boolean {
   return getStellarRpcHealth() === 'up';
 }
 
+// ─── Health Probe Registration (Issue #719) ─────────────────────────────────
+healthProbeService.register('database', async () => {
+  const health = await getDatabaseHealth();
+  return health.primary === 'up' ? 'up' : 'down';
+});
+healthProbeService.register('cache', async () => {
+  return getCacheHealth() as 'up' | 'down';
+});
+healthProbeService.register('stellarRpc', async () => {
+  return getStellarRpcHealth() as 'up' | 'down';
+});
+healthProbeService.register('prisma', async () => {
+  return await getPrismaHealth();
+});
+healthProbeService.register('queue', async () => {
+  return getJobHealthStatus() === 'up' ? 'up' : 'down';
+});
+
+/**
+ * GET /health/probes
+ * Returns per-dependency probe states with latency and last-error details.
+ * Issue #719: Health probe decomposition.
+ */
+app.get('/health/probes', async (_req: Request, res: Response) => {
+  const probes = await healthProbeService.checkAll();
+  const allHealthy = Object.values(probes).every((p) => p.status === 'up');
+
+  res.status(allHealthy ? 200 : 503).json({
+    status: allHealthy ? 'healthy' : 'degraded',
+    probes,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Write-Ahead Audit Log Endpoints (Issue #707) ───────────────────────────
+
+/**
+ * GET /admin/wal/entries
+ * Lists write-ahead audit log entries with optional filters.
+ */
+app.get('/admin/wal/entries', validateApiKey, (req: Request, res: Response) => {
+  const configType = typeof req.query.configType === 'string' ? req.query.configType : undefined;
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const status = typeof req.query.status === 'string' ? req.query.status as 'pending' | 'committed' | 'rolled_back' : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+
+  const entries = writeAheadAuditLog.list({ configType, actor, status, limit });
+
+  res.status(200).json({
+    entries,
+    count: entries.length,
+    metrics: writeAheadAuditLog.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/wal/entries/:id
+ * Returns a specific write-ahead audit log entry.
+ */
+app.get('/admin/wal/entries/:id', validateApiKey, (req: Request, res: Response) => {
+  const entry = writeAheadAuditLog.getEntry(req.params.id);
+  if (!entry) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Write-ahead audit log entry not found',
+    });
+    return;
+  }
+  res.status(200).json({ entry });
+});
+
+/**
+ * GET /admin/wal/metrics
+ * Returns metrics for the write-ahead audit log.
+ */
+app.get('/admin/wal/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: writeAheadAuditLog.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/wal/pending
+ * Returns currently pending (uncommitted) write-ahead entries.
+ */
+app.get('/admin/wal/pending', validateApiKey, (_req: Request, res: Response) => {
+  const pending = writeAheadAuditLog.getPendingEntries();
+  res.status(200).json({
+    entries: pending,
+    count: pending.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Scoped Admin Token Endpoints (Issue #723) ──────────────────────────────
+
+/**
+ * POST /admin/scoped-tokens
+ * Creates a new permission-scoped admin token.
+ * Requires super-admin API key.
+ */
+app.post('/admin/scoped-tokens', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to create scoped tokens',
+    });
+    return;
+  }
+
+  const { label, permissions, expiresInSeconds } = req.body;
+
+  if (typeof label !== 'string' || !label.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`label` (string) is required',
+    });
+    return;
+  }
+
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`permissions` (non-empty array) is required',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  try {
+    const { token, secret } = scopedAdminTokenStore.create({
+      label: label.trim(),
+      permissions,
+      expiresInSeconds: typeof expiresInSeconds === 'number' && expiresInSeconds > 0 ? expiresInSeconds : undefined,
+      createdBy: actor,
+    });
+
+    void recordAdminAuditLog(req, 'scoped-token.created', 201, {
+      keyId: token.keyId,
+      label: token.label,
+      permissions: token.permissions,
+      actor,
+    });
+
+    res.status(201).json({
+      message: 'Scoped admin token created',
+      keyId: token.keyId,
+      secret,
+      label: token.label,
+      permissions: token.permissions,
+      expiresAt: token.expiresAt,
+      createdAt: token.createdAt,
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: error instanceof Error ? error.message : 'Failed to create scoped token',
+    });
+  }
+});
+
+/**
+ * GET /admin/scoped-tokens
+ * Lists all scoped admin tokens (without secrets).
+ * Requires super-admin API key.
+ */
+app.get('/admin/scoped-tokens', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to list scoped tokens',
+    });
+    return;
+  }
+
+  const includeRevoked = req.query.includeRevoked === 'true';
+  const tokens = scopedAdminTokenStore.list({ includeRevoked });
+  const sanitized = tokens.map(({ hashedSecret, ...rest }) => rest);
+
+  res.status(200).json({
+    tokens: sanitized,
+    count: sanitized.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/scoped-tokens/:keyId/rotate
+ * Rotates the secret for an existing scoped token.
+ * Requires super-admin API key.
+ */
+app.post('/admin/scoped-tokens/:keyId/rotate', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to rotate scoped tokens',
+    });
+    return;
+  }
+
+  const result = scopedAdminTokenStore.rotate(req.params.keyId);
+  if (!result) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Scoped token not found or already revoked',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  void recordAdminAuditLog(req, 'scoped-token.rotated', 200, {
+    keyId: result.keyId,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Scoped token rotated',
+    keyId: result.keyId,
+    newSecret: result.newSecret,
+    rotatedAt: result.rotatedAt,
+  });
+});
+
+/**
+ * DELETE /admin/scoped-tokens/:keyId
+ * Revokes a scoped admin token.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/scoped-tokens/:keyId', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to revoke scoped tokens',
+    });
+    return;
+  }
+
+  const revoked = scopedAdminTokenStore.revoke(req.params.keyId);
+  if (!revoked) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Scoped token not found or already revoked',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  void recordAdminAuditLog(req, 'scoped-token.revoked', 200, {
+    keyId: req.params.keyId,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Scoped token revoked',
+    keyId: req.params.keyId,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/scoped-tokens/permissions
+ * Returns the list of valid permissions for scoped tokens.
+ */
+app.get('/admin/scoped-tokens/permissions', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    permissions: scopedAdminTokenStore.getValidPermissions(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Request Context Debug Endpoint (Issue #705) ────────────────────────────
+
+/**
+ * GET /admin/request-context
+ * Returns the current request's propagated context (requestId, correlationId,
+ * originService, parentJobId) to verify end-to-end propagation.
+ */
+app.get('/admin/request-context', validateApiKey, (req: Request, res: Response) => {
+  const ctx = serializeContext();
+  res.status(200).json({
+    context: ctx ?? { requestId: req.requestId, correlationId: req.correlationId },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Admin Diagnostics & Reconciliation (Issues #721, #724) ─────────────────
+
+/**
+ * GET /admin/diagnostics
+ * Returns a sanitized diagnostics bundle for incident triage.
+ * Requires admin API key authentication.
+ */
+app.get('/admin/diagnostics', validateApiKey, diagnosticsBundleHandler);
+
+/**
+ * GET /admin/reconciliation
+ * Returns a reconciliation report comparing ledger vs database state.
+ * Requires admin API key authentication.
+ */
+app.get('/admin/reconciliation', validateApiKey, reconciliationReportHandler);
+
+// ─── Typed Error Boundary (Issue #708) ──────────────────────────────────────
+// Mounted before the generic error handler so upstream dependency failures
+// are mapped to typed API errors with stable codes and retry hints.
+app.use(errorBoundaryMiddleware);
+
 // ─── Error Handler ──────────────────────────────────────────────────────────
 
 const errorHandler: ErrorRequestHandler = (
@@ -3346,6 +4102,12 @@ if (process.env.NODE_ENV !== 'test') {
   const stopDbBackupScheduler = startDbBackupScheduler();
   shutdownHandler.onShutdown(async () => {
     stopDbBackupScheduler();
+  });
+
+  // ─── Position Reconciliation Scheduler (Issue #817) ────────────────────────
+  const stopPositionReconciliationScheduler = startPositionReconciliationScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopPositionReconciliationScheduler();
   });
 
   // Register event polling service shutdown

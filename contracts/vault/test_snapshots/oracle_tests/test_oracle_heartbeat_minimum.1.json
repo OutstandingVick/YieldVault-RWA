@@ -233,14 +233,26 @@
                     "storage": [
                       {
                         "key": {
-                          "vec": [
-                            {
-                              "symbol": "Admin"
-                            }
-                          ]
+                          "u32": 0
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 2
+                        },
+                        "val": {
+                          "bool": true
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 4
+                        },
+                        "val": {
+                          "u32": 2
                         }
                       },
                       {
@@ -262,7 +274,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "PriceOracleHeartbeat"
+                              "symbol": "OracleHeartbeat"
                             }
                           ]
                         },
@@ -365,6 +377,51 @@
                             "hi": 0,
                             "lo": 0
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "WithdrawalQueueMeta"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "admin_last_change_ts"
+                              },
+                              "val": {
+                                "u64": 0
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "admin_min_interval_secs"
+                              },
+                              "val": {
+                                "u64": 3600
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "head"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "tail"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
+                            }
+                          ]
                         }
                       }
                     ]

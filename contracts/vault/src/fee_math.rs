@@ -38,8 +38,8 @@ pub fn calculate_protocol_fee(amount: i128, fee_bps: i128) -> (i128, i128) {
 /// Check if accumulating a fee amount would exceed the bounded accumulator.
 /// Returns true if rollover protection should be triggered.
 pub fn would_exceed_accumulator_bound(current_balance: i128, fee_to_add: i128) -> bool {
-    current_balance > MAX_TREASURY_ACCUMULATOR || 
-    current_balance.saturating_add(fee_to_add) > MAX_TREASURY_ACCUMULATOR
+    current_balance > MAX_TREASURY_ACCUMULATOR
+        || current_balance.saturating_add(fee_to_add) > MAX_TREASURY_ACCUMULATOR
 }
 
 #[cfg(test)]

@@ -59,6 +59,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   const [reconnectProvider, setReconnectProvider] = useState<ReturnType<typeof getLastWalletProvider>>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const initialSyncDoneRef = useRef(false);
+  const { preferences } = usePreferencesContext();
   const toast = useToast();
   const { t } = useTranslation();
 
@@ -197,6 +198,9 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   }, [handleConnect]);
 
   const formatAddress = (addr: string) => {
+    if (preferences.maskSensitiveValues) {
+      return displayIdentifier(addr, true);
+    }
     return `${addr.substring(0, 5)}...${addr.substring(addr.length - 4)}`;
   };
 

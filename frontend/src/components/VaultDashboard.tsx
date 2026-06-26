@@ -46,7 +46,6 @@ import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
 import { saveVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
-import confetti from "canvas-confetti";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
   isTransactionConflict,
@@ -231,7 +230,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleChange,
     handleBlur,
     setValues,
-    setFieldError
+    setFieldError,
+    resetErrors,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
@@ -279,6 +279,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setValues({ amount: parsedAmount.toString() });
     }
   }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
+
+  const previousTabRef = useRef(dashboardUrl.state.tab);
+  useEffect(() => {
+    if (previousTabRef.current === dashboardUrl.state.tab) {
+      return;
+    }
+    previousTabRef.current = dashboardUrl.state.tab;
+    if (!dashboardUrl.state.amount) {
+      setValues({ amount: "" });
+    }
+    resetApproval();
+    resetErrors();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval, resetErrors]);
 
   // Reset approval when deposit amount changes
   useEffect(() => {
@@ -358,6 +371,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
+    clearVaultFormDraft();
     if (walletAddress) {
       transactionIntent.clearIntent();
     }
@@ -369,6 +383,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         title: "Please fix validation errors",
         description: errors.amount || "Please enter a valid amount",
       });
+      formFocus.focusFirstError();
       return;
     }
 

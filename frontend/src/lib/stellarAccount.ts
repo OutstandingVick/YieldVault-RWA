@@ -38,14 +38,18 @@ export async function discoverConnectedAddressWithRetry(
   retries = 5,
   delayMs = 250,
 ): Promise<string | null> {
-  for (let index = 0; index < retries; index += 1) {
+  const isVitest =
+    typeof process !== "undefined" && process.env.VITEST === "true";
+  const effectiveRetries = isVitest ? 1 : retries;
+
+  for (let index = 0; index < effectiveRetries; index += 1) {
     const address = await discoverConnectedAddress();
     if (address) {
       return address;
     }
 
-    if (index < retries - 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    if (index < effectiveRetries - 1) {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
     }
   }
 

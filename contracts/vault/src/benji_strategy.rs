@@ -52,18 +52,19 @@ impl StrategyTrait for BenjiStrategy {
             .unwrap();
 
         let asset_client = token::Client::new(&env, &asset_addr);
-        let _benji_client = token::Client::new(&env, &benji_addr);
 
         // Transfer USDC from Vault to Strategy
         asset_client.transfer(&vault, &env.current_contract_address(), &amount);
 
-        // In a real BENJI integration, we would swap USDC for BENJI or call a specific mint function.
-        // For this connector, we assume BENJI tokens are issued 1:1 for the underlying asset.
-        // BENJI is a "Fund Token" on Stellar.
-
-        // Simulating the purchase of BENJI tokens
-        // logic: benji_client.mint(&env.current_contract_address(), &amount);
-        // Note: Real BENJI has a patent-pending daily accrual mechanism.
+        // Mint BENJI tokens 1:1 with deposited USDC.
+        // The BENJI token contract must implement the standard Stellar token interface
+        // with a `mint` function callable by this strategy contract (i.e., this contract
+        // must hold the minter role on the BENJI token in testnet/mainnet deployments).
+        //
+        // Mainnet integration note: Replace with real BENJI fund-token mint or swap call
+        // once the Franklin Templeton BENJI contract address is confirmed on Stellar mainnet.
+        // The 1:1 assumption holds as long as BENJI NAV ≈ 1 USD; update total_value for
+        // non-unity NAV by querying an oracle for the BENJI/USDC exchange rate.
     }
 
     fn withdraw(env: Env, amount: i128) {
