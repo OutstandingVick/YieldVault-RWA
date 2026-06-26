@@ -134,9 +134,9 @@ YieldVault has comprehensive disaster recovery procedures to ensure system resil
 
 - **RTO (Recovery Time Objective):** 1 hour for critical systems
 - **RPO (Recovery Point Objective):** 15 minutes maximum data loss
-- **Runbooks:** Step-by-step recovery procedures for all failure scenarios
-
-See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedures.
+- **Runbooks:** Step-by-step recovery procedures for all failure scenarios. Key runbooks include:
+  - [Disaster Recovery Runbooks Overview](./docs/runbooks/README.md)
+  - [Replay and State Recovery Procedures](./docs/runbooks/REPLAY_PROCEDURES.md)
 
 ## Roadmap (Phases)
 
