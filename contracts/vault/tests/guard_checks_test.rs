@@ -1,68 +1,58 @@
-//! Guard checks tests for rapid opposing actions (deposit/withdraw) in the same ledger
+//! Guard checks for withdrawal cooldown (deposit then immediate withdraw).
 
-#[cfg(test)]
-mod guard_checks_test {
-    // Integration test imports
-    use soroban_sdk::{testutils::Address as TestAddress, testutils::Ledger, Env};
-    use vault::{VaultError, YieldVault};
+use soroban_sdk::testutils::{Address as _, Ledger as _};
+use soroban_sdk::{token, Address, Env};
+use vault::{VaultError, YieldVault, YieldVaultClient};
 
-    fn create_env() -> Env {
-        let env = Env::default();
-        // Set up a dummy admin and token addresses
-        let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
-        let token_addr = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
-        let user = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
-        // Initialize the vault
-        YieldVault::initialize(env.clone(), admin.clone(), token_addr.clone()).unwrap();
-        // Set admin auth for subsequent calls
-        env.mock_all_auths();
-        env
-    }
+fn setup_vault(env: &Env) -> (YieldVaultClient<'_>, token::StellarAssetClient<'_>, Address) {
+    let admin = Address::generate(env);
+    let token_admin = Address::generate(env);
+    let token_addr = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let usdc_sa = token::StellarAssetClient::new(env, &token_addr);
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(env, &vault_id);
+    vault.initialize(&admin, &token_addr);
+    (vault, usdc_sa, admin)
+}
 
-    #[test]
-    fn test_deposit_then_withdraw_same_ledger_fails() {
-        let env = create_env();
-        let user = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
-        // Deposit some amount
-        let deposit_amount: i128 = 1_000_000;
-        let _ = YieldVault::deposit(env.clone(), user.clone(), deposit_amount).unwrap();
-        // Attempt withdraw in the same ledger sequence
-        let shares = YieldVault::balance(env.clone(), user.clone());
-        let result = YieldVault::withdraw(env.clone(), user.clone(), shares);
-        assert!(matches!(result, Err(VaultError::AdminParamChangeTooSoon)));
-    }
+#[test]
+fn test_withdraw_blocked_during_cooldown() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-    #[test]
-    fn test_deposit_then_withdraw_next_ledger_succeeds() {
-        let env = create_env();
-        let user = <soroban_sdk::Address as TestAddress>::generate(&env);
-        // Deposit
-        let deposit_amount: i128 = 1_000_000;
-        let _ = YieldVault::deposit(env.clone(), user.clone(), deposit_amount).unwrap();
-        // Advance ledger sequence
-        env.ledger().with_mut(|li| {
-            li.sequence_number += 1;
-        });
-        // Withdraw
-        let shares = YieldVault::balance(env.clone(), user.clone());
-        let result = YieldVault::withdraw(env.clone(), user.clone(), shares);
-        assert!(result.is_ok());
-    }
+    let (vault, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
 
-    #[test]
-    fn test_time_lock_withdrawal() {
-        let env = create_env();
-        let user = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
-        // Deposit
-        let deposit_amount: i128 = 1_000_000;
-        let _ = YieldVault::deposit(env.clone(), user.clone(), deposit_amount).unwrap();
-        // Advance ledger sequence
-        env.ledger().with_mut(|li| {
-            li.sequence_number += 1; // Needs at least 1 ledger sequence advance
-        });
-        // Attempt withdraw
-        let shares = YieldVault::balance(env.clone(), user.clone());
-        let result = YieldVault::withdraw(env.clone(), user.clone(), shares);
-        assert!(result.is_ok());
-    }
+    vault.set_withdrawal_cooldown(&3600);
+    usdc_sa.mint(&user, &1_000_000);
+    usdc_sa.mint(&admin, &100_000);
+
+    vault.deposit(&user, &1_000_000);
+    let shares = vault.balance(&user);
+    let result = vault.try_withdraw(&user, &shares);
+    assert_eq!(result, Err(Ok(VaultError::WithdrawalCooldownActive)));
+}
+
+#[test]
+fn test_withdraw_allowed_after_cooldown() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, usdc_sa, admin) = setup_vault(&env);
+    let user = Address::generate(&env);
+
+    vault.set_withdrawal_cooldown(&60);
+    usdc_sa.mint(&user, &1_000_000);
+    usdc_sa.mint(&admin, &100_000);
+
+    vault.deposit(&user, &1_000_000);
+    env.ledger().with_mut(|li| {
+        li.timestamp += 61;
+    });
+
+    let shares = vault.balance(&user);
+    let result = vault.try_withdraw(&user, &shares);
+    assert!(result.is_ok());
 }

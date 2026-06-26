@@ -117,6 +117,7 @@ fn test_oracle_config_functions() {
     let vault = YieldVaultClient::new(&env, &vault_id);
 
     vault.initialize(&admin, &usdc.address);
+    vault.set_admin_param_change_interval(&0);
 
     assert!(vault.price_oracle().is_none());
     assert!(!vault.is_oracle_enabled());

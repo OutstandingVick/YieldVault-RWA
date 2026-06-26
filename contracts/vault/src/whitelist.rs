@@ -87,9 +87,13 @@ impl SecureWhitelist {
             return Err(WhitelistError::Unauthorized);
         }
         if approved {
-            Self::add_strategy(env, caller, strategy)?
+            env.storage()
+                .instance()
+                .set(&DataKey::StrategyWhitelist(strategy.clone()), &true);
         } else {
-            Self::remove_strategy(env, caller, strategy)?
+            env.storage()
+                .instance()
+                .remove(&DataKey::StrategyWhitelist(strategy.clone()));
         }
 
         Ok(())
@@ -98,8 +102,6 @@ impl SecureWhitelist {
 
 #[cfg(test)]
 mod tests {
-
-
     #[test]
     fn test_whitelist_documentation_exists() {
         // This test documents that the whitelist module is implemented
