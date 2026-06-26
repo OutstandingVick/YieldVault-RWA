@@ -102,6 +102,7 @@ import {
   syncJobGovernanceMetrics,
 } from './metrics';
 import { latencyMonitoringService } from './latencyMonitoring';
+import { listEndpointSlaRegistry } from './endpointSlaRegistry';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
 import { getPrismaClient } from './prismaClient';
@@ -574,6 +575,17 @@ app.get('/admin/latency-status', validateApiKey, (_req: Request, res: Response) 
     status,
     metrics: detailedMetrics,
     timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/sla/registry
+ * Returns the canonical endpoint SLA / latency budget registry for monitoring and alerts.
+ */
+app.get('/admin/sla/registry', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    endpoints: listEndpointSlaRegistry(),
+    generatedAt: new Date().toISOString(),
   });
 });
 
