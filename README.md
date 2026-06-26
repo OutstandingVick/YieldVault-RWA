@@ -71,6 +71,23 @@ For a comprehensive overview of the smart contract architecture, module responsi
 
 5. **Open browser**: http://localhost:5173
 
+### Fund a Stellar testnet account
+
+After installing backend dependencies, fund a contributor wallet with Friendbot:
+
+```bash
+read -rsp "Testnet secret key: " TESTNET_SECRET_KEY && echo
+export TESTNET_SECRET_KEY
+node scripts/fund-testnet-account.js
+unset TESTNET_SECRET_KEY
+```
+
+To create a classic test-USDC trustline, set `TESTNET_USDC_ISSUER`. For a
+locally controlled test issuer, also set `TESTNET_USDC_ISSUER_SECRET`; the
+script will send `TESTNET_USDC_AMOUNT` (default `1000`) to the contributor
+wallet. Secrets are read only from environment variables and are never
+committed or printed.
+
 For detailed setup instructions, prerequisites, and troubleshooting, see **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)**.
 
 For a complete environment variable reference with defaults, required flags, and production recommendations, see **[Environment Variable Matrix](./docs/ENV_VARIABLE_MATRIX.md)**.

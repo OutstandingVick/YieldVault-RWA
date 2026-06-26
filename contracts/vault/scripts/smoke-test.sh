@@ -4,9 +4,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # smoke-test.sh — Phase 3 testnet smoke tests
 #
+# Local contributors can prepare a funded wallet before running this script:
+#   TESTNET_SECRET_KEY=S... node scripts/fund-testnet-account.js
+#
 # Modes (SMOKE_TEST_MODE):
-#   deploy       — Deploy vault WASM to testnet, run on-chain checks, write deployment.json
-#   cross-stack  — Load deployment metadata, run getSharePrice unit tests, probe backend
+#   deploy       - Deploy vault WASM to testnet, run on-chain checks, write deployment.json
+#   cross-stack  - Load deployment metadata, run getSharePrice unit tests, probe backend
 #
 # Deploy mode required environment variables:
 #   TESTNET_SECRET_KEY     — Stellar secret key (S... format) for the deployer account

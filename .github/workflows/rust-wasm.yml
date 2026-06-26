@@ -4,17 +4,17 @@ on:
   pull_request:
     paths:
       - "contracts/**"
-      - "backend/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".github/workflows/rust-wasm.yml"
   push:
     branches:
       - main
     paths:
       - "contracts/**"
-      - "backend/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".github/workflows/rust-wasm.yml"
 
 jobs:
   rust-test:
@@ -47,7 +47,9 @@ jobs:
 
       - name: Run clippy (share-price math)
         run: cargo clippy -p share-price-math --all-targets -- -D warnings
-        working-directory: ./contracts
+
+      - name: Compile and run vault oracle regression tests
+        run: cargo test -p vault oracle --locked --quiet
 
       - name: Run share-price math unit tests
         run: cargo test -p share-price-math --locked --quiet
