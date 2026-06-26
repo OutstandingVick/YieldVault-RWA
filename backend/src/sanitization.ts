@@ -1,7 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
+import { StrKey } from '@stellar/stellar-base';
 
 const MAX_SAFE_NUMBER = Number.MAX_SAFE_INTEGER;
 const MIN_SAFE_NUMBER = Number.MIN_SAFE_INTEGER;
+
+/**
+ * Returns true only for canonical Stellar G-addresses (ED25519 public keys).
+ * Rejects muxed M-addresses, federation aliases, and anything with a bad checksum.
+ */
+export function isValidStellarAddress(address: unknown): address is string {
+  if (typeof address !== 'string') return false;
+  try {
+    return StrKey.isValidEd25519PublicKey(address);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Middleware to sanitize incoming request bodies.

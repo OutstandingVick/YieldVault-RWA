@@ -5,7 +5,7 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::{DataKey, VaultError};
+use crate::{DataKeyExt, VaultError};
 
 /// Default maximum age of a strategy heartbeat before allocation is blocked.
 pub const DEFAULT_STRATEGY_HEARTBEAT_SECONDS: u64 = 3600;
@@ -19,7 +19,7 @@ pub fn is_strategy_heartbeat_fresh(env: &Env, strategy: &Address, max_age_second
     let last: Option<u64> = env
         .storage()
         .instance()
-        .get(&DataKey::StrategyLastHeartbeat(strategy.clone()));
+        .get(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()));
 
     match last {
         None => false,

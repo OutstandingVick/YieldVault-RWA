@@ -7,11 +7,23 @@ import {
   type Currency,
   type NotificationPreferences,
 } from '../hooks/usePreferences';
+import { useUserPreferenceStore } from '../hooks/useUserPreferenceStore';
+import type {
+  ChartMode,
+  ChartModePreferences,
+  TableDensity,
+  TransactionPageSize,
+  TransactionViewMode,
+  UserPreferenceStoreData,
+} from '../lib/userPreferenceStore';
 
 interface PreferencesContextType {
   preferences: UserPreferences;
   /** Resolved theme: 'light' | 'dark' (system pref resolved). */
   resolvedTheme: 'light' | 'dark';
+  userPreferenceStore: UserPreferenceStoreData;
+  chartModes: ChartModePreferences;
+  tableDensity: TableDensity;
   setTheme: (theme: Theme) => void;
   setLocale: (locale: Locale) => void;
   setCurrency: (currency: Currency) => void;
@@ -20,6 +32,11 @@ interface PreferencesContextType {
   toggleShowBalances: () => void;
   setPrecision: (precision: number) => void;
   resetToDefaults: () => void;
+  setChartMode: (chartKey: keyof ChartModePreferences, mode: ChartMode) => void;
+  setTableDensity: (density: TableDensity) => void;
+  setTransactionViewMode: (mode: TransactionViewMode) => void;
+  setTransactionPageSize: (pageSize: TransactionPageSize) => void;
+  resetUserPreferenceStore: () => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextType | undefined>(undefined);
@@ -45,6 +62,17 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     resetToDefaults,
   } = usePreferences(walletAddress);
 
+  const {
+    store: userPreferenceStore,
+    chartModes,
+    tables,
+    setChartMode,
+    setTableDensity,
+    setTransactionViewMode,
+    setTransactionPageSize,
+    resetStore: resetUserPreferenceStore,
+  } = useUserPreferenceStore(walletAddress);
+
   // Resolve 'system' to an actual light/dark value
   const resolvedTheme = useMemo((): 'light' | 'dark' => {
     if (preferences.theme === 'system') {
@@ -69,9 +97,17 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     }
   }, [preferences.compactMode]);
 
+  // Apply table density preference to document root
+  useEffect(() => {
+    document.documentElement.setAttribute('data-table-density', tables.density);
+  }, [tables.density]);
+
   const value: PreferencesContextType = {
     preferences,
     resolvedTheme,
+    userPreferenceStore,
+    chartModes,
+    tableDensity: tables.density,
     setTheme,
     setLocale,
     setCurrency,
@@ -80,6 +116,11 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     toggleShowBalances,
     setPrecision,
     resetToDefaults,
+    setChartMode,
+    setTableDensity,
+    setTransactionViewMode,
+    setTransactionPageSize,
+    resetUserPreferenceStore,
   };
 
   return (

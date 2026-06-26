@@ -11,13 +11,14 @@
 
 import { z, ZodError, ZodIssue, ZodTypeAny } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
+import { isValidStellarAddress } from '../sanitization';
 
 // ─── Shared field schemas ─────────────────────────────────────────────────────
 
-/** Stellar wallet address: permissive testnet/mainnet-shaped public key. */
+/** Stellar wallet address: validated via StrKey checksum (rejects muxed/malformed). */
 export const walletAddressSchema = z
   .string()
-  .regex(/^G[A-Za-z0-9]{55,63}$/, 'Invalid Stellar wallet address format');
+  .refine(isValidStellarAddress, { message: 'Invalid Stellar wallet address format' });
 
 /** Positive numeric amount (accepts number or numeric string) */
 export const amountSchema = z
@@ -70,8 +71,29 @@ export const NonceRequestSchema = z
 export const LoginSchema = z
   .object({
     walletAddress: walletAddressSchema,
+    source: z.string().min(1).max(64).optional(),
+    providerAlias: z.string().min(1).max(256).optional(),
+    providerSource: z.string().min(1).max(64).optional(),
     nonce: z.string().min(16).max(128).optional(),
     signature: z.string().min(32).max(512).optional(),
+  })
+  .strict();
+
+/** POST /api/v1/wallet-aliases/link */
+export const WalletAliasLinkSchema = z
+  .object({
+    primaryAlias: z.string().min(1).max(256),
+    primarySource: z.string().min(1).max(64),
+    linkedAlias: z.string().min(1).max(256),
+    linkedSource: z.string().min(1).max(64),
+  })
+  .strict();
+
+/** GET /api/v1/wallet-aliases/resolve */
+export const WalletAliasResolveQuerySchema = z
+  .object({
+    alias: z.string().min(1).max(256),
+    source: z.string().min(1).max(64),
   })
   .strict();
 

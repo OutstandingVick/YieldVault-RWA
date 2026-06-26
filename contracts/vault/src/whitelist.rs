@@ -55,7 +55,7 @@ impl SecureWhitelist {
 
         env.storage()
             .instance()
-            .set(&DataKey::StrategyWhitelist(strategy.clone()), &false);
+            .remove(&DataKey::StrategyWhitelist(strategy.clone()));
 
         Ok(())
     }
@@ -64,7 +64,7 @@ impl SecureWhitelist {
     pub fn is_strategy_whitelisted(env: &Env, strategy: &Address) -> bool {
         env.storage()
             .instance()
-            .get::<_, bool>(&DataKey::StrategyWhitelist(strategy.clone()))
+            .get(&DataKey::StrategyWhitelist(strategy.clone()))
             .unwrap_or(false)
     }
 
@@ -80,10 +80,29 @@ impl SecureWhitelist {
         strategy: &Address,
         approved: bool,
     ) -> Result<(), WhitelistError> {
-        if approved {
-            Self::add_strategy(env, caller, strategy)
-        } else {
-            Self::remove_strategy(env, caller, strategy)
+        // Verify caller is the admin
+        let admin = get_admin(env).ok_or(WhitelistError::Unauthorized)?;
+        if caller != &admin {
+            caller.require_auth();
+            return Err(WhitelistError::Unauthorized);
         }
+        if approved {
+            Self::add_strategy(env, caller, strategy)?
+        } else {
+            Self::remove_strategy(env, caller, strategy)?
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+
+    #[test]
+    fn test_whitelist_documentation_exists() {
+        // This test documents that the whitelist module is implemented
+        // Actual enforcement is tested in lib.rs via integration tests
     }
 }

@@ -167,6 +167,67 @@ impl OracleValidator {
         Ok(price_data_scaled_price(price_data))
     }
 
+    /// Validate slippage bounds before swap execution.
+    /// Ensures oracle prices are within acceptable bounds before allowing strategy swaps.
+    ///
+    /// ### Parameters
+    /// * `price_data` - Current oracle price data
+    /// * `reference_price` - Expected/reference price for comparison
+    /// * `max_slippage_bps` - Maximum allowed slippage in basis points
+    ///
+    /// ### Returns
+    /// Ok if slippage is within bounds, Err if swap should be blocked
+    pub fn validate_slippage_bounds(
+        price_data: &PriceData,
+        reference_price: i128,
+        max_slippage_bps: i128,
+    ) -> Result<(), OracleError> {
+        if reference_price <= 0 {
+            return Err(OracleError::PriceZero);
+        }
+        if price_data_price(price_data) <= 0 {
+            return Err(OracleError::PriceZero);
+        }
+
+        let current_scaled = price_data_scaled_price(price_data);
+        let slippage = ((reference_price - current_scaled).unsigned_abs() as i128)
+            .checked_mul(10000)
+            .ok_or(OracleError::PriceOverflow)?
+            .checked_div(reference_price)
+            .ok_or(OracleError::PriceUnderflow)?;
+
+        if slippage > max_slippage_bps {
+            return Err(OracleError::PriceDeviationExceeded);
+        }
+        Ok(())
+    }
+
+    /// Sanity check for swap execution: validates oracle provides minimum confidence.
+    /// Prevents swaps when oracle data is unreliable (stale, invalid, or suspicious).
+    ///
+    /// ### Parameters
+    /// * `env` - Environment
+    /// * `price_data` - Oracle price data for swap asset pair
+    /// * `min_price_confidence` - Minimum acceptable price (zero price = no swap)
+    ///
+    /// ### Returns
+    /// Ok if oracle data is acceptable for swap, Err if swap should be blocked
+    pub fn sanity_check_before_swap(
+        env: &Env,
+        price_data: &PriceData,
+        min_price_confidence: i128,
+    ) -> Result<(), OracleError> {
+        let current_time = env.ledger().timestamp();
+        Self::validate_not_future(price_data, current_time)?;
+        Self::validate_price_value(price_data)?;
+        
+        // Block swap if price is below minimum acceptable level
+        if price_data_price(price_data) < min_price_confidence {
+            return Err(OracleError::PriceDeviationExceeded);
+        }
+        Ok(())
+    }
+
     fn validate_not_future(price_data: &PriceData, current_time: u64) -> Result<(), OracleError> {
         if price_data_timestamp(price_data) > current_time {
             return Err(OracleError::TimestampInFuture);
@@ -315,5 +376,38 @@ mod tests {
     #[test]
     fn test_max_price_deviation_bps() {
         assert_eq!(MAX_PRICE_DEVIATION_BPS, 5000);
+    }
+
+    #[test]
+    fn test_validate_slippage_bounds_acceptable() {
+        let price_data = price_data_new(1_000_000_000i128, 0, 18);
+        let reference = 1_000_000_000i128;
+        let result = OracleValidator::validate_slippage_bounds(&price_data, reference, 500);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_slippage_bounds_exceeded() {
+        let price_data = price_data_new(900_000_000i128, 0, 18);
+        let reference = 1_000_000_000i128;
+        // 10% slippage (1000 bps)
+        let result = OracleValidator::validate_slippage_bounds(&price_data, reference, 500);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sanity_check_before_swap_valid() {
+        let env = Env::default();
+        let price_data = price_data_new(1_000_000_000i128, env.ledger().timestamp(), 18);
+        let result = OracleValidator::sanity_check_before_swap(&env, &price_data, 500_000_000i128);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sanity_check_before_swap_insufficient_price() {
+        let env = Env::default();
+        let price_data = price_data_new(100_000_000i128, env.ledger().timestamp(), 18);
+        let result = OracleValidator::sanity_check_before_swap(&env, &price_data, 500_000_000i128);
+        assert!(result.is_err());
     }
 }

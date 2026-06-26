@@ -69,7 +69,8 @@ fn test_dual_approval_emergency_pause() {
     // Advance past the 1-hour dispute window before the secondary can confirm.
     env.ledger().set_timestamp(env.ledger().timestamp() + 3_601);
 
-    vault.confirm_emergency_action(&secondary, &proposal_id);
+    vault
+        .confirm_emergency_action(&secondary, &proposal_id);
 
     assert!(vault.is_paused());
     assert_eq!(vault.pause_reason(), Some(PauseReason::SecurityIncident));
@@ -177,7 +178,8 @@ fn test_confirm_allowed_after_dispute_window() {
     );
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 3_601);
-    vault.confirm_emergency_action(&secondary, &proposal_id);
+    vault
+        .confirm_emergency_action(&secondary, &proposal_id);
     assert!(vault.is_paused());
 }
 
@@ -300,6 +302,7 @@ fn test_custom_dispute_window_respected() {
 
     // Allowed after 10 minutes.
     env.ledger().set_timestamp(env.ledger().timestamp() + 61);
-    vault.confirm_emergency_action(&secondary, &proposal_id);
+    vault
+        .confirm_emergency_action(&secondary, &proposal_id);
     assert!(vault.is_paused());
 }

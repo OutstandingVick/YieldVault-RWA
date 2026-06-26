@@ -38,6 +38,9 @@ jobs:
       - name: Run npm audit
         run: npm audit --audit-level=high
 
+      - name: Run unit tests
+        run: npm test
+
       - name: Run governance checks
         run: npm run ci:governance
 
@@ -49,6 +52,9 @@ jobs:
             git diff openapi.json
             exit 1
           fi
+
+      - name: Check API contract schema snapshots
+        run: npm run snapshots:check
 
       - name: Check for database schema drift
         run: npm run db:check-drift

@@ -31,7 +31,7 @@ export function useRetryState() {
 
   useEffect(() => {
     // Subscribe to query cache updates to detect retry cycles
-    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
       // Check if any query is in an error state (will trigger retry if not exhausted)
       const cache = queryClient.getQueryCache();
       let anyRetrying = false;

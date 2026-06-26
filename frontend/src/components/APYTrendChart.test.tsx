@@ -8,6 +8,10 @@ import APYTrendChart from "../components/APYTrendChart";
 vi.mock("../context/PreferencesContext", () => ({
   usePreferencesContext: () => ({
     preferences: { locale: "en-US", currency: "USD" },
+    chartModes: { vaultPerformance: "area", apyTrend: "line", yieldBreakdown: "line" },
+    setChartMode: vi.fn(),
+    tableDensity: "comfortable",
+    setTableDensity: vi.fn(),
   }),
 }));
 
