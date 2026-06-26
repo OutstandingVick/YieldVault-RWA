@@ -64,6 +64,7 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
 
     keys.push_back(scalar(StorageNamespace::Governance, "DaoThreshold"));
     keys.push_back(scalar(StorageNamespace::Governance, "ProposalNonce"));
+    keys.push_back(scalar(StorageNamespace::Governance, "GovernanceConfig"));
     keys.push_back(scalar(StorageNamespace::Governance, "BenjiStrategy"));
     keys.push_back(scalar(StorageNamespace::Governance, "KoreanDebtStrategy"));
     keys.push_back(StorageKeyDescriptor {
@@ -147,14 +148,7 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
         parameterized: true,
     });
 
-    keys.push_back(scalar(
-        StorageNamespace::Emergency,
-        "EmergencyApproverPrimary",
-    ));
-    keys.push_back(scalar(
-        StorageNamespace::Emergency,
-        "EmergencyApproverSecondary",
-    ));
+    keys.push_back(scalar(StorageNamespace::Emergency, "EmergencyApprovers"));
     keys.push_back(scalar(
         StorageNamespace::Emergency,
         "EmergencyProposalNonce",

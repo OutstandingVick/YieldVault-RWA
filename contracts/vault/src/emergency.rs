@@ -79,13 +79,15 @@ pub fn next_proposal_id(env: &Env) -> u32 {
 pub fn primary_approver(env: &Env) -> Option<Address> {
     env.storage()
         .instance()
-        .get(&DataKey::Emergency(EmergencyStorageKey::ApproverPrimary))
+        .get::<_, crate::EmergencyApprovers>(&crate::DataKey::EmergencyApprovers)
+        .map(|approvers| approvers.primary)
 }
 
 pub fn secondary_approver(env: &Env) -> Option<Address> {
     env.storage()
         .instance()
-        .get(&DataKey::Emergency(EmergencyStorageKey::ApproverSecondary))
+        .get::<_, crate::EmergencyApprovers>(&crate::DataKey::EmergencyApprovers)
+        .map(|approvers| approvers.secondary)
 }
 
 pub fn require_distinct_approvers(primary: &Address, secondary: &Address) {

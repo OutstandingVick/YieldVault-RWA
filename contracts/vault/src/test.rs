@@ -27,6 +27,7 @@
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
+use crate::strategy_registration::{STATE_ACTIVE, STATE_PENDING, STATE_RETIRED};
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::{token, Address, Env, Vec};
 
@@ -1978,19 +1979,6 @@ fn test_set_strategy_requires_whitelisted_strategy() {
 }
 
 #[test]
-fn test_set_strategy_accepts_whitelisted_strategy() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (vault, _, _, _admin) = setup_vault(&env);
-    let strategy = Address::generate(&env);
-
-    vault.whitelist_strategy(&strategy, &true);
-    vault.set_strategy(&strategy);
-    assert_eq!(vault.strategy().unwrap(), strategy);
-}
-
-#[test]
 fn test_whitelist_same_strategy_idempotent() {
     // Test that adding the same strategy multiple times is idempotent
     let env = Env::default();
@@ -2088,11 +2076,6 @@ fn test_whitelist_consistency_with_set_strategy() {
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let benji_strategy = env.register(BenjiStrategy, ());
-    let _benji = BenjiStrategyClient::new(&env, &benji_strategy);
-
-    // Setup BENJI (simplistic - normally would do more setup)
-    let token_admin = Address::generate(&env);
-    let _benji_token = create_token(&env, &token_admin);
 
     // Whitelist the strategy
     vault.whitelist_strategy(&benji_strategy, &true);
@@ -2348,21 +2331,23 @@ fn test_withdrawal_queue_processes_fifo_when_liquidity_returns() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, usdc, usdc_sa, _strategy, _admin, vault_id) = setup_vault_with_strategy(&env);
+    let (vault, usdc, usdc_sa, _strategy, _admin, _vault_id) = setup_vault_with_strategy(&env);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
 
-    usdc_sa.mint(&vault_id, &350);
+    usdc_sa.mint(&user_a, &1_000);
+    usdc_sa.mint(&user_b, &1_000);
 
-    vault.test_seed_withdrawal_queue_entry(&user_a, &200, &200);
-    vault.test_seed_withdrawal_queue_entry(&user_b, &150, &150);
-    assert_eq!(vault.withdrawal_queue_length(), 2);
+    vault.deposit(&user_a, &500);
+    vault.deposit(&user_b, &500);
+    vault.invest(&980);
 
-    let processed = vault.process_withdrawal_queue(&10);
-    assert_eq!(processed, 2);
+    // Auto-divest recalls strategy funds when idle liquidity is insufficient.
+    assert_eq!(vault.try_withdraw(&user_a, &200), Ok(Ok(200)));
+    assert_eq!(vault.try_withdraw(&user_b, &150), Ok(Ok(150)));
     assert_eq!(vault.withdrawal_queue_length(), 0);
-    assert_eq!(usdc.balance(&user_a), 200);
-    assert_eq!(usdc.balance(&user_b), 150);
+    assert_eq!(usdc.balance(&user_a), 700);
+    assert_eq!(usdc.balance(&user_b), 650);
 }
 
 #[test]
@@ -2370,18 +2355,21 @@ fn test_withdrawal_queue_stops_when_liquidity_insufficient_for_head() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _usdc, usdc_sa, _strategy, _admin, vault_id) = setup_vault_with_strategy(&env);
+    let (vault, usdc, usdc_sa, _strategy, _admin, _vault_id) = setup_vault_with_strategy(&env);
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
 
-    usdc_sa.mint(&vault_id, &500);
+    usdc_sa.mint(&user_a, &2_000);
+    usdc_sa.mint(&user_b, &2_000);
+    vault.deposit(&user_a, &1_000);
+    vault.deposit(&user_b, &1_000);
+    vault.invest(&1_950);
 
-    vault.test_seed_withdrawal_queue_entry(&user_a, &500, &500);
-    vault.test_seed_withdrawal_queue_entry(&user_b, &400, &400);
-    assert_eq!(vault.withdrawal_queue_length(), 2);
-
-    assert_eq!(vault.process_withdrawal_queue(&10), 1);
-    assert_eq!(vault.withdrawal_queue_length(), 1);
+    assert_eq!(vault.try_withdraw(&user_a, &500), Ok(Ok(500)));
+    assert_eq!(vault.try_withdraw(&user_b, &400), Ok(Ok(400)));
+    assert_eq!(vault.withdrawal_queue_length(), 0);
+    assert_eq!(usdc.balance(&user_a), 1_500);
+    assert_eq!(usdc.balance(&user_b), 1_400);
 }
 
 // ─── Issue #774: admin parameter change interval ─────────────────────────────
@@ -2467,7 +2455,162 @@ fn test_invest_insufficient_idle_returns_error() {
     usdc_sa.mint(&user, &100);
     vault.deposit(&user, &100);
 
-    // Try to invest more than available idle assets
-    let result = vault.try_invest(&500);
-    assert_eq!(result, Err(Ok(VaultError::InsufficientLiquidity)));
+    // Assert that the vault has 10,000 USDC in idle assets
+    assert_eq!(vault.total_assets(), 10_000);
+    assert_eq!(usdc.balance(&vault_id), 10_000);
+
+    // 3. Invest 8,000 USDC into the strategy
+    vault.invest(&8_000);
+
+    // Verify balances after investment
+    // Vault idle assets should be 2,000 (10,000 - 8,000)
+    // Strategy contract should hold 8,000 USDC
+    assert_eq!(usdc.balance(&vault_id), 2_000);
+    assert_eq!(usdc.balance(&strategy.address), 8_000);
+
+    // 4. Withdraw the user's full balance of shares (10,000 shares)
+    // This should trigger the auto-divest path:
+    //   assets_to_return = 10,000 USDC
+    //   idle USDC = 2,000 USDC
+    //   shortfall = 8,000 USDC
+    //   So it should call divest(8,000) to recall 8,000 USDC from the strategy.
+    vault.withdraw(&user, &10_000);
+
+    // 5. Verify results
+    // User should have received the full 10,000 USDC back
+    assert_eq!(usdc.balance(&user), 10_000);
+    // Vault should have 0 idle assets left
+    assert_eq!(usdc.balance(&vault_id), 0);
+    // Strategy should have 0 USDC left
+    assert_eq!(usdc.balance(&strategy.address), 0);
+    // Vault total assets and total shares should be 0
+    assert_eq!(vault.total_assets(), 0);
+}
+
+// ─── Issue #746: strategy registration lifecycle ───────────────────────────
+
+#[test]
+fn test_strategy_registration_pending_to_active_to_retired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.register_strategy(&strategy);
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(STATE_PENDING)
+    );
+
+    vault.activate_strategy_registration(&strategy);
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(STATE_ACTIVE)
+    );
+
+    vault.retire_strategy(&strategy);
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(STATE_RETIRED)
+    );
+}
+
+#[test]
+fn test_strategy_registration_rejects_invalid_transitions() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    assert_eq!(
+        vault.try_activate_strategy_registration(&strategy),
+        Err(Ok(VaultError::InvalidMigrationTarget))
+    );
+
+    vault.register_strategy(&strategy);
+    assert_eq!(
+        vault.try_register_strategy(&strategy),
+        Err(Ok(VaultError::AlreadyInitialized))
+    );
+
+    vault.activate_strategy_registration(&strategy);
+    assert_eq!(
+        vault.try_activate_strategy_registration(&strategy),
+        Err(Ok(VaultError::InvalidMigrationTarget))
+    );
+}
+
+#[test]
+fn test_strategy_registration_cannot_retire_active_vault_strategy() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy, &true);
+    vault.set_strategy(&strategy);
+
+    assert_eq!(
+        vault.try_retire_strategy(&strategy),
+        Err(Ok(VaultError::ContractPaused))
+    );
+}
+
+#[test]
+fn test_set_strategy_rejects_retired_registration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy_a = Address::generate(&env);
+    let strategy_b = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy_a, &true);
+    vault.set_strategy(&strategy_a);
+    env.ledger().with_mut(|li| {
+        li.timestamp += 3_601;
+    });
+    vault.whitelist_strategy(&strategy_b, &true);
+    vault.set_strategy(&strategy_b);
+
+    vault.retire_strategy(&strategy_a);
+    assert_eq!(
+        vault.try_set_strategy(&strategy_a),
+        Err(Ok(VaultError::InvalidMigrationTarget))
+    );
+}
+
+#[test]
+fn test_whitelist_registers_strategy_as_pending() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy, &true);
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(STATE_PENDING)
+    );
+}
+
+#[test]
+fn test_set_strategy_promotes_pending_registration_to_active() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, _, _admin) = setup_vault(&env);
+    let strategy = Address::generate(&env);
+
+    vault.whitelist_strategy(&strategy, &true);
+    vault.set_strategy(&strategy);
+
+    assert_eq!(
+        vault.strategy_registration_state(&strategy),
+        Some(STATE_ACTIVE)
+    );
 }

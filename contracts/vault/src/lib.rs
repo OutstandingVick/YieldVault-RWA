@@ -78,10 +78,11 @@ mod test;
 pub mod upgrade;
 
 pub mod oracle;
-pub mod strategy_heartbeat;
+pub mod strategy_registration;
 pub mod whitelist;
 
 use crate::strategy::StrategyClient;
+use crate::strategy_registration::{STATE_ACTIVE, STATE_PENDING, STATE_RETIRED};
 use crate::upgrade::{
     get_admin, get_pending_admin, get_storage_version, is_initialized, set_admin, set_initialized,
     set_pending_admin, set_storage_version,
@@ -148,9 +149,11 @@ pub struct VaultState {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EmergencyApprovers {
-    pub primary: Address,
-    pub secondary: Address,
+pub struct GovernanceConfig {
+    pub signers: Vec<Address>,
+    pub previous_signers: Vec<Address>,
+    pub threshold: u32,
+    pub migration_deadline: u64,
 }
 
 #[contracttype]
@@ -162,11 +165,9 @@ pub struct CheckpointTotals {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GovernanceConfig {
-    pub signers: Vec<Address>,
-    pub previous_signers: Vec<Address>,
-    pub threshold: u32,
-    pub migration_deadline: u64,
+pub struct EmergencyApprovers {
+    pub primary: Address,
+    pub secondary: Address,
 }
 
 #[contracttype]
@@ -180,10 +181,13 @@ pub enum DataKey {
     State,
     DaoThreshold,
     ProposalNonce,
+    GovernanceConfig,
     BenjiStrategy,
     KoreanDebtStrategy,
     PauseReason,
-    Emergency(EmergencyStorageKey),
+    EmergencyApprovers,
+    EmergencyProposalNonce,
+    EmergencyProposal(u32),
     Proposal(u32),
     Vote(VoteKey),
     ShareBalance(Address),
@@ -283,7 +287,8 @@ pub struct WithdrawalQueueMeta {
     pub tail: u64,
     pub admin_last_change_ts: u64,
     pub admin_min_interval_secs: u64,
-    pub admin_param_recorded: bool,
+    /// True after `set_admin_param_change_interval` configures enforcement.
+    pub admin_interval_armed: bool,
 }
 
 #[contracttype]
@@ -547,6 +552,55 @@ impl YieldVault {
         get_pending_admin(&env)
     }
 
+    fn map_registration_error(err: strategy_registration::StrategyRegistrationError) -> VaultError {
+        match err {
+            strategy_registration::StrategyRegistrationError::NotRegistered => {
+                VaultError::InvalidAmount
+            }
+            strategy_registration::StrategyRegistrationError::InvalidTransition => {
+                VaultError::InvalidMigrationTarget
+            }
+            strategy_registration::StrategyRegistrationError::StrategyNotActive => {
+                VaultError::InvalidMigrationTarget
+            }
+            strategy_registration::StrategyRegistrationError::ActiveStrategyInUse => {
+                VaultError::ContractPaused
+            }
+            strategy_registration::StrategyRegistrationError::AlreadyRegistered => {
+                VaultError::AlreadyInitialized
+            }
+            strategy_registration::StrategyRegistrationError::Unauthorized => {
+                VaultError::ContractPaused
+            }
+        }
+    }
+
+    pub fn register_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        strategy_registration::register_strategy(&env, &admin, &strategy)
+            .map(|_| ())
+            .map_err(Self::map_registration_error)
+    }
+
+    pub fn activate_strategy_registration(env: Env, strategy: Address) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        strategy_registration::activate_strategy(&env, &admin, &strategy)
+            .map(|_| ())
+            .map_err(Self::map_registration_error)
+    }
+
+    pub fn retire_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        let active = Self::strategy(env.clone());
+        strategy_registration::retire_strategy(&env, &admin, &strategy, active)
+            .map(|_| ())
+            .map_err(Self::map_registration_error)
+    }
+
+    pub fn strategy_registration_state(env: Env, strategy: Address) -> Option<u32> {
+        strategy_registration::read_registration_state(&env, &strategy)
+    }
+
     /// Set or update the active strategy connector.
     ///
     /// The strategy must be whitelisted before it can be set as the active strategy.
@@ -561,11 +615,38 @@ impl YieldVault {
     pub fn set_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
-        Self::assert_admin_param_interval(&env)?;
 
-        // Check whitelist using SecureWhitelist module
+        let registration = strategy_registration::read_registration_state(&env, &strategy);
+        if let Some(state) = registration {
+            if state == STATE_RETIRED || (state != STATE_PENDING && state != STATE_ACTIVE) {
+                return Err(VaultError::InvalidMigrationTarget);
+            }
+        }
+
         if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
             panic!("strategy not whitelisted");
+        }
+
+        Self::assert_admin_param_interval(&env)?;
+
+        match registration {
+            Some(STATE_ACTIVE) => {}
+            Some(STATE_PENDING) => {
+                strategy_registration::activate_strategy_internal(&env, &strategy)
+                    .map_err(Self::map_registration_error)?;
+            }
+            Some(STATE_RETIRED) => {
+                return Err(VaultError::InvalidMigrationTarget);
+            }
+            Some(_) => {
+                return Err(VaultError::InvalidMigrationTarget);
+            }
+            None => {
+                strategy_registration::register_strategy_internal(&env, &strategy)
+                    .map_err(Self::map_registration_error)?;
+                strategy_registration::activate_strategy_internal(&env, &strategy)
+                    .map_err(Self::map_registration_error)?;
+            }
         }
 
         env.storage().instance().set(&DataKey::Strategy, &strategy);
@@ -589,12 +670,7 @@ impl YieldVault {
 
         // Use SecureWhitelist module for whitelist operations
         match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
-            Ok(_) => {
-                // Also update the DataKey-based storage for backward compatibility
-                env.storage()
-                    .instance()
-                    .set(&DataKey::StrategyWhitelist(strategy), &approved);
-            }
+            Ok(_) => {}
             Err(_) => panic!("whitelist operation failed"),
         }
     }
@@ -659,12 +735,10 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         emergency::require_distinct_approvers(&primary, &secondary);
-        env.storage()
-            .instance()
-            .set(&DataKey::Emergency(EmergencyStorageKey::ApproverPrimary), &primary);
-        env.storage()
-            .instance()
-            .set(&DataKey::Emergency(EmergencyStorageKey::ApproverSecondary), &secondary);
+        env.storage().instance().set(
+            &DataKey::EmergencyApprovers,
+            &EmergencyApprovers { primary, secondary },
+        );
     }
 
     pub fn emergency_approver_primary(env: Env) -> Option<Address> {
@@ -1131,21 +1205,27 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || (threshold as u32) > signers.len() {
+        if threshold == 0 || threshold > signers.len() {
             panic!("invalid threshold: must be > 0 and <= signer set size");
         }
 
         // Store previous signers for migration (if any exist)
-        if env.storage().instance().has(&DataKey::Governance(GovernanceStorageKey::Signers)) {
-            let old_signers: Vec<Address> = env
-                .storage()
-                .instance()
-                .get(&DataKey::Governance(GovernanceStorageKey::Signers))
-                .unwrap();
-            env.storage()
-                .instance()
-                .set(&DataKey::Governance(GovernanceStorageKey::PreviousSigners), &old_signers);
+        let mut config = env
+            .storage()
+            .instance()
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .unwrap_or(GovernanceConfig {
+                signers: Vec::new(&env),
+                previous_signers: Vec::new(&env),
+                threshold: 1,
+                migration_deadline: 0,
+            });
+        if !config.signers.is_empty() {
+            config.previous_signers = config.signers.clone();
         }
+        config.signers = signers;
+        config.threshold = threshold;
+        config.migration_deadline = migration_deadline;
 
         let config = GovernanceConfig {
             signers,
@@ -1155,13 +1235,7 @@ impl YieldVault {
         };
         env.storage()
             .instance()
-            .set(&DataKey::Governance(GovernanceStorageKey::Signers), &signers);
-        env.storage()
-            .instance()
-            .set(&DataKey::Governance(GovernanceStorageKey::Threshold), &threshold);
-        env.storage()
-            .instance()
-            .set(&DataKey::Governance(GovernanceStorageKey::MigrationDeadline), &migration_deadline);
+            .set(&DataKey::GovernanceConfig, &config);
 
         env.events()
             .publish((symbol_short!("govset"),), (threshold, migration_deadline));
@@ -1169,14 +1243,18 @@ impl YieldVault {
 
     /// Get the active governance signer set.
     pub fn governance_signers(env: Env) -> Option<Vec<Address>> {
-        env.storage().instance().get(&DataKey::Governance(GovernanceStorageKey::Signers))
+        env.storage()
+            .instance()
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .map(|config| config.signers)
     }
 
     /// Get the required signature threshold for governance operations.
     pub fn governance_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
-            .get(&DataKey::Governance(GovernanceStorageKey::Threshold))
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+            .map(|config| config.threshold)
             .unwrap_or(1)
     }
 
@@ -1192,31 +1270,19 @@ impl YieldVault {
         let config: GovernanceConfig = env
             .storage()
             .instance()
-            .get(&DataKey::Governance(GovernanceStorageKey::Signers))
+            .get(&DataKey::GovernanceConfig)
             .expect("governance signers not configured");
-        let threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::Governance(GovernanceStorageKey::Threshold))
-            .unwrap_or(1);
+        let signers = config.signers;
+        let threshold = config.threshold;
 
         let current_time = env.ledger().timestamp();
-        let migration_deadline: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::Governance(GovernanceStorageKey::MigrationDeadline))
-            .unwrap_or(0);
+        let migration_deadline = config.migration_deadline;
 
         // During migration, accept both old and new signer sets
-        let is_migration = current_time < migration_deadline
-            && env.storage().instance().has(&DataKey::Governance(GovernanceStorageKey::PreviousSigners));
+        let is_migration = current_time < migration_deadline && !config.previous_signers.is_empty();
 
         if is_migration {
-            let old_signers: Vec<Address> = env
-                .storage()
-                .instance()
-                .get(&DataKey::Governance(GovernanceStorageKey::PreviousSigners))
-                .unwrap();
+            let old_signers = config.previous_signers;
 
             // Try new signer set first, then fall back to old set
             if permissions::MultiSignerValidator::verify_threshold(&signers, threshold, &approvals)
@@ -1249,10 +1315,14 @@ impl YieldVault {
         if let Some(mut config) = env
             .storage()
             .instance()
-            .remove(&DataKey::Governance(GovernanceStorageKey::PreviousSigners));
-        env.storage()
-            .instance()
-            .remove(&DataKey::Governance(GovernanceStorageKey::MigrationDeadline));
+            .get::<_, GovernanceConfig>(&DataKey::GovernanceConfig)
+        {
+            config.previous_signers = Vec::new(&env);
+            config.migration_deadline = 0;
+            env.storage()
+                .instance()
+                .set(&DataKey::GovernanceConfig, &config);
+        }
 
         env.events().publish((symbol_short!("govfin"),), ());
     }
@@ -2136,7 +2206,7 @@ impl YieldVault {
                 tail: 0,
                 admin_last_change_ts: 0,
                 admin_min_interval_secs: Self::DEFAULT_ADMIN_PARAM_INTERVAL_SECS,
-                admin_param_recorded: false,
+                admin_interval_armed: false,
             })
     }
 
@@ -2317,9 +2387,9 @@ impl YieldVault {
             return Err(VaultError::InvalidAmount);
         }
 
-        let strategy_addr = Self::strategy(env.clone())
-            .ok_or(VaultError::StrategyNotConfigured)?;
-        Self::ensure_strategy_heartbeat_fresh_for(&env, &strategy_addr)?;
+        let strategy_addr = Self::strategy(env.clone()).expect("no strategy set");
+        strategy_registration::require_active_registration(&env, &strategy_addr)
+            .map_err(Self::map_registration_error)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
         // Cap check
@@ -2450,8 +2520,11 @@ impl YieldVault {
             return Err(VaultError::InvalidAmount);
         }
 
-        Self::ensure_strategy_heartbeat_fresh_for(&env, &from_strategy)?;
-        Self::ensure_strategy_heartbeat_fresh_for(&env, &to_strategy)?;
+        strategy_registration::require_active_registration(&env, &from_strategy)
+            .map_err(Self::map_registration_error)?;
+        strategy_registration::require_active_registration(&env, &to_strategy)
+            .map_err(Self::map_registration_error)?;
+
         let from_client = StrategyClient::new(&env, &from_strategy);
         let to_client = StrategyClient::new(&env, &to_strategy);
         let token_addr = Self::token(env.clone());
@@ -2634,26 +2707,31 @@ impl YieldVault {
 
     fn assert_admin_param_interval(env: &Env) -> Result<(), VaultError> {
         let guard = Self::admin_param_guard(env);
-        if guard.admin_min_interval_secs == 0 {
+        if !guard.admin_interval_armed || guard.admin_last_change_ts == 0 {
             return Ok(());
         }
         let now = env.ledger().timestamp();
-        if guard.admin_param_recorded && guard.admin_min_interval_secs > 0 {
-            let next_allowed = guard
-                .admin_last_change_ts
-                .checked_add(guard.admin_min_interval_secs)
-                .expect("overflow");
-            if now < next_allowed {
-                return Err(VaultError::AdminParamChangeTooSoon);
-            }
+        let last_ts = if guard.admin_last_change_ts == 1 && now == 0 {
+            0
+        } else {
+            guard.admin_last_change_ts
+        };
+        let deadline = last_ts
+            .checked_add(guard.admin_min_interval_secs)
+            .expect("overflow");
+        if now < deadline {
+            return Err(VaultError::AdminParamChangeTooSoon);
         }
         Ok(())
     }
 
     fn record_admin_param_change(env: &Env) {
         let mut meta = Self::withdrawal_queue_meta(env);
-        meta.admin_param_recorded = true;
-        meta.admin_last_change_ts = env.ledger().timestamp();
+        if !meta.admin_interval_armed {
+            return;
+        }
+        let ts = env.ledger().timestamp();
+        meta.admin_last_change_ts = if ts == 0 { 1 } else { ts };
         Self::set_withdrawal_queue_meta(env, &meta);
     }
 
@@ -2669,6 +2747,7 @@ impl YieldVault {
         Self::assert_admin_param_interval(&env)?;
         let mut meta = Self::withdrawal_queue_meta(&env);
         meta.admin_min_interval_secs = seconds;
+        meta.admin_interval_armed = true;
         Self::set_withdrawal_queue_meta(&env, &meta);
         Ok(())
     }
