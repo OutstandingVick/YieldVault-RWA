@@ -81,6 +81,12 @@ jobs:
           mkdir -p artifacts/wasm
           find ./target/wasm32-unknown-unknown/release -name '*.wasm' -exec cp {} artifacts/wasm/ \;
 
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Test deployment.json generation
+        run: bash contracts/vault/scripts/test-deployment-json.sh
+
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
         with:

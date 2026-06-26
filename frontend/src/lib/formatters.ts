@@ -272,6 +272,6 @@ export function formatDate(
           locale,
         };
 
-  const resolvedLocale = resolveLocale(options.locale, options.fallbackLocale);
-  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions).format(normalizedDate);
+  const resolvedLocale = resolveLocale(options.locale ?? locale, options.fallbackLocale);
+  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions ?? {}).format(normalizedDate);
 }

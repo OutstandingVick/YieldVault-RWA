@@ -1,6 +1,8 @@
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
 import { redisClientManager } from './rateLimiter';
+import { scValToNative, xdr } from '@stellar/stellar-base';
+import Decimal from 'decimal.js';
 
 const prisma = getPrismaClient();
 
@@ -302,7 +304,7 @@ export class EventPollingService {
     }
   }
 
-  private async pollEvents(): Promise<void> {
+  public async pollEvents(): Promise<void> {
     try {
       const lastLedger = await this.getLastProcessedLedger();
       const currentLedger = await this.getCurrentLedger();
@@ -323,6 +325,7 @@ export class EventPollingService {
       logger.log('error', 'Event polling failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
+      throw error;
     }
   }
 
@@ -366,7 +369,72 @@ export class EventPollingService {
       ledger: event.ledger,
     });
 
-    // Add business logic here (e.g., update vault state, send webhooks)
+    try {
+      const parsedTopics = event.topics.map(t => {
+        try {
+          return typeof t === 'string' ? scValToNative(xdr.ScVal.fromXDR(t, 'base64')) : t;
+        } catch {
+          return t;
+        }
+      });
+
+      const eventType = parsedTopics[1];
+      if (eventType === 'deposit' || eventType === 'withdraw') {
+        const xdrValue = typeof event.value === 'string' ? event.value : (event.value?.xdr || event.value?.raw);
+        if (xdrValue) {
+          const nativeValue = scValToNative(xdr.ScVal.fromXDR(xdrValue, 'base64'));
+          if (Array.isArray(nativeValue) && nativeValue.length >= 2) {
+            const amountVal = new Decimal(nativeValue[0].toString());
+            const sharesVal = new Decimal(nativeValue[1].toString());
+
+            await prisma.$transaction(async (tx) => {
+              const existing = await tx.vaultState.findUnique({ where: { id: 1 } });
+              let currentAssets = existing ? new Decimal(existing.totalAssets) : new Decimal(0);
+              let currentShares = existing ? new Decimal(existing.totalShares) : new Decimal(0);
+
+              if (eventType === 'deposit') {
+                currentAssets = currentAssets.plus(amountVal);
+                currentShares = currentShares.plus(sharesVal);
+              } else {
+                currentAssets = Decimal.max(0, currentAssets.minus(amountVal));
+                currentShares = Decimal.max(0, currentShares.minus(sharesVal));
+              }
+
+              await tx.vaultState.upsert({
+                where: { id: 1 },
+                update: {
+                  totalAssets: currentAssets.toFixed(6),
+                  totalShares: currentShares.toFixed(6),
+                },
+                create: {
+                  id: 1,
+                  totalAssets: currentAssets.toFixed(6),
+                  totalShares: currentShares.toFixed(6),
+                },
+              });
+
+              const resultingSharePrice = currentAssets.gt(0) && currentShares.gt(0)
+                ? currentAssets.div(currentShares)
+                : new Decimal(1);
+
+              await tx.sharePriceSnapshot.create({
+                data: {
+                  sharePrice: resultingSharePrice.toFixed(6),
+                  totalAssets: currentAssets.toFixed(6),
+                  totalShares: currentShares.toFixed(6),
+                  source: `event_${eventType}`,
+                },
+              });
+            });
+          }
+        }
+      }
+    } catch (err) {
+      logger.log('error', 'Error processing business logic for event', {
+        eventId: event.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async getCurrentLedger(): Promise<number> {

@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import confetti from "canvas-confetti";
 import {
   Activity,
   AlertCircle,
@@ -45,10 +44,7 @@ import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
-import {
-  clearVaultFormDraft,
-  saveVaultFormDraft,
-} from "../lib/formDraftStorage";
+import { saveVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
@@ -234,7 +230,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleChange,
     handleBlur,
     setValues,
-    setFieldError
+    setFieldError,
+    resetErrors,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
@@ -282,6 +279,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setValues({ amount: parsedAmount.toString() });
     }
   }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
+
+  const previousTabRef = useRef(dashboardUrl.state.tab);
+  useEffect(() => {
+    if (previousTabRef.current === dashboardUrl.state.tab) {
+      return;
+    }
+    previousTabRef.current = dashboardUrl.state.tab;
+    if (!dashboardUrl.state.amount) {
+      setValues({ amount: "" });
+    }
+    resetApproval();
+    resetErrors();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval, resetErrors]);
 
   // Reset approval when deposit amount changes
   useEffect(() => {

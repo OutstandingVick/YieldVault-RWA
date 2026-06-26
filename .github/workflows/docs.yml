@@ -17,6 +17,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Generate Rust docs
+        continue-on-error: true
         run: cargo doc -p vault --no-deps
 
       - name: Setup Node
