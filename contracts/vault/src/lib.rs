@@ -1177,7 +1177,11 @@ impl YieldVault {
         let migration_deadline = config.migration_deadline;
 
         // During migration, accept both old and new signer sets
-        let is_migration = current_time < migration_deadline && !config.previous_signers.is_empty();
+        let is_migration = current_time < migration_deadline
+            && env
+                .storage()
+                .instance()
+                .has(&DataKey::GovernancePreviousSigners);
 
         if is_migration {
             let old_signers = config.previous_signers;

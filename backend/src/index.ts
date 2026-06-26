@@ -3538,7 +3538,7 @@ app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: 
       orderBy: { timestamp: 'asc' },
     });
 
-    function bucketKey(date: Date, g: 'day' | 'week' | 'month'): string {
+    const bucketKey = (date: Date, g: 'day' | 'week' | 'month'): string => {
       const y = date.getUTCFullYear();
       const m = String(date.getUTCMonth() + 1).padStart(2, '0');
       const d = String(date.getUTCDate()).padStart(2, '0');
@@ -3553,7 +3553,7 @@ app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: 
         return `${wy}-${wm}-${wd}`;
       }
       return `${y}-${m}-${d}`;
-    }
+    };
 
     const buckets = new Map<string, number>();
     for (const tx of transactions) {

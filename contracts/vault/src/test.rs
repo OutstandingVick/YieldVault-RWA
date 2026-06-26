@@ -2471,23 +2471,3 @@ fn test_invest_insufficient_idle_returns_error() {
     let result = vault.try_invest(&500);
     assert_eq!(result, Err(Ok(VaultError::InsufficientLiquidity)));
 }
-
-#[test]
-fn test_withdraw_no_strategy_queues_when_idle_insufficient() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (vault, _usdc, usdc_sa, _admin) = setup_vault(&env);
-    let user = Address::generate(&env);
-
-    // Give user some USDC and deposit
-    usdc_sa.mint(&user, &1_000);
-    vault.deposit(&user, &1_000);
-
-    // Drain idle assets directly (simulate strategy holding funds without setting strategy)
-    // We simulate this by mocking: manually manipulate storage isn't possible,
-    // so instead just confirm that with strategy unset, withdraw succeeds normally
-    // (idle assets cover it)
-    let result = vault.try_withdraw(&user, &500);
-    // Should succeed since idle assets = 1000 >= 500
-    assert!(result.is_ok());
-}

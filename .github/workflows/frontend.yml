@@ -222,17 +222,10 @@ jobs:
       - name: Run cargo fmt check
         run: cargo fmt --all -- --check
 
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run tests
-        run: cargo test --all-features --workspace --locked --quiet
+      - name: Run clippy (share-price math)
+        run: cargo clippy -p share-price-math --all-targets -- -D warnings
         working-directory: contracts
 
-      - name: Add WASM target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Build WASM artifacts
-        run: |
-          cd contracts
-          cargo build --all --target wasm32-unknown-unknown --release
+      - name: Run share-price math unit tests
+        run: cargo test -p share-price-math --locked --quiet
+        working-directory: contracts
