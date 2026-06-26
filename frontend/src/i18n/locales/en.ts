@@ -51,6 +51,11 @@ export const en = {
       checkingStatus: "Looking for an existing Freighter session on this device",
       errorStatus: "Connection failed - try again or check Freighter",
     },
+    heartbeat: {
+      healthy: "Wallet session healthy",
+      degraded: "Wallet session degraded",
+      unhealthy: "Wallet session unhealthy",
+    },
   },
   toast: {
     walletConnected: {
@@ -460,6 +465,12 @@ export const en = {
     pendingStatus: "Pending",
     searchPlaceholder: "Search asset, vault, issuer...",
     tableCaption: "Portfolio holdings",
+  },
+  networkQuality: {
+    fast: "Fast network",
+    normal: "Normal network",
+    slow: "Slow network — reduced refresh rate",
+    degraded: "Degraded network — data may be stale",
   },
   analytics: {
     tag: "Live Analytics",

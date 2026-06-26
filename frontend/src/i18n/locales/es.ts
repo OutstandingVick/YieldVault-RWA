@@ -51,6 +51,11 @@ export const es = {
       checkingStatus: "Buscando una sesión existente de Freighter en este dispositivo",
       errorStatus: "Conexión fallida - intenta de nuevo o verifica Freighter",
     },
+    heartbeat: {
+      healthy: "Sesión de billetera saludable",
+      degraded: "Sesión de billetera degradada",
+      unhealthy: "Sesión de billetera no saludable",
+    },
   },
   toast: {
     walletConnected: {
@@ -446,6 +451,12 @@ export const es = {
     pendingStatus: "Pendiente",
     searchPlaceholder: "Buscar activo, bóveda, emisor...",
     tableCaption: "Posiciones del portafolio",
+  },
+  networkQuality: {
+    fast: "Red rápida",
+    normal: "Red normal",
+    slow: "Red lenta — frecuencia de actualización reducida",
+    degraded: "Red degradada — los datos pueden estar desactualizados",
   },
   analytics: {
     tag: "Analítica en vivo",

@@ -22,8 +22,7 @@ import {
   isProviderAvailable,
 } from "../lib/walletSession";
 import WalletReconnectPrompt from "./WalletReconnectPrompt";
-import { usePreferencesContext } from "../context/PreferencesContext";
-import { displayIdentifier } from "../lib/maskSensitiveValues";
+import WalletSessionIndicator from "./WalletSessionIndicator";
 
 const IS_AUTOMATED_TEST =
   typeof process !== "undefined" &&
@@ -239,6 +238,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   if (walletAddress) {
     return (
       <div className="wallet-status flex items-center gap-md">
+        <WalletSessionIndicator walletAddress={walletAddress} />
         <div
           className="glass-panel"
           style={{
