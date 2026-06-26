@@ -389,6 +389,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
     staleGuard.captureReviewSnapshot();
     dashboardUrl.setStep("review");
+    window.setTimeout(() => {
+      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
+    }, 0);
   };
 
   const executeTransaction = async (

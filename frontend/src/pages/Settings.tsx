@@ -288,14 +288,14 @@ const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
   { value: 'XLM', label: 'XLM — Stellar Lumens' },
 ];
 
-const NOTIF_KEYS: { key: keyof NotificationPreferences }[] = [
-  { key: 'depositAlerts' },
-  { key: 'withdrawalAlerts' },
-  { key: 'yieldUpdates' },
-  { key: 'priceAlerts' },
-  { key: 'weeklyReport' },
-  { key: 'securityAlerts' },
-];
+const NOTIF_KEYS = [
+  'depositAlerts',
+  'withdrawalAlerts',
+  'yieldUpdates',
+  'priceAlerts',
+  'weeklyReport',
+  'securityAlerts',
+] as const satisfies readonly (keyof NotificationPreferences)[];
 
 const Settings: React.FC = () => {
   const {
@@ -506,7 +506,7 @@ const Settings: React.FC = () => {
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {NOTIF_KEYS.map(({ key }) => (
+          {NOTIF_KEYS.map((key) => (
             <NotifRow
               key={key}
               id={`settings-notif-${key}`}
