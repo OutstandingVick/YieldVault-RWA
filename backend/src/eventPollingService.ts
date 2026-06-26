@@ -1,7 +1,7 @@
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
 import { redisClientManager } from './rateLimiter';
-import { scValToNative, xdr } from '@stellar/stellar-sdk';
+import { scValToNative, xdr } from '@stellar/stellar-base';
 import Decimal from 'decimal.js';
 
 const prisma = getPrismaClient();
