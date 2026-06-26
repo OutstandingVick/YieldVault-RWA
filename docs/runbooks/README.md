@@ -14,6 +14,7 @@ This directory contains operational runbooks for disaster recovery and incident 
 | [Contract Upgrade & Migration](./CONTRACT_UPGRADE_PLAYBOOK.md) | N/A | N/A | Smart contract upgrade deployment and rollback |
 | [RPC Failover](./RPC_FAILOVER.md) | 5 min | N/A | Stellar RPC node failure |
 | [Full DR Procedure](./FULL_DR_PROCEDURE.md) | 4 hours | 15 min | Complete infrastructure failure |
+| [Replay & State Recovery](./REPLAY_PROCEDURES.md) | N/A | N/A | Recovering/syncing ledger events or email queue |
 
 ---
 
@@ -245,6 +246,28 @@ Runbooks are step-by-step operational guides that enable any engineer to execute
 
 ---
 
+### 7. Replay & State Recovery
+
+**File:** [REPLAY_PROCEDURES.md](./REPLAY_PROCEDURES.md)
+
+**Purpose:** Manually replay Stellar blockchain events or requeue failed email queue jobs.
+
+**RTO:** N/A  
+**RPO:** N/A
+
+**Use Cases:**
+- Recovering missed ledger events after a database restore or sync lag
+- Re-processing block ranges after bug fixes or state changes
+- Manually triggering delivery of failed system/transaction emails
+
+**Key Steps:**
+1. Retrieve API credentials
+2. Execute dry-run preview to verify range
+3. Trigger replay endpoint with desired parameters
+4. Verify success via database queries and logs
+
+---
+
 ## Decision Tree
 
 Use this decision tree to select the appropriate runbook:
@@ -264,7 +287,9 @@ Is the backend service down or malfunctioning?
 
 Is the Stellar RPC node failing?
 ├─ YES → Use RPC Failover
-└─ NO → Check component-specific documentation
+└─ NO → Are ledger events lagging or email queue jobs failing?
+        ├─ YES → Use Replay & State Recovery
+        └─ NO → Check component-specific documentation
 ```
 
 ---
@@ -281,6 +306,7 @@ All runbooks must be tested according to this schedule:
 | Backend Redeploy | Weekly | ⚠️ Never | TBD |
 | RPC Failover | Monthly | ⚠️ Never | TBD |
 | Full DR Procedure | Annually | ⚠️ Never | TBD |
+| Replay & State Recovery | Monthly | ⚠️ Never | TBD |
 
 ### Testing Types
 

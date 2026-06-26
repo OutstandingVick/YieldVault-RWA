@@ -1,0 +1,7 @@
+{
+  "description": "Round-down share minting on a non-empty vault (1000 shares, 1500 assets).",
+  "assets": 300,
+  "total_shares": 1000,
+  "total_assets": 1500,
+  "yield_amount": 1
+}

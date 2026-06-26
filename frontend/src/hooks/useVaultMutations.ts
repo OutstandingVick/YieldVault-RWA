@@ -155,11 +155,10 @@ export function useWithdrawMutation() {
 
   return useMutation({
     mutationFn: async ({ walletAddress, amount, idempotencyKey }: MutationParams) => {
-      const shares = Math.max(1, Math.round(amount));
       await submitWithdrawal(
         {
           walletAddress,
-          shares,
+          amount: amount.toString(),
           asset: "USDC",
         },
         { idempotencyKey },

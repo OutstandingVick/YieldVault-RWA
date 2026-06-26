@@ -4,9 +4,10 @@ import crypto from 'crypto';
 export type ApiKeyRole = 'viewer' | 'operator' | 'admin' | 'super-admin';
 
 interface ApiKeyMetadata {
+  role: ApiKeyRole;
   createdAt: Date;
   rotatedAt?: Date;
-  role: ApiKeyRole;
+  revokedAt?: Date;
 }
 
 const API_KEYS = new Map<string, ApiKeyMetadata>(); // hash -> key metadata
@@ -16,6 +17,35 @@ const ROLE_ORDER: Record<ApiKeyRole, number> = {
   admin: 3,
   'super-admin': 4,
 };
+
+declare global {
+  namespace Express {
+    interface Request {
+      authApiKeyHash?: string;
+      authApiKeyRole?: ApiKeyRole;
+    }
+  }
+}
+
+const ROLE_PRECEDENCE: Record<ApiKeyRole, number> = {
+  viewer: 0,
+  operator: 1,
+  admin: 2,
+  'super-admin': 3,
+};
+
+export function normalizeApiKeyRole(raw: unknown): ApiKeyRole | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+
+  const value = raw.trim().toLowerCase();
+  if (value === 'viewer' || value === 'operator' || value === 'admin' || value === 'super-admin') {
+    return value;
+  }
+
+  return null;
+}
 
 export function validateApiKey(
   req: Request,
@@ -33,7 +63,9 @@ export function validateApiKey(
     return;
   }
 
-  const authenticated = authenticateApiKeyValue(match[1]);
+  const providedKey = match[1];
+  const authenticated = authenticateApiKeyValue(providedKey);
+
   if (!authenticated) {
     res.status(401).json({
       error: 'Unauthorized',
@@ -44,6 +76,7 @@ export function validateApiKey(
 
   req.authApiKeyHash = authenticated.hash;
   req.authApiKeyRole = authenticated.role;
+
   next();
 }
 
@@ -51,40 +84,21 @@ export function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
-export function authenticateApiKeyValue(key: string): { hash: string; role: ApiKeyRole } | null {
+export function registerApiKey(key: string, options?: { role?: ApiKeyRole }): string {
   const hash = hashApiKey(key);
-  const metadata = API_KEYS.get(hash);
-
-  if (!metadata) {
-    return null;
-  }
-
-  return {
-    hash,
-    role: metadata.role,
-  };
-}
-
-export function getApiKeyMetadata(hash: string): ApiKeyMetadata | null {
-  const metadata = API_KEYS.get(hash);
-  if (!metadata) {
-    return null;
-  }
-
-  return {
-    ...metadata,
-    createdAt: new Date(metadata.createdAt),
-    rotatedAt: metadata.rotatedAt ? new Date(metadata.rotatedAt) : undefined,
-  };
-}
-
-export function registerApiKey(key: string, options: { role?: ApiKeyRole } = {}): string {
-  const hash = hashApiKey(key);
-  API_KEYS.set(hash, { createdAt: new Date(), role: normalizeApiKeyRole(options.role) });
+  API_KEYS.set(hash, {
+    createdAt: new Date(),
+    role: options?.role || 'admin',
+  });
   return hash;
 }
 
 export function revokeApiKey(hash: string): boolean {
+  const metadata = API_KEYS.get(hash);
+  if (metadata) {
+    metadata.revokedAt = new Date();
+    API_KEYS.set(hash, metadata);
+  }
   return API_KEYS.delete(hash);
 }
 
@@ -98,6 +112,7 @@ export function rotateApiKey(oldHash: string, newKey: string, options: { role?: 
 
   const newHash = hashApiKey(newKey);
   API_KEYS.set(newHash, {
+    role: metadata.role,
     createdAt: metadata.createdAt,
     rotatedAt: new Date(),
     role: normalizeApiKeyRole(options.role ?? metadata.role),
@@ -106,40 +121,54 @@ export function rotateApiKey(oldHash: string, newKey: string, options: { role?: 
   return newHash;
 }
 
-export function restoreApiKey(hash: string, options: { role?: ApiKeyRole } = {}): string | null {
+export function restoreApiKey(hash: string): boolean {
+  const metadata = API_KEYS.get(hash);
+  if (!metadata) {
+    return false;
+  }
+
+  metadata.revokedAt = undefined;
+  API_KEYS.set(hash, metadata);
+  return true;
+}
+
+export function getApiKeyMetadata(hash: string):
+  | {
+      hash: string;
+      role: ApiKeyRole;
+      createdAt: string;
+      rotatedAt?: string;
+      revokedAt?: string;
+    }
+  | null {
   const metadata = API_KEYS.get(hash);
   if (!metadata) {
     return null;
   }
 
-  API_KEYS.set(hash, {
-    createdAt: metadata.createdAt,
-    rotatedAt: metadata.rotatedAt,
-    role: normalizeApiKeyRole(options.role ?? metadata.role),
-  });
-
-  return hash;
+  return {
+    hash,
+    role: metadata.role,
+    createdAt: metadata.createdAt.toISOString(),
+    ...(metadata.rotatedAt ? { rotatedAt: metadata.rotatedAt.toISOString() } : {}),
+    ...(metadata.revokedAt ? { revokedAt: metadata.revokedAt.toISOString() } : {}),
+  };
 }
 
-export function normalizeApiKeyRole(role: string | undefined | null): ApiKeyRole {
-  const normalized = role?.trim().toLowerCase();
-
-  switch (normalized) {
-    case 'viewer':
-      return 'viewer';
-    case 'operator':
-      return 'operator';
-    case 'admin':
-      return 'admin';
-    case 'super-admin':
-    case 'superadmin':
-      return 'super-admin';
-    default:
-      return 'admin';
+export function authenticateApiKeyValue(value: string): { hash: string; role: ApiKeyRole } | null {
+  const hash = hashApiKey(value);
+  const metadata = API_KEYS.get(hash);
+  if (!metadata || metadata.revokedAt) {
+    return null;
   }
+
+  return {
+    hash,
+    role: metadata.role,
+  };
 }
 
 export function hasRequiredApiKeyRole(req: Request, requiredRole: ApiKeyRole): boolean {
-  const role = normalizeApiKeyRole(req.authApiKeyRole);
-  return ROLE_ORDER[role] >= ROLE_ORDER[requiredRole];
+  const currentRole = req.authApiKeyRole || 'admin';
+  return ROLE_PRECEDENCE[currentRole] >= ROLE_PRECEDENCE[requiredRole];
 }

@@ -30,6 +30,7 @@ interface PreferencesContextType {
   setNotification: (key: keyof NotificationPreferences, value: boolean) => void;
   toggleCompactMode: () => void;
   toggleShowBalances: () => void;
+  toggleMaskSensitiveValues: () => void;
   setPrecision: (precision: number) => void;
   resetToDefaults: () => void;
   setChartMode: (chartKey: keyof ChartModePreferences, mode: ChartMode) => void;
@@ -58,6 +59,7 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     setPrecision,
     resetToDefaults,
   } = usePreferences(walletAddress);
@@ -114,6 +116,7 @@ export const PreferencesProvider: React.FC<PreferencesProviderProps> = ({
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     setPrecision,
     resetToDefaults,
     setChartMode,

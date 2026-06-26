@@ -105,7 +105,7 @@ pub fn require_distinct_approvers(primary: &Address, secondary: &Address) {
 /// `EmergencyUnwindResult` with simulated outcomes
 pub fn simulate_emergency_unwind(
     total_assets: i128,
-    strategy_count: u32,
+    _strategy_count: u32,
     estimated_slippage_bps: i128,
     estimated_fee_bps: i128,
 ) -> EmergencyUnwindResult {
@@ -151,12 +151,13 @@ pub fn simulate_emergency_unwind(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_distinct_approvers_required() {
         let env = Env::default();
-        let a = Address::generate(&env);
-        let b = Address::generate(&env);
+        let a = <soroban_sdk::Address as TestAddress>::generate(&env);
+        let b = <soroban_sdk::Address as TestAddress>::generate(&env);
         require_distinct_approvers(&a, &b);
     }
 
@@ -164,7 +165,7 @@ mod tests {
     #[should_panic(expected = "approvers must be distinct")]
     fn test_same_approver_rejected() {
         let env = Env::default();
-        let a = Address::generate(&env);
+        let a = <soroban_sdk::Address as TestAddress>::generate(&env);
         require_distinct_approvers(&a, &a);
     }
 

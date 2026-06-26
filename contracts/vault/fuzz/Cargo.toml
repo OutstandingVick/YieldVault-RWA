@@ -1,0 +1,20 @@
+[package]
+name = "vault-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+share-price-math = { path = "../../share-price-math" }
+
+[[bin]]
+name = "share_price_math"
+path = "fuzz_targets/share_price_math.rs"
+test = false
+doc = false

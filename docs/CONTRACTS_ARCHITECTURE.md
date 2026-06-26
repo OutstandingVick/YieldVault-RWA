@@ -439,6 +439,11 @@ cargo test -- --nocapture
 # Run fuzz tests (10,000 iterations)
 cargo test fuzz_deposit_withdraw_symmetry_no_fee
 
+# Run libFuzzer share-price harness (60s smoke)
+cd vault
+cargo install cargo-fuzz
+cargo +nightly fuzz run share_price_math -- -max_total_time=60
+
 # Run security tests
 cargo test --test security_tests
 ```
