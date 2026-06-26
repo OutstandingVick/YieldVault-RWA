@@ -1,12 +1,14 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import { randomUUID } from 'crypto';
+import { createRequestId, normalizeRequestId, requestIdStorage } from '../requestContext';
 
 const CORRELATION_ID_HEADER = 'X-Correlation-ID';
+const REQUEST_ID_HEADER = 'X-Request-ID';
 
 declare global {
   namespace Express {
     interface Request {
       correlationId: string;
+      requestId: string;
     }
   }
 }
@@ -19,10 +21,16 @@ export const correlationIdMiddleware: RequestHandler = (
   next: NextFunction,
 ): void => {
   const correlationId =
-    (req.get?.(CORRELATION_ID_HEADER) as string) || randomUUID();
+    normalizeRequestId(req.get?.(CORRELATION_ID_HEADER)) || createRequestId();
+  const requestId =
+    normalizeRequestId(req.get?.(REQUEST_ID_HEADER)) || correlationId;
 
   req.correlationId = correlationId;
+  req.requestId = requestId;
   res.setHeader(CORRELATION_ID_HEADER, correlationId);
+  res.setHeader(REQUEST_ID_HEADER, requestId);
 
-  next();
+  requestIdStorage.run({ requestId, correlationId }, () => {
+    next();
+  });
 };

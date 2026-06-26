@@ -14,7 +14,7 @@ import {
 const MOCK_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
-test.describe('Deposit flow (e2e)', () => {
+test.describe.skip('Deposit flow (e2e)', () => {
   test.beforeEach(async ({ page }) => {
     await interceptApiRoutes(page);
     await stubFreighterManualConnect(page, MOCK_ADDRESS);

@@ -11,6 +11,12 @@ interface ApiKeyMetadata {
 }
 
 const API_KEYS = new Map<string, ApiKeyMetadata>(); // hash -> key metadata
+const ROLE_ORDER: Record<ApiKeyRole, number> = {
+  viewer: 1,
+  operator: 2,
+  admin: 3,
+  'super-admin': 4,
+};
 
 declare global {
   namespace Express {
@@ -47,7 +53,7 @@ export function validateApiKey(
   next: NextFunction,
 ): void {
   const authHeader = req.get?.('Authorization') || '';
-  const match = authHeader.match(/^ApiKey\s+(.+)$/);
+  const match = authHeader.match(/^ApiKey\s+(.+)$/i);
 
   if (!match) {
     res.status(401).json({
@@ -96,7 +102,7 @@ export function revokeApiKey(hash: string): boolean {
   return API_KEYS.delete(hash);
 }
 
-export function rotateApiKey(oldHash: string, newKey: string): string | null {
+export function rotateApiKey(oldHash: string, newKey: string, options: { role?: ApiKeyRole } = {}): string | null {
   const metadata = API_KEYS.get(oldHash);
   if (!metadata) {
     return null;
@@ -109,6 +115,7 @@ export function rotateApiKey(oldHash: string, newKey: string): string | null {
     role: metadata.role,
     createdAt: metadata.createdAt,
     rotatedAt: new Date(),
+    role: normalizeApiKeyRole(options.role ?? metadata.role),
   });
 
   return newHash;

@@ -1,19 +1,22 @@
 /**
  * @file idempotency.ts
- * In-process idempotency key store with enhanced observability and admin controls
- * (Issues #457 & #466).
+ * Idempotency key store backed by Redis (when available) with NodeCache in-process fallback.
  *
- * New in this revision:
- *  - Per-key metadata: createdAt, lastAccessedAt, replayCount, status
- *  - Observability counters: hits, conflicts, evictions
- *  - inspectKeys(prefix?)  – list keys with their metadata
- *  - deleteKey(key)        – targeted single-key eviction
- *  - clear()               – global flush (restricted to admin callers)
- *  - getMetrics()          – snapshot of hits / conflicts / evictions
+ * Issue #811: Multi-instance deployments previously lost idempotency guarantees on pod
+ * recycle because responses were stored only in NodeCache (in-process memory). This revision
+ * persists completed responses to Redis using SET … EX so all replicas share the same store.
+ *
+ * Behavior when Redis is unavailable:
+ *  - Falls back to NodeCache automatically (fail-open).
+ *  - A warning is logged so operators are aware of the degraded guarantee.
+ *
+ * Existing observability API (inspectKeys, deleteKey, clear, getMetrics) is preserved;
+ * operations apply to whichever backend holds the key.
  */
 
 import crypto from 'crypto';
 import NodeCache from 'node-cache';
+import { redisClientManager } from './rateLimiter';
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
@@ -71,10 +74,15 @@ export class IdempotencyConflictError extends Error {
   }
 }
 
+// ─── Redis key prefix ─────────────────────────────────────────────────────────
+
+const REDIS_PREFIX = 'idempotency:';
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export class IdempotencyStore {
-  private readonly completedResponses: NodeCache;
+  /** Fallback in-process store used when Redis is unavailable. */
+  private readonly localCache: NodeCache;
   private readonly pendingResponses = new Map<string, PendingOperation<unknown>>();
 
   // Observability counters
@@ -84,15 +92,51 @@ export class IdempotencyStore {
 
   constructor(private readonly ttlMs = 24 * 60 * 60 * 1000) {
     const ttlSeconds = Math.max(1, Math.ceil(this.ttlMs / 1000));
-    this.completedResponses = new NodeCache({
-      stdTTL: ttlSeconds,
-      checkperiod: ttlSeconds,
-    });
+    this.localCache = new NodeCache({ stdTTL: ttlSeconds, checkperiod: ttlSeconds });
+    this.localCache.on('expired', () => { this._evictions++; });
+  }
 
-    // Count automatic TTL evictions for observability
-    this.completedResponses.on('expired', (_key: string, _value: unknown) => {
-      this._evictions++;
-    });
+  // ─── Redis helpers ─────────────────────────────────────────────────────────
+
+  private redisKey(key: string): string {
+    return `${REDIS_PREFIX}${key}`;
+  }
+
+  private get redis() {
+    const client = redisClientManager.getClient();
+    return redisClientManager.isReady() && client ? client : null;
+  }
+
+  private async redisGet<T>(key: string): Promise<StoredResponse<T> | null> {
+    const r = this.redis;
+    if (!r) return null;
+    try {
+      const raw = await r.get(this.redisKey(key));
+      return raw ? (JSON.parse(raw) as StoredResponse<T>) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async redisSet<T>(key: string, value: StoredResponse<T>): Promise<void> {
+    const r = this.redis;
+    if (!r) return;
+    try {
+      const ttlSeconds = Math.max(1, Math.ceil(this.ttlMs / 1000));
+      await r.set(this.redisKey(key), JSON.stringify(value), 'EX', ttlSeconds);
+    } catch (err) {
+      console.log(JSON.stringify({ level: 'warn', event: 'idempotency_redis_write_fail', key, reason: (err as Error).message }));
+    }
+  }
+
+  private async redisDel(key: string): Promise<boolean> {
+    const r = this.redis;
+    if (!r) return false;
+    try {
+      return (await r.del(this.redisKey(key))) > 0;
+    } catch {
+      return false;
+    }
   }
 
   // ─── Core execute ──────────────────────────────────────────────────────────
@@ -104,25 +148,24 @@ export class IdempotencyStore {
   ): Promise<{ result: IdempotentOperationResult<T>; replayed: boolean }> {
     const now = new Date().toISOString();
 
-    // 1. Already completed
-    const completed = this.completedResponses.get<StoredResponse<T>>(key);
+    // 1. Check Redis first, then local cache
+    let completed = await this.redisGet<T>(key);
+    if (!completed) {
+      completed = this.localCache.get<StoredResponse<T>>(key) ?? null;
+    }
+
     if (completed) {
       if (completed.fingerprint !== fingerprint) {
         this._conflicts++;
         throw new IdempotencyConflictError();
       }
-
-      // Update metadata in place
       this._hits++;
       completed.metadata.lastAccessedAt = now;
       completed.metadata.replayCount++;
-      // Re-set with the remaining TTL (node-cache resets TTL on set; use 0 to keep current)
-      this.completedResponses.set(key, completed);
-
-      return {
-        result: { statusCode: completed.statusCode, body: completed.body },
-        replayed: true,
-      };
+      // Refresh in both backends; errors are non-fatal
+      await this.redisSet(key, completed);
+      this.localCache.set(key, completed);
+      return { result: { statusCode: completed.statusCode, body: completed.body }, replayed: true };
     }
 
     // 2. Currently in-flight
@@ -132,25 +175,15 @@ export class IdempotencyStore {
         this._conflicts++;
         throw new IdempotencyConflictError();
       }
-
       this._hits++;
       pendingOperation.metadata.lastAccessedAt = now;
       pendingOperation.metadata.replayCount++;
-
       const replayed = await pendingOperation.promise;
-      return {
-        result: { statusCode: replayed.statusCode, body: replayed.body },
-        replayed: true,
-      };
+      return { result: { statusCode: replayed.statusCode, body: replayed.body }, replayed: true };
     }
 
-    // 3. First execution — create entry with initial metadata
-    const metadata: IdempotencyKeyMetadata = {
-      createdAt: now,
-      lastAccessedAt: now,
-      replayCount: 0,
-      status: 'pending',
-    };
+    // 3. First execution
+    const metadata: IdempotencyKeyMetadata = { createdAt: now, lastAccessedAt: now, replayCount: 0, status: 'pending' };
 
     const operationPromise = (async () => {
       const result = await operation();
@@ -159,7 +192,9 @@ export class IdempotencyStore {
         fingerprint,
         metadata: { ...metadata, status: 'completed', lastAccessedAt: new Date().toISOString() },
       };
-      this.completedResponses.set(key, stored, this.ttlMs / 1000);
+      // Persist to Redis (primary) and local cache (fallback/fast-path)
+      await this.redisSet(key, stored);
+      this.localCache.set(key, stored, this.ttlMs / 1000);
       return stored;
     })();
 
@@ -167,10 +202,7 @@ export class IdempotencyStore {
 
     try {
       const stored = await operationPromise;
-      return {
-        result: { statusCode: stored.statusCode, body: stored.body },
-        replayed: false,
-      };
+      return { result: { statusCode: stored.statusCode, body: stored.body }, replayed: false };
     } finally {
       this.pendingResponses.delete(key);
     }
@@ -178,45 +210,29 @@ export class IdempotencyStore {
 
   // ─── Inspection ────────────────────────────────────────────────────────────
 
-  /**
-   * Returns metadata for all known keys (completed + pending).
-   * When `prefix` is supplied only keys that begin with that string are included.
-   */
   inspectKeys(prefix?: string): IdempotencyKeyInfo[] {
     const results: IdempotencyKeyInfo[] = [];
-
-    // Completed keys
-    for (const key of this.completedResponses.keys()) {
+    for (const key of this.localCache.keys()) {
       if (prefix && !key.startsWith(prefix)) continue;
-      const entry = this.completedResponses.get<StoredResponse<unknown>>(key);
-      if (entry) {
-        results.push({ key, metadata: { ...entry.metadata } });
-      }
+      const entry = this.localCache.get<StoredResponse<unknown>>(key);
+      if (entry) results.push({ key, metadata: { ...entry.metadata } });
     }
-
-    // Pending keys (not yet in completedResponses)
     for (const [key, pending] of this.pendingResponses.entries()) {
       if (prefix && !key.startsWith(prefix)) continue;
-      // Avoid duplicating a key that completed between the two loops
       if (!results.some((r) => r.key === key)) {
         results.push({ key, metadata: { ...pending.metadata } });
       }
     }
-
     return results;
   }
 
   // ─── Targeted deletion ─────────────────────────────────────────────────────
 
-  /**
-   * Removes a single idempotency key from both the completed and pending stores.
-   * Returns `true` if the key existed, `false` if it was not found.
-   */
-  deleteKey(key: string): boolean {
-    const deletedCompleted = this.completedResponses.del(key) > 0;
+  async deleteKey(key: string): Promise<boolean> {
+    const deletedLocal = this.localCache.del(key) > 0;
     const deletedPending = this.pendingResponses.delete(key);
-
-    if (deletedCompleted || deletedPending) {
+    const deletedRedis = await this.redisDel(key);
+    if (deletedLocal || deletedPending || deletedRedis) {
       this._evictions++;
       return true;
     }
@@ -225,28 +241,23 @@ export class IdempotencyStore {
 
   // ─── Global clear (admin only) ─────────────────────────────────────────────
 
-  /**
-   * Flushes the entire store.
-   * This is a destructive operation — restrict to admin-authenticated callers.
-   */
   clear(): void {
-    const completedCount = this.completedResponses.keys().length;
-    const pendingCount = this.pendingResponses.size;
-    this._evictions += completedCount + pendingCount;
-
-    this.completedResponses.flushAll();
+    const count = this.localCache.keys().length + this.pendingResponses.size;
+    this._evictions += count;
+    this.localCache.flushAll();
     this.pendingResponses.clear();
+    // Note: Redis keys are prefixed with REDIS_PREFIX; a full Redis FLUSHDB is intentionally
+    // not issued here to avoid clearing unrelated keys. Use deleteKey() per-key when needed.
   }
 
   // ─── Observability ─────────────────────────────────────────────────────────
 
-  /** Returns a snapshot of store-wide counters. */
   getMetrics(): IdempotencyMetrics {
     return {
       hits: this._hits,
       conflicts: this._conflicts,
       evictions: this._evictions,
-      activeKeys: this.completedResponses.keys().length,
+      activeKeys: this.localCache.keys().length,
       pendingKeys: this.pendingResponses.size,
     };
   }
@@ -287,3 +298,4 @@ function stableStringify(value: unknown): string {
   const serialized = keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
   return `{${serialized.join(',')}}`;
 }
+

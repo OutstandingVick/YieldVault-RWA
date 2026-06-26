@@ -284,3 +284,91 @@ describe('Redis connection log events', () => {
     consoleSpy.mockRestore();
   });
 });
+
+// ─── Vault router integration ────────────────────────────────────────────────
+
+describe('depositsLimiter on vault deposit/withdrawal routes', () => {
+  let app: ReturnType<typeof express>;
+
+  beforeEach(() => {
+    jest.resetModules();
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { depositsLimiter } = require('../rateLimiter');
+
+    app = express();
+    app.use(express.json());
+
+    // Mirror the mounting pattern used in vaultEndpoints.ts
+    app.post('/api/v1/vault/deposits', depositsLimiter, (_req: Request, res: Response) =>
+      res.status(201).json({ ok: true }),
+    );
+    app.post('/api/v1/vault/withdrawals', depositsLimiter, (_req: Request, res: Response) =>
+      res.status(201).json({ ok: true }),
+    );
+  });
+
+  it('allows requests within the deposits limit', async () => {
+    // Default deposits.max = 10; each wallet has its own bucket
+    const wallet = 'GCGVC7NGJB23OGD6DVABCYGLUHC2FBPWSKZGLL3KK6AX2VJLQ67HWDCY';
+    for (let i = 0; i < 10; i++) {
+      const res = await request(app)
+        .post('/api/v1/vault/deposits')
+        .send({ walletAddress: wallet });
+      expect(res.status).toBe(201);
+    }
+    const limited = await request(app)
+      .post('/api/v1/vault/deposits')
+      .send({ walletAddress: wallet });
+    expect(limited.status).toBe(429);
+  });
+
+  it('returns 429 with stable error shape on deposits', async () => {
+    const wallet = 'GCGVC7NGJB23OGD6DVABCYGLUHC2FBPWSKZGLL3KK6AX2VJLQ67HWDCY';
+    // Exhaust the bucket
+    for (let i = 0; i < 10; i++) {
+      await request(app).post('/api/v1/vault/deposits').send({ walletAddress: wallet });
+    }
+    const res = await request(app)
+      .post('/api/v1/vault/deposits')
+      .send({ walletAddress: wallet });
+
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({
+      error: 'Rate limit exceeded',
+      status: 429,
+      retryAfter: expect.any(Number),
+    });
+    expect(res.headers).toHaveProperty('retry-after');
+  });
+
+  it('returns 429 with stable error shape on withdrawals', async () => {
+    const wallet = 'GCGVC7NGJB23OGD6DVABCYGLUHC2FBPWSKZGLL3KK6AX2VJLQ67HWDCY';
+    for (let i = 0; i < 10; i++) {
+      await request(app).post('/api/v1/vault/withdrawals').send({ walletAddress: wallet });
+    }
+    const res = await request(app)
+      .post('/api/v1/vault/withdrawals')
+      .send({ walletAddress: wallet });
+
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({ error: 'Rate limit exceeded', status: 429 });
+  });
+
+  it('uses per-wallet buckets — different wallets do not share quota', async () => {
+    const walletA = 'GCGVC7NGJB23OGD6DVABCYGLUHC2FBPWSKZGLL3KK6AX2VJLQ67HWDCY';
+    const walletB = 'GDRXE2BQUC3AZNPVFSCEZ76NJ3WWE3ZTEWKFNRCL5SCTPKIHHFCBMYMGCZK'.slice(0, 56);
+
+    // Exhaust wallet A
+    for (let i = 0; i < 10; i++) {
+      await request(app).post('/api/v1/vault/deposits').send({ walletAddress: walletA });
+    }
+    expect(
+      (await request(app).post('/api/v1/vault/deposits').send({ walletAddress: walletA })).status,
+    ).toBe(429);
+
+    // Wallet B still has quota
+    expect(
+      (await request(app).post('/api/v1/vault/deposits').send({ walletAddress: walletB })).status,
+    ).toBe(201);
+  });
+});

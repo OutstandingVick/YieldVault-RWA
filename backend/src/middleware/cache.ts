@@ -98,12 +98,25 @@ export const responseCache = new LruCacheStore();
  * Query param names and multi-value lists are both sorted alphabetically so that
  * ?a=2&a=1&b=3 and ?b=3&a=2&a=1 yield the same key.
  */
+function resolveRequestPath(req: Request): string {
+  const baseUrl = req.baseUrl || '';
+  const path = req.path || '/';
+
+  if (!baseUrl) {
+    return path === '/' ? '/' : path;
+  }
+
+  const combined = `${baseUrl}${path === '/' ? '' : path}`;
+  return combined === '' ? '/' : combined;
+}
+
 export function buildCacheKey(req: Request): string {
   const query = req.query as Record<string, string | string[]>;
   const keys = Object.keys(query).sort();
+  const pathname = resolveRequestPath(req);
 
   if (keys.length === 0) {
-    return `${req.method}:${req.path}`;
+    return `${req.method}:${pathname}`;
   }
 
   const pairs = keys.map((k) => {
@@ -112,7 +125,7 @@ export function buildCacheKey(req: Request): string {
     return `${k}=${values.join(',')}`;
   });
 
-  return `${req.method}:${req.path}:${pairs.join('&')}`;
+  return `${req.method}:${pathname}:${pairs.join('&')}`;
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────

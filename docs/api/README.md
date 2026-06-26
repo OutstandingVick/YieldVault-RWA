@@ -98,7 +98,7 @@ User session authentication uses JWT access tokens and refresh tokens.
 
 ### Pagination
 
-All list endpoints support standardized pagination. See [PAGINATION.md](./PAGINATION.md) for detailed documentation.
+All list endpoints support standardized pagination. See [PAGINATION.md](./PAGINATION.md) for detailed documentation, including deterministic paging walkthroughs and cursor usage examples.
 
 **Quick Example:**
 ```bash
@@ -108,6 +108,11 @@ curl "http://localhost:3000/api/transactions?limit=20"
 # Get next page using cursor
 curl "http://localhost:3000/api/transactions?limit=20&cursor=base64encodedcursor"
 ```
+
+**Complete examples:**
+
+- [TypeScript pagination consumer](../examples/api_pagination_consumer.ts)
+- [Python pagination consumer](../examples/api_pagination_consumer.py)
 
 ### Rate Limiting
 

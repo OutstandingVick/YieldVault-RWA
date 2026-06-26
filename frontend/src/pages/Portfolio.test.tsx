@@ -1,10 +1,26 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import Portfolio from "./Portfolio";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "../context/ToastContext";
 import { PreferencesProvider } from "../context/PreferencesContext";
+import * as portfolioApi from "../lib/portfolioApi";
+
+const mockGetPortfolioHoldings = vi.hoisted(() => vi.fn());
+
+vi.mock("../hooks/useReferral", () => ({
+  useReferralStats: () => ({ data: null, isLoading: false }),
+  useReferralLink: () => ({ referralLink: "", referralCode: "" }),
+}));
+
+vi.mock("../lib/portfolioApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof portfolioApi>();
+  return {
+    ...actual,
+    getPortfolioHoldings: mockGetPortfolioHoldings,
+  };
+});
 
 const mockHoldings = [
   {
@@ -123,19 +139,11 @@ function renderPortfolio(
 
 describe("Portfolio", () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(mockHoldings), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    );
+    mockGetPortfolioHoldings.mockResolvedValue(mockHoldings);
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("shows the onboarding panel when disconnected", () => {
@@ -150,8 +158,14 @@ describe("Portfolio", () => {
   it("renders holdings in the reusable table", async () => {
     renderPortfolio();
 
-    expect(await screen.findByText(/Tokenized T-Bills/i)).toBeInTheDocument();
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetPortfolioHoldings).toHaveBeenCalled();
+    });
+
+    const table = await screen.findByRole("table");
+    await waitFor(() => {
+      expect(within(table).getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
+    });
     expect(screen.getByRole("button", { name: /Sort by Asset/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Position ID:/i).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Copy position ID/i }).length).toBeGreaterThan(0);
@@ -177,8 +191,15 @@ describe("Portfolio", () => {
   it("supports keyboard sorting and pagination state from the URL", async () => {
     renderPortfolio("/portfolio?page=2&pageSize=4&sortBy=asset&sortDirection=asc");
 
-    expect(await screen.findByText(/Yield Bearing Cash/i)).toBeInTheDocument();
-    expect(screen.getByText(/USDC Treasury Pool/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetPortfolioHoldings).toHaveBeenCalled();
+    });
+
+    const table = await screen.findByRole("table");
+    await waitFor(() => {
+      expect(within(table).getByText(/Yield Bearing Cash/i)).toBeInTheDocument();
+      expect(within(table).getByText(/USDC Treasury Pool/i)).toBeInTheDocument();
+    });
 
     const assetSort = screen.getByRole("button", { name: /Sort by Asset/i });
     fireEvent.keyDown(assetSort, { key: "Enter" });
