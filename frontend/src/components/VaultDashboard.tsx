@@ -234,7 +234,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleChange,
     handleBlur,
     setValues,
-    setFieldError
+    setFieldError,
+    resetErrors,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
@@ -293,7 +294,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setValues({ amount: "" });
     }
     resetApproval();
-  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval]);
+    resetErrors();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval, resetErrors]);
 
   // Reset approval when deposit amount changes
   useEffect(() => {

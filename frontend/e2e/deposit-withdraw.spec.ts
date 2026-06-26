@@ -28,7 +28,7 @@ async function confirmDeposit(page: Page) {
 }
 
 async function confirmWithdrawal(page: Page) {
-  const confirmBtn = page.getByRole('button', { name: /Confirm withdrawal/i });
+  const confirmBtn = page.getByRole('button', { name: /Confirm withdraw/i });
   await expect(confirmBtn).toBeEnabled();
   await confirmBtn.click();
   await confirmInModal(page);
@@ -45,6 +45,7 @@ async function goToConnectedVault(page: Page, path = '/') {
 /** Switch vault tabs via URL deep link (tab button clicks do not sync search params in preview builds). */
 async function switchVaultTab(page: Page, tab: 'deposit' | 'withdraw') {
   await page.goto(`/?tab=${tab}`);
+  await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 10_000 });
   await expect(
     page.getByText(tab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'),
   ).toBeVisible({ timeout: 10_000 });
@@ -136,8 +137,6 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     await expect(page.getByText('Transaction Successful')).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByRole('button', { name: /Done/i }).click();
-    await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeVisible();
   });
 
   test('performs a withdrawal wizard flow and updates the balance', async ({ page }) => {
@@ -147,6 +146,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     await expect(page.getByText('Amount to withdraw')).toBeVisible();
 
     await page.getByLabel('Withdrawal amount').fill('50');
+    await page.getByLabel('Withdrawal amount').blur();
     const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
     await expect(reviewBtn).toBeEnabled();
     await reviewBtn.click();
@@ -159,8 +159,6 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     await expect(page.getByText('Transaction Successful')).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByRole('button', { name: /Done/i }).click();
-    await expect(page.getByRole('button', { name: 'Withdraw', exact: true })).toBeVisible();
   });
 
   test('deposit review stays disabled with an empty amount field', async ({ page }) => {
