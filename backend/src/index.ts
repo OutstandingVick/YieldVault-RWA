@@ -51,6 +51,7 @@ import {
   setWithdrawalLimitOverride,
   listWithdrawalLimitAuditEntries,
 } from './middleware/withdrawalDailyLimit';
+import { adaptiveThrottleMiddleware } from './middleware/adaptiveThrottle';
 import {
   validateApiKey,
   authenticateApiKeyValue,
@@ -106,9 +107,6 @@ import { listEndpointSlaRegistry } from './endpointSlaRegistry';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
 import { getPrismaClient } from './prismaClient';
-import { errorBoundaryMiddleware } from './middleware/errorBoundary';
-import { diagnosticsBundleHandler } from './diagnosticsBundle';
-import { reconciliationReportHandler } from './reconciliationReport';
 import {
   verifyWebhookEndpoint,
   registerWebhookEndpoint,
@@ -156,11 +154,16 @@ import {
 } from './bulkExportJobs';
 import { normalizeWalletAddress } from './walletUtils';
 import { emailQueueService } from './emailQueue';
-import { webhookDeduplicationStore } from './webhookDeduplication';
-import { requestIdStorage, serializeContext, runWithSerializedContext, wrapWithContext } from './requestContext';
-import { healthProbeService, type DependencyName } from './healthProbe';
-import { writeAheadAuditLog } from './writeAheadAuditLog';
-import { scopedAdminTokenStore, type AdminPermission } from './scopedAdminTokens';
+import {
+  createOrResumeTransactionBackfill,
+  getTransactionBackfillJob,
+  listTransactionBackfillJobs,
+} from './transactionBackfill';
+import {
+  createExportManifest,
+  getExportManifestById,
+  listExportManifests,
+} from './exportManifest';
 
 declare global {
   namespace Express {
@@ -533,6 +536,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === '/health' || req.path === '/ready') return next();
   return readsLimiter(req, res, next);
 });
+app.use(adaptiveThrottleMiddleware);
 
 // Capture immutable admin audit records for every /admin request.
 // Apply admin-tier rate limiting to all /admin endpoints.
@@ -3044,6 +3048,159 @@ app.get('/admin/jobs/metrics', validateApiKey, (req: Request, res: Response) => 
     metrics,
     prisma: getPrismaRuntimeConfig(),
     timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/transactions/backfill - controlled backfill of missing ledger index ranges
+ */
+app.post('/admin/transactions/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const startLedger = Number(req.body?.startLedger);
+  const endLedger = Number(req.body?.endLedger);
+  const batchSize = req.body?.batchSize === undefined ? undefined : Number(req.body.batchSize);
+  const dryRun = Boolean(req.body?.dryRun);
+  const rpcUrl = String(req.body?.rpcUrl || process.env.STELLAR_RPC_URL || '').trim();
+  const contractId = String(req.body?.contractId || process.env.VAULT_CONTRACT_ID || '').trim();
+
+  if (!Number.isInteger(startLedger) || !Number.isInteger(endLedger)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'startLedger and endLedger must be integers',
+    });
+    return;
+  }
+
+  if (!rpcUrl) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'rpcUrl is required (or set STELLAR_RPC_URL)',
+    });
+    return;
+  }
+
+  if (!contractId) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'contractId is required (or set VAULT_CONTRACT_ID)',
+    });
+    return;
+  }
+
+  try {
+    const job = await createOrResumeTransactionBackfill({
+      startLedger,
+      endLedger,
+      batchSize,
+      dryRun,
+      rpcUrl,
+      contractId,
+    });
+
+    res.status(202).json({
+      message: 'Backfill accepted',
+      job,
+    });
+  } catch (error) {
+    res.status(422).json({
+      error: 'Unprocessable Entity',
+      status: 422,
+      message: error instanceof Error ? error.message : 'Backfill request failed',
+    });
+  }
+});
+
+/**
+ * GET /admin/transactions/backfill - list recent backfill jobs
+ */
+app.get('/admin/transactions/backfill', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '20'), 10);
+  res.status(200).json({
+    data: listTransactionBackfillJobs(limit),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/transactions/backfill/:jobId - fetch a specific backfill job
+ */
+app.get('/admin/transactions/backfill/:jobId', validateApiKey, (req: Request, res: Response) => {
+  const job = getTransactionBackfillJob(String(req.params.jobId));
+  if (!job) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Backfill job not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    job,
+  });
+});
+
+/**
+ * POST /admin/reports/exports - generate a report export and immutable manifest record
+ */
+app.post('/admin/reports/exports', validateApiKey, (req: Request, res: Response) => {
+  const reportType = String(req.body?.reportType || 'transactions').trim();
+  const requester = resolveActingAdminAddress(req);
+  const filters =
+    req.body?.filters && typeof req.body.filters === 'object'
+      ? (req.body.filters as Record<string, unknown>)
+      : {};
+
+  const mockRows = [
+    {
+      reportType,
+      generatedAt: new Date().toISOString(),
+      filters,
+    },
+  ];
+
+  const manifest = createExportManifest({
+    requester,
+    reportType,
+    filters,
+    rows: mockRows,
+  });
+
+  res.status(201).json({
+    message: 'Export generated and manifest recorded',
+    manifest,
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests - list immutable export manifests
+ */
+app.get('/admin/reports/exports/manifests', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '50'), 10);
+  res.status(200).json({
+    data: listExportManifests(limit),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests/:id - fetch a manifest by id
+ */
+app.get('/admin/reports/exports/manifests/:id', validateApiKey, (req: Request, res: Response) => {
+  const manifest = getExportManifestById(String(req.params.id));
+  if (!manifest) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Export manifest not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    manifest,
   });
 });
 
