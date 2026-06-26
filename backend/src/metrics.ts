@@ -1,4 +1,5 @@
 import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
+import { getJobMetrics, JobName } from './jobGovernance';
 
 // Create a Registry which registers the metrics
 export const register = new Registry();
@@ -94,4 +95,38 @@ export function observeDbQueryDuration(model: string, action: string, durationMs
     },
     durationMs / 1000,
   );
+}
+
+// --- Job Governance Metrics ---
+
+export const jobDeadLetterCount = new Gauge({
+  name: 'job_dead_letter_count',
+  help: 'Number of dead-letter records per job',
+  labelNames: ['job_name'],
+  registers: [register],
+});
+
+export const jobHealthStatus = new Gauge({
+  name: 'job_health_status',
+  help: 'Job health: 1 = up, 0 = degraded',
+  labelNames: ['job_name'],
+  registers: [register],
+});
+
+/**
+ * Syncs job governance state into Prometheus gauges.
+ * Call this before scraping /metrics so values are current.
+ */
+export function syncJobGovernanceMetrics(): void {
+  const metrics = getJobMetrics();
+  const failureCounts = metrics.failureCounts as Record<string, number>;
+  const recurringFailures = metrics.recurringFailures as Partial<Record<JobName, number>>;
+
+  for (const [jobName, count] of Object.entries(failureCounts)) {
+    jobDeadLetterCount.set({ job_name: jobName }, count);
+    jobHealthStatus.set(
+      { job_name: jobName },
+      jobName in recurringFailures ? 0 : 1,
+    );
+  }
 }

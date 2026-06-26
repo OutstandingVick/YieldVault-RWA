@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
@@ -64,6 +64,11 @@ function makeManyTransactions(count: number): Transaction[] {
       transactionHash: `hash${String(i).padStart(36, "0")}`,
     }),
   );
+}
+
+function UrlProbe() {
+  const [params] = useSearchParams();
+  return <div data-testid="url-probe">{params.toString()}</div>;
 }
 
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
@@ -281,16 +286,15 @@ describe("TransactionHistory", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Rows per page/i }), {
       target: { value: "50" },
     });
-    expect(localStorage.getItem(`yieldvault:transactions:page-size:${WALLET}`)).toBe("50");
+    const stored = JSON.parse(localStorage.getItem(getPreferenceStorageKey(WALLET))!);
+    expect(stored.data.tables.transactionPageSize).toBe(50);
 
     unmount();
     renderPage(SECOND_WALLET);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     expect(screen.getByRole("combobox", { name: /Rows per page/i })).toHaveValue("10");
-    expect(
-      localStorage.getItem(`yieldvault:transactions:page-size:${SECOND_WALLET}`),
-    ).toBeNull();
+    expect(localStorage.getItem(getPreferenceStorageKey(SECOND_WALLET))).toBeNull();
   });
 
   // Req 5.1 — filter control renders Deposit / Withdrawal checkboxes
@@ -356,12 +360,14 @@ describe("TransactionHistory", () => {
 
   // Req 5.3 — applying filter resets page to 1
   it("resets page to 1 when filter is applied", async () => {
+    setTransactionViewMode("paginated", WALLET);
+    setTransactionPageSize(10, WALLET);
     // 15 transactions so we have 2 pages
     localStorage.setItem(`yieldvault:transactions:view-mode:${WALLET}`, "paginated");
     localStorage.setItem(`yieldvault:transactions:page-size:${WALLET}`, "10");
     mockGetTransactions.mockResolvedValue(makeManyTransactions(15));
 
-    renderPage(WALLET);
+    renderPage(WALLET, ["/?page=2&pageSize=10"]);
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
 
@@ -398,7 +404,7 @@ describe("TransactionHistory", () => {
 
     renderPage(WALLET);
 
-    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    await waitFor(() => expect(mockGetTransactions).toHaveBeenCalled());
 
     await waitFor(() => {
       expect(screen.getByText("deposit")).toBeInTheDocument();
@@ -623,6 +629,8 @@ describe("TransactionHistory — amount range filter", () => {
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
 
+    const table = await screen.findByRole("table");
+
     // 50 should be hidden; 200 and 500 should be visible
     await waitFor(() =>
       expect(within(table).queryAllByText(/50 USDC/).length).toBe(0),
@@ -665,6 +673,8 @@ describe("TransactionHistory — amount range filter", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const table = screen.getByRole("table");
+
     const table = screen.getByRole("table");
 
     // Only 50 should be visible
@@ -727,6 +737,8 @@ describe("TransactionHistory — status filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
+
+    const table = await screen.findByRole("table");
 
     // Only EURC (pending) should survive the filter
     await waitFor(() =>

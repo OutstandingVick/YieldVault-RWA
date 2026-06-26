@@ -2,93 +2,152 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# smoke-test.sh — Deploy vault WASM to Stellar testnet and run a smoke test.
+# smoke-test.sh — Phase 3 testnet smoke tests
 #
-# Required environment variables (set by the caller / CI step):
+# Modes (SMOKE_TEST_MODE):
+#   deploy       — Deploy vault WASM to testnet, run on-chain checks, write deployment.json
+#   cross-stack  — Load deployment metadata, run getSharePrice unit tests, probe backend
+#
+# Deploy mode required environment variables:
 #   TESTNET_SECRET_KEY     — Stellar secret key (S... format) for the deployer account
 #   TESTNET_TOKEN_ADDRESS  — Stellar contract address (C... format) for the token
 #   GIT_SHA                — Git commit SHA to embed in deployment.json
+#
+# Cross-stack mode environment variables:
+#   DEPLOYMENT_FILE        — Path to deployment.json (default: ./deployment.json)
+#   BACKEND_URL            — Backend base URL (default: http://localhost:3000)
+#   VITE_SOROBAN_RPC_URL   — Optional Soroban RPC override
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# 1. Secret validation guard
-#    Fail fast before any network operation if required secrets are absent.
-# ---------------------------------------------------------------------------
-if [ -z "${TESTNET_SECRET_KEY:-}" ]; then
-  echo "ERROR: TESTNET_SECRET_KEY secret is not set or is empty" >&2
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+MODE="${SMOKE_TEST_MODE:-deploy}"
+
+log() {
+  printf '[smoke-test] %s\n' "$1"
+}
+
+fail() {
+  printf '[smoke-test] ERROR: %s\n' "$1" >&2
   exit 1
-fi
+}
 
-if [ -z "${TESTNET_TOKEN_ADDRESS:-}" ]; then
-  echo "ERROR: TESTNET_TOKEN_ADDRESS secret is not set or is empty" >&2
-  exit 1
-fi
+run_cross_stack_smoke() {
+  local deployment_file="${DEPLOYMENT_FILE:-$ROOT_DIR/deployment.json}"
+  local backend_url="${BACKEND_URL:-http://localhost:3000}"
+  local vault_id
+  local rpc_url="${VITE_SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}"
+  local passphrase="${VITE_STELLAR_NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}"
 
-# ---------------------------------------------------------------------------
-# 2. Add deployer identity
-#    The secret key is read from the environment variable — it is never
-#    interpolated directly into the command string to prevent log exposure.
-# ---------------------------------------------------------------------------
-stellar keys add ci-deployer --secret-key "$TESTNET_SECRET_KEY"
+  if [[ ! -f "$deployment_file" ]]; then
+    fail "Deployment file not found: $deployment_file"
+  fi
 
-# ---------------------------------------------------------------------------
-# 3. Deploy vault WASM
-# ---------------------------------------------------------------------------
-CONTRACT_ID=$(stellar contract deploy \
-  --wasm artifacts/wasm/vault.wasm \
-  --source ci-deployer \
-  --network testnet)
+  vault_id="$(jq -r '.contract_id // .contracts.vault // empty' "$deployment_file")"
 
-echo "Deployed contract: $CONTRACT_ID"
+  export VITE_SOROBAN_RPC_URL="$rpc_url"
+  export VITE_STELLAR_NETWORK_PASSPHRASE="$passphrase"
+  export VITE_API_BASE_URL="${VITE_API_BASE_URL:-$backend_url/api/v1}"
 
-# ---------------------------------------------------------------------------
-# 4. Initialize the contract
-# ---------------------------------------------------------------------------
-stellar contract invoke \
-  --id "$CONTRACT_ID" \
-  --source ci-deployer \
-  --network testnet \
-  -- initialize \
-  --admin "$(stellar keys address ci-deployer)" \
-  --token "$TESTNET_TOKEN_ADDRESS"
+  if [[ -n "$vault_id" ]]; then
+    export VITE_VAULT_CONTRACT_ID="$vault_id"
+    log "Cross-stack mode: contract=$vault_id backend=$backend_url"
+  else
+    log "Cross-stack mode: no contract ID in $deployment_file (mocked frontend checks only)"
+    log "Backend URL: $backend_url"
+  fi
 
-# ---------------------------------------------------------------------------
-# 5. Smoke test: deposit
-# ---------------------------------------------------------------------------
-stellar contract invoke \
-  --id "$CONTRACT_ID" \
-  --source ci-deployer \
-  --network testnet \
-  -- deposit \
-  --user "$(stellar keys address ci-deployer)" \
-  --amount 1000000
+  log "Running frontend getSharePrice unit tests..."
+  cd "$ROOT_DIR/frontend"
+  if [[ ! -d node_modules ]]; then
+    npm ci
+  fi
+  npm run test:run -- src/lib/vaultApi.test.ts
 
-# ---------------------------------------------------------------------------
-# 6. Smoke test: balance check
-# ---------------------------------------------------------------------------
-BALANCE=$(stellar contract invoke \
-  --id "$CONTRACT_ID" \
-  --source ci-deployer \
-  --network testnet \
-  -- balance \
-  --user "$(stellar keys address ci-deployer)")
+  log "Checking backend GET /health..."
+  curl -fsS "$backend_url/health" | jq -e '.status == "healthy"' >/dev/null
 
-if [ "$BALANCE" -le 0 ]; then
-  echo "ERROR: Expected balance > 0, got: $BALANCE" >&2
-  exit 1
-fi
+  log "Checking backend GET /api/v1/vault/summary..."
+  curl -fsS "$backend_url/api/v1/vault/summary" | jq -e 'has("totalAssets") and has("totalShares")' >/dev/null
 
-echo "Balance check passed: $BALANCE"
+  if [[ -n "$vault_id" ]] && command -v stellar >/dev/null 2>&1; then
+    log "Invoking on-chain get_share_price via Stellar CLI..."
+    stellar contract invoke \
+      --id "$vault_id" \
+      --network testnet \
+      -- get_share_price
+    log "On-chain share price probe succeeded"
+  else
+    log "Stellar CLI not installed — skipping live contract invoke"
+  fi
 
-# ---------------------------------------------------------------------------
-# 7. Write deployment.json
-#    Contains only contract_id and git_sha — no secret material.
-# ---------------------------------------------------------------------------
-cat > deployment.json <<EOF
+  log "Cross-stack smoke test passed"
+}
+
+run_deploy_smoke() {
+  if [ -z "${TESTNET_SECRET_KEY:-}" ]; then
+    fail "TESTNET_SECRET_KEY secret is not set or is empty"
+  fi
+
+  if [ -z "${TESTNET_TOKEN_ADDRESS:-}" ]; then
+    fail "TESTNET_TOKEN_ADDRESS secret is not set or is empty"
+  fi
+
+  stellar keys add ci-deployer --secret-key "$TESTNET_SECRET_KEY"
+
+  CONTRACT_ID=$(stellar contract deploy \
+    --wasm artifacts/wasm/vault.wasm \
+    --source ci-deployer \
+    --network testnet)
+
+  echo "Deployed contract: $CONTRACT_ID"
+
+  stellar contract invoke \
+    --id "$CONTRACT_ID" \
+    --source ci-deployer \
+    --network testnet \
+    -- initialize \
+    --admin "$(stellar keys address ci-deployer)" \
+    --token "$TESTNET_TOKEN_ADDRESS"
+
+  stellar contract invoke \
+    --id "$CONTRACT_ID" \
+    --source ci-deployer \
+    --network testnet \
+    -- deposit \
+    --user "$(stellar keys address ci-deployer)" \
+    --amount 1000000
+
+  BALANCE=$(stellar contract invoke \
+    --id "$CONTRACT_ID" \
+    --source ci-deployer \
+    --network testnet \
+    -- balance \
+    --user "$(stellar keys address ci-deployer)")
+
+  if [ "$BALANCE" -le 0 ]; then
+    fail "Expected balance > 0, got: $BALANCE"
+  fi
+
+  echo "Balance check passed: $BALANCE"
+
+  cat > deployment.json <<EOF
 {
   "contract_id": "$CONTRACT_ID",
   "git_sha": "${GIT_SHA:-}"
 }
 EOF
 
-echo "deployment.json written successfully"
+  echo "deployment.json written successfully"
+}
+
+case "$MODE" in
+  deploy)
+    run_deploy_smoke
+    ;;
+  cross-stack)
+    run_cross_stack_smoke
+    ;;
+  *)
+    fail "Unknown SMOKE_TEST_MODE: $MODE (expected deploy or cross-stack)"
+    ;;
+esac

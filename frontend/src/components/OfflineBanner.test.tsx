@@ -21,6 +21,25 @@ vi.mock("../hooks/useRetryState", () => ({
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { useRetryState } from "../hooks/useRetryState";
 
+async function flushMicrotasks() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+async function renderOnlineSuccessBanner() {
+  vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+  const view = render(<OfflineBanner />);
+  expect(screen.getByText(/You are offline/i)).toBeInTheDocument();
+
+  vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+  vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+  view.rerender(<OfflineBanner />);
+  await flushMicrotasks();
+
+  return view;
+}
+
 describe("OfflineBanner", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -72,6 +91,7 @@ describe("OfflineBanner", () => {
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     render(<OfflineBanner />);
+    await flushMicrotasks();
 
     await waitFor(() => {
       expect(screen.getByText(/retrying in 5s/i)).toBeInTheDocument();
@@ -84,6 +104,7 @@ describe("OfflineBanner", () => {
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     render(<OfflineBanner />);
+    await flushMicrotasks();
 
     const banner = await screen.findByRole("status");
     expect(banner).toHaveAttribute("aria-live", "polite");
@@ -177,14 +198,15 @@ describe("OfflineBanner", () => {
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     const { rerender } = render(<OfflineBanner />);
+    await flushMicrotasks();
 
     await waitFor(() => {
       expect(screen.getByText(/retrying in 5s/i)).toBeInTheDocument();
     });
 
-    // Update countdown
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 3 });
     rerender(<OfflineBanner />);
+    await flushMicrotasks();
 
     await waitFor(() => {
       expect(screen.getByText(/retrying in 3s/i)).toBeInTheDocument();
@@ -196,7 +218,6 @@ describe("OfflineBanner", () => {
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
     const { container } = render(<OfflineBanner />);
 
-    // The component will not render the banner initially since there's no transition
     expect(container.firstChild).toBeNull();
   });
 

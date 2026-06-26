@@ -1,5 +1,9 @@
 import crypto from 'crypto';
 import { prisma } from './prisma';
+import {
+  webhookDeduplicationStore,
+  WebhookDeduplicationStore,
+} from './webhookDeduplication';
 
 export type TransactionEventType =
   | 'transaction.deposit.created'
@@ -411,6 +415,7 @@ export function resetWebhookState(): void {
   deadLetters.length = 0;
   persistenceInitialized = false;
   delete process.env.WEBHOOK_ALLOW_UNVERIFIED;
+  webhookDeduplicationStore.flush();
   void clearPersistedWebhookEndpoints();
 }
 
@@ -562,7 +567,20 @@ export async function emitTransactionEvent(
       (isUnverifiedDeliveryAllowed() || endpoint.verificationStatus === 'verified'),
   );
 
+  let dispatched = 0;
+
   for (const endpoint of activeEndpoints) {
+    const fingerprint = WebhookDeduplicationStore.computeFingerprint(
+      eventType,
+      endpoint.id,
+      payload,
+    );
+
+    const eventId = `${eventType}:${endpoint.id}:${payload.transactionId}`;
+    if (webhookDeduplicationStore.isDuplicate(eventId, fingerprint)) {
+      continue;
+    }
+
     const now = new Date().toISOString();
     const delivery: WebhookDeliveryRecord = {
       id: `whd_${crypto.randomBytes(8).toString('hex')}`,
@@ -581,9 +599,10 @@ export async function emitTransactionEvent(
     }
 
     void deliverWithRetry(endpoint, delivery, payload, 1);
+    dispatched++;
   }
 
-  return activeEndpoints.length;
+  return dispatched;
 }
 
 function assertValidWebhookUrl(url: string): void {

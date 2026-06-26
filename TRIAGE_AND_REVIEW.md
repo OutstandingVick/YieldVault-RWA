@@ -2,6 +2,8 @@
 
 This document defines how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged into `main`.
 
+For the **cross-team triage rotation schedule**, primary/secondary ownership, and escalation timelines, see [docs/TRIAGE_ROTATION_CALENDAR.md](./docs/TRIAGE_ROTATION_CALENDAR.md).
+
 ---
 
 ## Issue Triage Workflow

@@ -3,8 +3,18 @@
 //! All fee calculations use **floor division** (truncate toward zero):
 //! `fee = amount * fee_bps / 10_000` with integer division rounding down.
 //! The vault never over-charges; any sub-stroop remainder stays with depositors.
+//!
+//! ## Accumulator Rollover Handling
+//!
+//! Long-running vaults may accumulate very large treasury balances. This module
+//! provides bounded accumulator logic to prevent precision loss and rollover:
+//!
+//! - **Max Accumulator**: i128::MAX / 2 (prevents overflow during accumulation)
+//! - **Rollover Behavior**: When accumulated fees would exceed the bound, excess
+//!   is carried to a secondary account or marked for immediate claiming.
 
 pub const BPS_DENOMINATOR: i128 = 10_000;
+pub const MAX_TREASURY_ACCUMULATOR: i128 = i128::MAX / 2;
 
 /// Compute protocol fee and net amount using floor rounding.
 ///
@@ -23,6 +33,13 @@ pub fn calculate_protocol_fee(amount: i128, fee_bps: i128) -> (i128, i128) {
     let fee_amount = amount.checked_mul(fee_bps).expect("fee overflow") / BPS_DENOMINATOR;
     let net_amount = amount - fee_amount;
     (fee_amount, net_amount)
+}
+
+/// Check if accumulating a fee amount would exceed the bounded accumulator.
+/// Returns true if rollover protection should be triggered.
+pub fn would_exceed_accumulator_bound(current_balance: i128, fee_to_add: i128) -> bool {
+    current_balance > MAX_TREASURY_ACCUMULATOR
+        || current_balance.saturating_add(fee_to_add) > MAX_TREASURY_ACCUMULATOR
 }
 
 #[cfg(test)]
@@ -129,5 +146,24 @@ mod tests {
     #[should_panic(expected = "amount must be non-negative")]
     fn test_rejects_negative_amount() {
         calculate_protocol_fee(-1, 100);
+    }
+
+    #[test]
+    fn test_accumulator_bound_safe_values() {
+        assert!(!would_exceed_accumulator_bound(0, 1_000));
+        assert!(!would_exceed_accumulator_bound(1_000, 1_000));
+    }
+
+    #[test]
+    fn test_accumulator_rollover_detection() {
+        let near_limit = MAX_TREASURY_ACCUMULATOR - 100;
+        assert!(!would_exceed_accumulator_bound(near_limit, 50));
+        assert!(would_exceed_accumulator_bound(near_limit, 200));
+    }
+
+    #[test]
+    fn test_accumulator_already_exceeded() {
+        let over_limit = MAX_TREASURY_ACCUMULATOR + 1;
+        assert!(would_exceed_accumulator_bound(over_limit, 0));
     }
 }

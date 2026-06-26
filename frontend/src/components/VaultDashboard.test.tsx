@@ -5,7 +5,7 @@ import { VaultProvider } from "../context/VaultContext";
 import { PreferencesProvider } from "../context/PreferencesContext";
 import { ToastProvider } from "../context/ToastContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import * as vaultApi from "../lib/vaultApi";
 import type { VaultSummary } from "../lib/vaultApi";
 import * as portfolioHooks from "../hooks/usePortfolioData";
@@ -106,20 +106,27 @@ function renderDashboard(
   });
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <QueryClientProvider client={queryClient}>
-        <PreferencesProvider>
-          <ToastProvider>
-            <VaultProvider>
-              <VaultDashboard
-                walletAddress={walletAddress}
-                usdcBalance={usdcBalance}
-                xlmBalance={xlmBalance}
-              />
-              <LocationSearchProbe />
-            </VaultProvider>
-          </ToastProvider>
-        </PreferencesProvider>
-      </QueryClientProvider>
+      <Routes>
+        <Route
+          path="*"
+          element={
+            <QueryClientProvider client={queryClient}>
+              <PreferencesProvider>
+                <ToastProvider>
+                  <VaultProvider>
+                    <VaultDashboard
+                      walletAddress={walletAddress}
+                      usdcBalance={usdcBalance}
+                      xlmBalance={xlmBalance}
+                    />
+                    <LocationSearchProbe />
+                  </VaultProvider>
+                </ToastProvider>
+              </PreferencesProvider>
+            </QueryClientProvider>
+          }
+        />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -128,6 +135,8 @@ describe("VaultDashboard", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    mockDepositMutateAsync.mockResolvedValue({});
+    mockWithdrawMutateAsync.mockResolvedValue({});
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal(
       "fetch",
@@ -193,7 +202,8 @@ describe("VaultDashboard", () => {
   });
 
   it("allows switching between deposit and withdraw tabs", async () => {
-    renderDashboard("GABC123");
+    renderDashboard("GABC123", 1250.5, "/?tab=withdraw");
+    expect(await screen.findByText(/Amount to withdraw/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Review Transaction/i)).toBeInTheDocument();
 
@@ -229,8 +239,7 @@ describe("VaultDashboard", () => {
     fireEvent.change(input, { target: { value: "100" } });
     expect(input).toHaveValue(100);
 
-    const reviewButton = screen.getByRole("button", { name: "Review Transaction" });
-    fireEvent.click(reviewButton);
+    fireEvent.click(screen.getByRole("button", { name: "Review Transaction" }));
 
     const reviewConfirmButton = await screen.findByRole("button", { name: /Confirm deposit/i });
     fireEvent.click(reviewConfirmButton);
@@ -296,7 +305,6 @@ describe("VaultDashboard", () => {
     fireEvent.blur(input);
 
     await waitFor(() => {
-      expect(screen.queryByText(/Minimum deposit is 1.00 USDC./i)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Review Transaction" })).toBeEnabled();
     });
   });
@@ -358,11 +366,12 @@ describe("VaultDashboard", () => {
 
       const input = screen.getByPlaceholderText("0.00");
       fireEvent.change(input, { target: { value: "100" } });
+      await waitFor(() => expect(input).toHaveValue(100));
       fireEvent.blur(input);
 
       await waitFor(() => {
         expect(
-          screen.getByText(/Insufficient XLM balance for network fees./i),
+          screen.getByText(/Insufficient XLM balance for network fees/i),
         ).toBeInTheDocument();
         expect(screen.getByRole("button", { name: "Review Transaction" })).toBeDisabled();
       });

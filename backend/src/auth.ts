@@ -40,6 +40,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { logger } from './middleware/structuredLogging';
 import Redis from 'ioredis';
 import { normalizeWalletAddress } from './walletUtils';
+import { walletAliasMappingService } from './walletAliasService';
 import { walletNonceService, type WalletAction } from './walletNonce';
 import { buildWalletSignMessage } from './walletSignature';
 
@@ -605,7 +606,7 @@ export async function nonceHandler(req: Request, res: Response): Promise<void> {
  * Body: { walletAddress, nonce, signature } when nonce enforcement is enabled.
  */
 export async function loginHandler(req: Request, res: Response): Promise<void> {
-  const { walletAddress } = req.body;
+  const { walletAddress, source, providerAlias, providerSource } = req.body;
 
   if (!walletAddress || typeof walletAddress !== 'string') {
     res.status(400).json({
@@ -616,16 +617,36 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const tokens = await issueTokenPair(walletAddress.trim());
+  const normalizedAddress = normalizeWalletAddress(walletAddress.trim());
+  const identitySource = typeof source === 'string' && source.trim() ? source : 'stellar';
+  const mapping = walletAliasMappingService.registerAlias(normalizedAddress, identitySource);
+
+  if (
+    typeof providerAlias === 'string' &&
+    providerAlias.trim() &&
+    typeof providerSource === 'string' &&
+    providerSource.trim()
+  ) {
+    walletAliasMappingService.registerAlias(providerAlias, providerSource, mapping.canonicalId);
+  }
+
+  const canonicalWallet = walletAliasMappingService.resolveCanonicalWallet(
+    normalizedAddress,
+    identitySource,
+  );
+  const tokens = await issueTokenPair(canonicalWallet);
 
   logger.log('info', 'JWT tokens issued on login', {
-    wallet: walletAddress.slice(0, 8) + '…',
+    wallet: canonicalWallet.slice(0, 8) + '…',
+    identitySource,
   });
 
   res.status(200).json({
     ...tokens,
     tokenType: 'Bearer',
     expiresIn: getAccessTtl(),
+    canonicalWallet,
+    canonicalId: mapping.canonicalId,
   });
 }
 

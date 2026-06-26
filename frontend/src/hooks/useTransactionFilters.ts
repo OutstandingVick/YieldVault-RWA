@@ -67,7 +67,7 @@ function parseCommaList<T extends string>(
 
 function parseIsoDate(raw: string | null): string {
   if (!raw) return "";
-  // Must match YYYY-MM-DD and be a valid date
+  // Must match YYYY-MM-DD and be a valid calendar date
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
   const [year, month, day] = raw.split("-").map(Number);
   const parsed = new Date(Date.UTC(year, month - 1, day));

@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "SharePriceSnapshot" (
+CREATE TABLE IF NOT EXISTS "SharePriceSnapshot" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "sharePrice" TEXT NOT NULL,
     "totalAssets" TEXT NOT NULL,
@@ -10,4 +10,4 @@ CREATE TABLE "SharePriceSnapshot" (
 );
 
 -- CreateIndex
-CREATE INDEX "SharePriceSnapshot_recordedAt_idx" ON "SharePriceSnapshot"("recordedAt");
+CREATE INDEX IF NOT EXISTS "SharePriceSnapshot_recordedAt_idx" ON "SharePriceSnapshot"("recordedAt");

@@ -128,7 +128,7 @@ describe('TransactionConfirmationModal', () => {
       };
       render(<TransactionConfirmationModal {...unusualProps} />);
       const amountValue = screen.getByText('100.00 USDC');
-      expect(amountValue).toHaveStyle({ color: 'var(--text-warning)' });
+      expect(amountValue.getAttribute('style')).toContain('var(--text-warning)');
     });
 
     it('highlights unusual fee value in warning color', () => {
@@ -138,7 +138,7 @@ describe('TransactionConfirmationModal', () => {
       };
       render(<TransactionConfirmationModal {...unusualProps} />);
       const feeValue = screen.getByText('0.000100 XLM');
-      expect(feeValue).toHaveStyle({ color: 'var(--text-warning)' });
+      expect(feeValue.getAttribute('style')).toContain('var(--text-warning)');
     });
   });
 

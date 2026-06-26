@@ -17,12 +17,42 @@ import {
 
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
 const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+
+async function confirmInModal(page: Page) {
+  const modal = page.getByRole('dialog');
+  await expect(modal).toBeVisible({ timeout: 15_000 });
+  await modal.getByRole('button', { name: /^Confirm( Anyway)?$/i }).click();
+}
+
+async function confirmDeposit(page: Page) {
+  const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
+  await expect(confirmBtn).toBeEnabled();
+  await confirmBtn.click();
+  await confirmInModal(page);
+}
+
+async function confirmWithdrawal(page: Page) {
+  const confirmBtn = page.getByRole('button', { name: /Confirm withdraw/i });
+  await expect(confirmBtn).toBeEnabled();
+  await confirmBtn.click();
+  await confirmInModal(page);
+}
+
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
-async function goToConnectedVault(page: Page) {
-  await page.goto('/');
+async function goToConnectedVault(page: Page, path = '/') {
+  await page.goto(path);
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
   await waitForMockUsdcBalance(page);
+}
+
+/** Switch vault tabs via URL deep link (tab button clicks do not sync search params in preview builds). */
+async function switchVaultTab(page: Page, tab: 'deposit' | 'withdraw') {
+  await page.goto(`/?tab=${tab}`);
+  await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.getByText(tab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'),
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 // Tests that verify unauthenticated UI  no Freighter stub injected
@@ -51,6 +81,7 @@ test.describe('Deposit panel  no wallet', () => {
     await expect(page.getByText(/1 yvUSDC =/)).toBeVisible();
     await expect(page.getByText('Franklin BENJI Connector')).toBeVisible();
     await expect(page.getByText('BENJI Strategy')).toBeVisible();
+    await expect(page.getByText(/Franklin BENJI Connector/i)).toBeVisible();
   });
 });
 

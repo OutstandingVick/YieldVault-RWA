@@ -70,6 +70,8 @@ export function mapServerError(
     } else if (err.message) {
       // General error message
       generalError = sanitizeErrorMessage(err.message);
+    } else {
+      generalError = "An error occurred. Please try again.";
     }
 
     if (fieldErrors.length === 0 && !generalError) {

@@ -268,6 +268,6 @@ export function formatDate(
       ? (formatOptionsOrOptions as DateFormatOptions)
       : { formatOptions: formatOptionsOrOptions as Intl.DateTimeFormatOptions, locale };
 
-  const resolvedLocale = resolveLocale(options.locale, options.fallbackLocale);
-  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions).format(normalizedDate);
+  const resolvedLocale = resolveLocale(options.locale ?? locale, options.fallbackLocale);
+  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions ?? {}).format(normalizedDate);
 }
