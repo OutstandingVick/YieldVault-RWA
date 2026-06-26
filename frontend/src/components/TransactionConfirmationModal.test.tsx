@@ -4,7 +4,6 @@
  */
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import { TransactionConfirmationModal } from './TransactionConfirmationModal';
 import type { TransactionSummary } from '../types/transaction';
@@ -67,7 +66,7 @@ describe('TransactionConfirmationModal', () => {
     it('displays contract address in monospace font', () => {
       render(<TransactionConfirmationModal {...defaultProps} />);
       const addressText = screen.getByText(mockSummary.contractAddress);
-      expect(addressText).toHaveStyle({ fontFamily: 'monospace' });
+      expect(addressText.parentElement?.getAttribute('style')).toContain('monospace');
     });
   });
 
@@ -129,7 +128,7 @@ describe('TransactionConfirmationModal', () => {
       };
       render(<TransactionConfirmationModal {...unusualProps} />);
       const amountValue = screen.getByText('100.00 USDC');
-      expect(amountValue).toHaveStyle({ color: 'var(--text-warning)' });
+      expect(amountValue.getAttribute('style')).toContain('var(--text-warning)');
     });
 
     it('highlights unusual fee value in warning color', () => {
@@ -139,7 +138,7 @@ describe('TransactionConfirmationModal', () => {
       };
       render(<TransactionConfirmationModal {...unusualProps} />);
       const feeValue = screen.getByText('0.000100 XLM');
-      expect(feeValue).toHaveStyle({ color: 'var(--text-warning)' });
+      expect(feeValue.getAttribute('style')).toContain('var(--text-warning)');
     });
   });
 
@@ -160,7 +159,7 @@ describe('TransactionConfirmationModal', () => {
 
     it('disables confirm button when isLoading is true', () => {
       render(<TransactionConfirmationModal {...defaultProps} isLoading={true} />);
-      const confirmBtn = screen.getByRole('button', { name: /Confirm/ });
+      const confirmBtn = screen.getByRole('button', { name: /Signing/i });
       expect(confirmBtn).toBeDisabled();
     });
 
@@ -240,8 +239,6 @@ describe('TransactionConfirmationModal', () => {
     });
 
     it('allows copying contract address', async () => {
-      const user = userEvent.setup();
-      
       // Mock clipboard API
       Object.assign(navigator, {
         clipboard: {
@@ -251,7 +248,7 @@ describe('TransactionConfirmationModal', () => {
 
       render(<TransactionConfirmationModal {...defaultProps} />);
       const copyBtn = screen.getByRole('button', { name: /Copy contract address/ });
-      await user.click(copyBtn);
+      fireEvent.click(copyBtn);
       
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(mockSummary.contractAddress);
     });

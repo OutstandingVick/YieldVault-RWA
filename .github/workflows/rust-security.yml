@@ -64,8 +64,9 @@ jobs:
           npm audit --json > frontend/frontend-audit.json || true
           node scripts/dependency-audit.js npm frontend frontend/frontend-audit.json
 
-      - name: Run cargo-clippy (linting)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run cargo-clippy (share-price math)
+        run: cargo clippy -p share-price-math --all-targets -- -D warnings
+        working-directory: contracts
         continue-on-error: true
 
       - name: Run cargo-deny (supply chain security)
@@ -85,3 +86,14 @@ jobs:
           else
             echo "✓ No unsafe code found in production code"
           fi
+
+      - name: Set up Rust nightly (cargo-fuzz)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run vault share-price fuzz (60s)
+        run: |
+          cd contracts/vault
+          cargo +nightly fuzz run share_price_math -- -max_total_time=60

@@ -141,6 +141,12 @@ pub fn registered_vault_keys(env: &soroban_sdk::Env) -> soroban_sdk::Vec<Storage
         name: symbol_short!("StratHwm"),
         parameterized: true,
     });
+    keys.push_back(scalar(StorageNamespace::Strategy, "StrategyHeartbeat"));
+    keys.push_back(StorageKeyDescriptor {
+        namespace: StorageNamespace::Strategy,
+        name: symbol_short!("StratHb"),
+        parameterized: true,
+    });
 
     keys.push_back(scalar(StorageNamespace::Emergency, "EmergencyApprovers"));
     keys.push_back(scalar(

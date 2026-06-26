@@ -51,6 +51,7 @@ import {
   setWithdrawalLimitOverride,
   listWithdrawalLimitAuditEntries,
 } from './middleware/withdrawalDailyLimit';
+import { adaptiveThrottleMiddleware } from './middleware/adaptiveThrottle';
 import {
   validateApiKey,
   authenticateApiKeyValue,
@@ -99,8 +100,10 @@ import {
   httpResponseTime,
   activeConnections,
   updateVaultMetrics,
+  syncJobGovernanceMetrics,
 } from './metrics';
 import { latencyMonitoringService } from './latencyMonitoring';
+import { listEndpointSlaRegistry } from './endpointSlaRegistry';
 import { startEventPollingService, stopEventPollingService } from './eventPollingService';
 import { prisma, getPrismaRuntimeConfig } from './prisma';
 import { getPrismaClient } from './prismaClient';
@@ -151,11 +154,16 @@ import {
 } from './bulkExportJobs';
 import { normalizeWalletAddress } from './walletUtils';
 import { emailQueueService } from './emailQueue';
-import { webhookDeduplicationStore } from './webhookDeduplication';
-import { requestIdStorage, serializeContext, runWithSerializedContext, wrapWithContext } from './requestContext';
-import { healthProbeService, type DependencyName } from './healthProbe';
-import { writeAheadAuditLog } from './writeAheadAuditLog';
-import { scopedAdminTokenStore, type AdminPermission } from './scopedAdminTokens';
+import {
+  createOrResumeTransactionBackfill,
+  getTransactionBackfillJob,
+  listTransactionBackfillJobs,
+} from './transactionBackfill';
+import {
+  createExportManifest,
+  getExportManifestById,
+  listExportManifests,
+} from './exportManifest';
 
 declare global {
   namespace Express {
@@ -528,6 +536,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.path === '/health' || req.path === '/ready') return next();
   return readsLimiter(req, res, next);
 });
+app.use(adaptiveThrottleMiddleware);
 
 // Capture immutable admin audit records for every /admin request.
 // Apply admin-tier rate limiting to all /admin endpoints.
@@ -549,6 +558,7 @@ app.use(maintenanceModeMiddleware);
  */
 app.get('/metrics', async (_req: Request, res: Response) => {
   try {
+    syncJobGovernanceMetrics();
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (err) {
@@ -569,6 +579,17 @@ app.get('/admin/latency-status', validateApiKey, (_req: Request, res: Response) 
     status,
     metrics: detailedMetrics,
     timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/sla/registry
+ * Returns the canonical endpoint SLA / latency budget registry for monitoring and alerts.
+ */
+app.get('/admin/sla/registry', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    endpoints: listEndpointSlaRegistry(),
+    generatedAt: new Date().toISOString(),
   });
 });
 
@@ -3031,6 +3052,159 @@ app.get('/admin/jobs/metrics', validateApiKey, (req: Request, res: Response) => 
 });
 
 /**
+ * POST /admin/transactions/backfill - controlled backfill of missing ledger index ranges
+ */
+app.post('/admin/transactions/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const startLedger = Number(req.body?.startLedger);
+  const endLedger = Number(req.body?.endLedger);
+  const batchSize = req.body?.batchSize === undefined ? undefined : Number(req.body.batchSize);
+  const dryRun = Boolean(req.body?.dryRun);
+  const rpcUrl = String(req.body?.rpcUrl || process.env.STELLAR_RPC_URL || '').trim();
+  const contractId = String(req.body?.contractId || process.env.VAULT_CONTRACT_ID || '').trim();
+
+  if (!Number.isInteger(startLedger) || !Number.isInteger(endLedger)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'startLedger and endLedger must be integers',
+    });
+    return;
+  }
+
+  if (!rpcUrl) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'rpcUrl is required (or set STELLAR_RPC_URL)',
+    });
+    return;
+  }
+
+  if (!contractId) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'contractId is required (or set VAULT_CONTRACT_ID)',
+    });
+    return;
+  }
+
+  try {
+    const job = await createOrResumeTransactionBackfill({
+      startLedger,
+      endLedger,
+      batchSize,
+      dryRun,
+      rpcUrl,
+      contractId,
+    });
+
+    res.status(202).json({
+      message: 'Backfill accepted',
+      job,
+    });
+  } catch (error) {
+    res.status(422).json({
+      error: 'Unprocessable Entity',
+      status: 422,
+      message: error instanceof Error ? error.message : 'Backfill request failed',
+    });
+  }
+});
+
+/**
+ * GET /admin/transactions/backfill - list recent backfill jobs
+ */
+app.get('/admin/transactions/backfill', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '20'), 10);
+  res.status(200).json({
+    data: listTransactionBackfillJobs(limit),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/transactions/backfill/:jobId - fetch a specific backfill job
+ */
+app.get('/admin/transactions/backfill/:jobId', validateApiKey, (req: Request, res: Response) => {
+  const job = getTransactionBackfillJob(String(req.params.jobId));
+  if (!job) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Backfill job not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    job,
+  });
+});
+
+/**
+ * POST /admin/reports/exports - generate a report export and immutable manifest record
+ */
+app.post('/admin/reports/exports', validateApiKey, (req: Request, res: Response) => {
+  const reportType = String(req.body?.reportType || 'transactions').trim();
+  const requester = resolveActingAdminAddress(req);
+  const filters =
+    req.body?.filters && typeof req.body.filters === 'object'
+      ? (req.body.filters as Record<string, unknown>)
+      : {};
+
+  const mockRows = [
+    {
+      reportType,
+      generatedAt: new Date().toISOString(),
+      filters,
+    },
+  ];
+
+  const manifest = createExportManifest({
+    requester,
+    reportType,
+    filters,
+    rows: mockRows,
+  });
+
+  res.status(201).json({
+    message: 'Export generated and manifest recorded',
+    manifest,
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests - list immutable export manifests
+ */
+app.get('/admin/reports/exports/manifests', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '50'), 10);
+  res.status(200).json({
+    data: listExportManifests(limit),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests/:id - fetch a manifest by id
+ */
+app.get('/admin/reports/exports/manifests/:id', validateApiKey, (req: Request, res: Response) => {
+  const manifest = getExportManifestById(String(req.params.id));
+  if (!manifest) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Export manifest not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    manifest,
+  });
+});
+
+/**
  * GET /admin/jobs/dashboard - lightweight HTML dashboard for operators
  */
 app.get('/admin/jobs/dashboard', validateApiKey, (_req: Request, res: Response) => {
@@ -3364,7 +3538,7 @@ app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: 
       orderBy: { timestamp: 'asc' },
     });
 
-    function bucketKey(date: Date, g: 'day' | 'week' | 'month'): string {
+    const bucketKey = (date: Date, g: 'day' | 'week' | 'month'): string => {
       const y = date.getUTCFullYear();
       const m = String(date.getUTCMonth() + 1).padStart(2, '0');
       const d = String(date.getUTCDate()).padStart(2, '0');
@@ -3379,7 +3553,7 @@ app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: 
         return `${wy}-${wm}-${wd}`;
       }
       return `${y}-${m}-${d}`;
-    }
+    };
 
     const buckets = new Map<string, number>();
     for (const tx of transactions) {
@@ -3833,6 +4007,27 @@ app.get('/admin/request-context', validateApiKey, (req: Request, res: Response) 
     timestamp: new Date().toISOString(),
   });
 });
+
+// ─── Admin Diagnostics & Reconciliation (Issues #721, #724) ─────────────────
+
+/**
+ * GET /admin/diagnostics
+ * Returns a sanitized diagnostics bundle for incident triage.
+ * Requires admin API key authentication.
+ */
+app.get('/admin/diagnostics', validateApiKey, diagnosticsBundleHandler);
+
+/**
+ * GET /admin/reconciliation
+ * Returns a reconciliation report comparing ledger vs database state.
+ * Requires admin API key authentication.
+ */
+app.get('/admin/reconciliation', validateApiKey, reconciliationReportHandler);
+
+// ─── Typed Error Boundary (Issue #708) ──────────────────────────────────────
+// Mounted before the generic error handler so upstream dependency failures
+// are mapped to typed API errors with stable codes and retry hints.
+app.use(errorBoundaryMiddleware);
 
 // ─── Error Handler ──────────────────────────────────────────────────────────
 

@@ -1,0 +1,7 @@
+{
+  "description": "Yield accrual must not decrease redemption value for fixed shares.",
+  "assets": 100,
+  "total_shares": 1000,
+  "total_assets": 1000,
+  "yield_amount": 500
+}

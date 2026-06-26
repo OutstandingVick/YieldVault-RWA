@@ -1,0 +1,136 @@
+name: Phase 3 Cross-Stack Smoke Test
+
+# Verifies frontend share-price logic and backend vault endpoints against
+# deployment metadata produced by the rust-wasm testnet deploy job.
+#
+# Secrets (repository settings → Secrets and variables → Actions):
+#   TESTNET_SECRET_KEY     — required only for deploy mode in rust-wasm.yml
+#   TESTNET_TOKEN_ADDRESS  — required only for deploy mode in rust-wasm.yml
+#
+# Artifacts:
+#   After a successful main-branch deploy, download the `testnet-deployment`
+#   artifact from the Rust + WASM CI workflow. It contains `deployment.json`
+#   with `contract_id` and `git_sha`.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/integration-smoke.yml"
+      - "contracts/vault/scripts/smoke-test.sh"
+      - "frontend/src/lib/vaultApi.ts"
+      - "frontend/src/lib/vaultApi.test.ts"
+  workflow_dispatch:
+    inputs:
+      deployment_artifact:
+        description: "GitHub artifact name containing deployment.json"
+        required: false
+        default: "testnet-deployment"
+      backend_url:
+        description: "Backend base URL for smoke probes"
+        required: false
+        default: "http://localhost:3000"
+  workflow_run:
+    workflows:
+      - Rust + WASM CI
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  integration-smoke:
+    name: Cross-stack testnet smoke test
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success')
+    env:
+      BACKEND_URL: ${{ github.event.inputs.backend_url || 'http://localhost:3000' }}
+      DEPLOYMENT_ARTIFACT: ${{ github.event.inputs.deployment_artifact || 'testnet-deployment' }}
+      SMOKE_TEST_MODE: cross-stack
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download deployment artifact
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.DEPLOYMENT_ARTIFACT }}
+          path: .
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Prepare deployment metadata
+        run: |
+          if [[ ! -f deployment.json && -f deployments/contracts.testnet.json ]]; then
+            cp deployments/contracts.testnet.json deployment.json
+          fi
+          if [[ ! -f deployment.json ]]; then
+            echo '{"contract_id":"","git_sha":""}' > deployment.json
+          fi
+
+      - name: Setup Node (frontend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Setup Node (backend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Prepare backend database
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Start backend for smoke probes
+        working-directory: backend
+        run: |
+          npm run build
+          npm run start &
+          for i in $(seq 1 60); do
+            if curl -fsS "$BACKEND_URL/health" >/dev/null 2>&1; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend failed to start"
+          curl -v "$BACKEND_URL/health" || true
+          exit 1
+        env:
+          PORT: 3000
+          NODE_ENV: development
+          OTEL_ENABLED: "false"
+          ALLOWLIST_ENABLED: "false"
+          STELLAR_RPC_URL: https://soroban-testnet.stellar.org
+          ADMIN_AUDIT_LOG_STORAGE: memory
+
+      - name: Run cross-stack smoke test
+        run: bash contracts/vault/scripts/smoke-test.sh
+        env:
+          DEPLOYMENT_FILE: deployment.json
+          BACKEND_URL: ${{ env.BACKEND_URL }}
+
+      - name: Upload deployment snapshot
+        if: always() && hashFiles('deployment.json')
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-deployment-snapshot
+          path: deployment.json
+          retention-days: 14

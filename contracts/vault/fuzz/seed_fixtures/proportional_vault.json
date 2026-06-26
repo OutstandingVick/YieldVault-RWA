@@ -1,0 +1,7 @@
+{
+  "description": "Proportional vault: 50% of shares redeem for 50% of assets.",
+  "assets": 500,
+  "total_shares": 1000,
+  "total_assets": 2000,
+  "yield_amount": 10
+}

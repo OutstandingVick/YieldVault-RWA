@@ -49,28 +49,30 @@ pub struct EmergencyUnwindResult {
     pub feasible: bool,
 }
 
+use crate::{DataKey, EmergencyStorageKey};
+
 pub fn read_proposal(env: &Env, id: u32) -> Option<EmergencyProposal> {
     env.storage()
         .instance()
-        .get(&crate::DataKey::EmergencyProposal(id))
+        .get(&DataKey::Emergency(EmergencyStorageKey::Proposal(id)))
 }
 
 pub fn write_proposal(env: &Env, id: u32, proposal: &EmergencyProposal) {
     env.storage()
         .instance()
-        .set(&crate::DataKey::EmergencyProposal(id), proposal);
+        .set(&DataKey::Emergency(EmergencyStorageKey::Proposal(id)), proposal);
 }
 
 pub fn next_proposal_id(env: &Env) -> u32 {
     let nonce: u32 = env
         .storage()
         .instance()
-        .get(&crate::DataKey::EmergencyProposalNonce)
+        .get(&DataKey::Emergency(EmergencyStorageKey::ProposalNonce))
         .unwrap_or(0);
     let next = nonce.checked_add(1).expect("proposal nonce overflow");
     env.storage()
         .instance()
-        .set(&crate::DataKey::EmergencyProposalNonce, &next);
+        .set(&DataKey::Emergency(EmergencyStorageKey::ProposalNonce), &next);
     next
 }
 
@@ -156,8 +158,8 @@ mod tests {
     #[test]
     fn test_distinct_approvers_required() {
         let env = Env::default();
-        let a = Address::generate(&env);
-        let b = Address::generate(&env);
+        let a = <soroban_sdk::Address as TestAddress>::generate(&env);
+        let b = <soroban_sdk::Address as TestAddress>::generate(&env);
         require_distinct_approvers(&a, &b);
     }
 
@@ -165,7 +167,7 @@ mod tests {
     #[should_panic(expected = "approvers must be distinct")]
     fn test_same_approver_rejected() {
         let env = Env::default();
-        let a = Address::generate(&env);
+        let a = <soroban_sdk::Address as TestAddress>::generate(&env);
         require_distinct_approvers(&a, &a);
     }
 

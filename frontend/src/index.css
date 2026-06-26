@@ -1084,6 +1084,16 @@ button {
   vertical-align: top;
 }
 
+[data-table-density="compact"] .data-table th,
+[data-table-density="compact"] .data-table td {
+  padding: 8px 12px;
+}
+
+[data-table-density="spacious"] .data-table th,
+[data-table-density="spacious"] .data-table td {
+  padding: 22px 24px;
+}
+
 .data-table th {
   color: var(--text-secondary);
   font-size: var(--text-xs);
@@ -2245,9 +2255,9 @@ button {
   }
 }
 
-/* ========================================
+/* =======================================
    Transaction Receipt Styles
-   ======================================== */
+   ======================================= */
 
 .receipt-page {
   min-height: 80vh;
@@ -2395,9 +2405,9 @@ button {
   text-decoration: underline;
 }
 
-/* ========================================
+/* =======================================
    Print Styles
-   ======================================== */
+   ======================================= */
 
 @media print {
   /* Hide non-essential UI */
@@ -2476,9 +2486,9 @@ button {
   }
 }
 
-/* ========================================
+/* =======================================
    Offline Banner Styles
-   ======================================== */
+   ======================================= */
 
 .offline-banner {
   position: fixed;
@@ -2560,9 +2570,9 @@ button {
   }
 }
 
-/* ========================================
+/* =======================================
    Infinite Scroll Styles
-   ======================================== */
+   ======================================= */
 
 /* View mode toggle */
 .infinite-scroll-toggle {
@@ -2752,6 +2762,9 @@ button {
 
   .infinite-scroll-progress {
     max-width: 100%;
+  }
+}
+
 /* ── TransactionFilterPanel ──────────────────────────────────────────────── */
 
 .tx-filter-panel {
