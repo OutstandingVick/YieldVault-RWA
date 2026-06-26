@@ -263,11 +263,15 @@ export function formatDate(
     return "";
   }
 
-  const options =
-    "formatOptions" in formatOptionsOrOptions || "locale" in formatOptionsOrOptions
-      ? formatOptionsOrOptions
-      : { formatOptions: formatOptionsOrOptions, locale };
+  const options: DateFormatOptions =
+    "formatOptions" in formatOptionsOrOptions ||
+    "fallbackLocale" in formatOptionsOrOptions
+      ? (formatOptionsOrOptions as DateFormatOptions)
+      : {
+          formatOptions: formatOptionsOrOptions as Intl.DateTimeFormatOptions,
+          locale,
+        };
 
-  const resolvedLocale = resolveLocale(options.locale, options.fallbackLocale);
-  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions).format(normalizedDate);
+  const resolvedLocale = resolveLocale(options.locale ?? locale, options.fallbackLocale);
+  return new Intl.DateTimeFormat(resolvedLocale, options.formatOptions ?? {}).format(normalizedDate);
 }

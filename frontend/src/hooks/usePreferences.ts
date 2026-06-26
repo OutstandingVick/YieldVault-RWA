@@ -21,6 +21,8 @@ export interface UserPreferences {
   notifications: NotificationPreferences;
   compactMode: boolean;
   showBalances: boolean;
+  /** When true, balances and identifiers render masked until toggled off. Default: true (privacy-first). */
+  maskSensitiveValues: boolean;
   precision: Precision; // decimal places for number/currency formatting
 }
 
@@ -40,6 +42,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   },
   compactMode: false,
   showBalances: true,
+  maskSensitiveValues: true,
   precision: 2, // default to 2 decimal places
 };
 
@@ -121,6 +124,10 @@ export function usePreferences(walletAddress?: string | null) {
     setPreferences(prev => ({ ...prev, showBalances: !prev.showBalances }));
   }, [setPreferences]);
 
+  const toggleMaskSensitiveValues = useCallback(() => {
+    setPreferences(prev => ({ ...prev, maskSensitiveValues: !prev.maskSensitiveValues }));
+  }, [setPreferences]);
+
   const setPrecision = useCallback((precision: Precision) => {
     setPreferences({ precision });
   }, [setPreferences]);
@@ -138,6 +145,7 @@ export function usePreferences(walletAddress?: string | null) {
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     setPrecision,
     resetToDefaults,
   };

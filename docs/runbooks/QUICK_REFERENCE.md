@@ -93,6 +93,26 @@ journalctl -u yieldvault-backend -f
 docker logs -f yieldvault-backend
 ```
 
+### Replay & State Recovery
+
+```bash
+# Trigger manual ledger events replay (dry-run)
+curl -X POST http://localhost:3000/admin/events/replay \
+  -H "Authorization: ApiKey YOUR_ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"fromLedger": 152000, "toLedger": 152500, "dryRun": true}'
+
+# Execute manual ledger events replay
+curl -X POST http://localhost:3000/admin/events/replay \
+  -H "Authorization: ApiKey YOUR_ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"fromLedger": 152000, "toLedger": 152500}'
+
+# Replay failed email queue item by UUID
+curl -X POST http://localhost:3000/admin/emails/replay/YOUR_EMAIL_UUID \
+  -H "Authorization: ApiKey YOUR_ADMIN_API_KEY"
+```
+
 ---
 
 ## Backup Locations
@@ -115,6 +135,7 @@ All runbooks: `docs/runbooks/`
 - [Backend Redeploy](./BACKEND_REDEPLOY.md)
 - [RPC Failover](./RPC_FAILOVER.md)
 - [Full DR](./FULL_DR_PROCEDURE.md)
+- [Replay Procedures](./REPLAY_PROCEDURES.md)
 
 ---
 

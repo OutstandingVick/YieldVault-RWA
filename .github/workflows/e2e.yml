@@ -39,6 +39,7 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          VITE_E2E_STUB_BALANCES: "true"
 
       # Upload the HTML report so it's browsable in the Actions UI
       - name: Upload Playwright report

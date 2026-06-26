@@ -109,6 +109,12 @@ jobs:
           mkdir -p artifacts/wasm
           find ./target/wasm32-unknown-unknown/release -name '*.wasm' -exec cp {} artifacts/wasm/ \;
 
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Test deployment.json generation
+        run: bash contracts/vault/scripts/test-deployment-json.sh
+
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -143,6 +149,22 @@ jobs:
           TESTNET_TOKEN_ADDRESS: ${{ secrets.TESTNET_TOKEN_ADDRESS }}
           GIT_SHA: ${{ github.sha }}
         run: bash contracts/vault/scripts/smoke-test.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Validate frontend env against deployment.json
+        env:
+          VITE_SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+          VITE_STELLAR_NETWORK_PASSPHRASE: Test SDF Network ; September 2015
+        run: |
+          export VITE_VAULT_CONTRACT_ID="$(jq -r '.contract_id' deployment.json)"
+          npm run validate:frontend-env -- --strict --check-rpc --deployment-json deployment.json
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4

@@ -3,7 +3,7 @@ import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
 import { allowlistMiddleware } from './middleware/allowlist';
 import { invalidateCache } from './middleware/cache';
-import { writesLimiter } from './rateLimiter';
+import { depositsLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
 import { withSpan, getCurrentTraceId } from './tracing';
@@ -12,7 +12,11 @@ import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
-import { validate, VaultOperationSchema } from './middleware/validate';
+import {
+  validate,
+  VaultDepositBodySchema,
+  VaultWithdrawalBodySchema,
+} from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import { createTimeoutFor } from './middleware/timeoutMiddleware';
@@ -330,11 +334,11 @@ async function handleVaultOperation(
  */
 router.post(
   '/deposits',
-  writesLimiter,
+  depositsLimiter,
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
@@ -346,11 +350,11 @@ router.post(
  */
 router.post(
   '/withdrawals',
-  writesLimiter,
+  depositsLimiter,
   invalidateReadCaches,
   requireSignedWalletAction('withdrawal'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultWithdrawalBodySchema }),
   withdrawalDailyLimitMiddleware(),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
@@ -365,11 +369,11 @@ router.post(
  */
 router.post(
   '/deposits/v2',
-  writesLimiter,
+  depositsLimiter,
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   requireFlag('deposit-v2'),
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 
@@ -377,7 +381,7 @@ router.post(
  * POST /api/v1/vault/strategy
  * Gated behind the "strategy-selection" feature flag.
  */
-router.post('/strategy', writesLimiter, requireFlag('strategy-selection'), (_req: Request, res: Response) => {
+router.post('/strategy', depositsLimiter, requireFlag('strategy-selection'), (_req: Request, res: Response) => {
   res.status(200).json({ message: 'Strategy selection endpoint (v2 preview)' });
 });
 

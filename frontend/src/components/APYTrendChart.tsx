@@ -2,6 +2,10 @@ import React, { useMemo, useState, useCallback } from "react";
 import {
   LineChart,
   Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -17,6 +21,7 @@ import RefreshControl from "./RefreshControl";
 import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
+import { ChartModeToggle } from "./ChartModeToggle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,8 +112,9 @@ export interface APYTrendChartProps {
 }
 
 const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => {
-  const { preferences } = usePreferencesContext();
+  const { preferences, chartModes, setChartMode } = usePreferencesContext();
   const locale = preferences.locale;
+  const chartMode = chartModes.apyTrend;
 
   /** The primary time window driving the x-axis range */
   const [activeRange, setActiveRange] = useState<TimeRange>("1M");
@@ -186,24 +192,88 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
     margin: { top: 8, right: 8, left: -16, bottom: 0 },
   };
 
-  const renderLines = () =>
-    ALL_RANGES.filter(
-      (r) => r === activeRange || comparedRanges.has(r),
-    ).map((range) => (
-      <Line
-        key={range}
-        type="monotone"
-        dataKey={range}
-        name={range}
-        stroke={windowColor(range)}
-        strokeWidth={range === activeRange ? 2.5 : 1.5}
-        strokeDasharray={range === activeRange ? undefined : "4 3"}
-        dot={false}
-        activeDot={{ r: 4 }}
-        connectNulls={false}
-        animationDuration={600}
-      />
-    ));
+  const activeRanges = ALL_RANGES.filter(
+    (r) => r === activeRange || comparedRanges.has(r),
+  );
+
+  const renderSeries = () =>
+    activeRanges.map((range) => {
+      const color = windowColor(range);
+      const commonProps = {
+        key: range,
+        dataKey: range,
+        name: range,
+        animationDuration: 600,
+      };
+
+      if (chartMode === "bar") {
+        return <Bar {...commonProps} fill={color} radius={[2, 2, 0, 0]} />;
+      }
+      if (chartMode === "area") {
+        return (
+          <Area
+            {...commonProps}
+            type="monotone"
+            stroke={color}
+            strokeWidth={range === activeRange ? 2.5 : 1.5}
+            fill={color}
+            fillOpacity={0.12}
+            dot={false}
+            connectNulls={false}
+          />
+        );
+      }
+      return (
+        <Line
+          {...commonProps}
+          type="monotone"
+          stroke={color}
+          strokeWidth={range === activeRange ? 2.5 : 1.5}
+          strokeDasharray={range === activeRange ? undefined : "4 3"}
+          dot={false}
+          activeDot={{ r: 4 }}
+          connectNulls={false}
+        />
+      );
+    });
+
+  const renderChartShell = (width?: number, height?: number) => {
+    const sizeProps = width && height ? { width, height } : {};
+    const chartBody = (
+      <>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+        <XAxis
+          dataKey="date"
+          axisLine={false}
+          tickLine={false}
+          tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+          tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
+          minTickGap={28}
+        />
+        <YAxis
+          axisLine={false}
+          tickLine={false}
+          tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+          tickFormatter={(v: number) => `${v.toFixed(1)}%`}
+          domain={["auto", "auto"]}
+        />
+        <Tooltip content={(props: TooltipProps) => <APYTooltip {...props} locale={locale} />} />
+        <Legend
+          wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
+          formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
+        />
+        {renderSeries()}
+      </>
+    );
+
+    if (chartMode === "bar") {
+      return <BarChart {...sharedChartProps} {...sizeProps}>{chartBody}</BarChart>;
+    }
+    if (chartMode === "area") {
+      return <AreaChart {...sharedChartProps} {...sizeProps}>{chartBody}</AreaChart>;
+    }
+    return <LineChart {...sharedChartProps} {...sizeProps}>{chartBody}</LineChart>;
+  };
 
   return (
     <section
@@ -236,6 +306,12 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
         </div>
 
         {/* Primary range selector */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
+        <ChartModeToggle
+          value={chartMode}
+          onChange={(mode) => setChartMode("apyTrend", mode)}
+          aria-label="APY trend chart mode"
+        />
         <div
           role="group"
           aria-label="Select primary time window"
@@ -268,6 +344,7 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
               {range}
             </button>
           ))}
+        </div>
         </div>
       </div>
 
@@ -348,56 +425,10 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
             height={240}
           />
         ) : isTest ? (
-          <LineChart {...sharedChartProps} width={400} height={240}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-            <XAxis
-              dataKey="date"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-              tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
-              minTickGap={28}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-              tickFormatter={(v: number) => `${v.toFixed(1)}%`}
-              domain={["auto", "auto"]}
-            />
-            <Tooltip content={(props: TooltipProps) => <APYTooltip {...props} locale={locale} />} />
-            <Legend
-              wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
-              formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
-            />
-            {renderLines()}
-          </LineChart>
+          renderChartShell(400, 240)
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart {...sharedChartProps}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis
-                dataKey="date"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-                tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
-                minTickGap={28}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-                tickFormatter={(v: number) => `${v.toFixed(1)}%`}
-                domain={["auto", "auto"]}
-              />
-              <Tooltip content={(props: TooltipProps) => <APYTooltip {...props} locale={locale} />} />
-              <Legend
-                wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
-                formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
-              />
-              {renderLines()}
-            </LineChart>
+            {renderChartShell()}
           </ResponsiveContainer>
         )}
       </div>

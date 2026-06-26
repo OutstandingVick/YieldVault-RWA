@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { usePreferencesContext } from '../context/PreferencesContext';
-import type { Theme, Locale, Currency, NotificationPreferences, Precision } from '../hooks/usePreferences';
+import type { Theme, Locale, Currency, NotificationPreferences } from '../hooks/usePreferences';
 import { useTranslation } from '../i18n';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 
@@ -288,26 +288,30 @@ const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
   { value: 'XLM', label: 'XLM — Stellar Lumens' },
 ];
 
-const NOTIF_KEYS: { key: keyof NotificationPreferences }[] = [
-  { key: 'depositAlerts' },
-  { key: 'withdrawalAlerts' },
-  { key: 'yieldUpdates' },
-  { key: 'priceAlerts' },
-  { key: 'weeklyReport' },
-  { key: 'securityAlerts' },
-];
+const NOTIF_KEYS = [
+  'depositAlerts',
+  'withdrawalAlerts',
+  'yieldUpdates',
+  'priceAlerts',
+  'weeklyReport',
+  'securityAlerts',
+] as const satisfies readonly (keyof NotificationPreferences)[];
 
 const Settings: React.FC = () => {
   const {
     preferences,
     resolvedTheme,
+    tableDensity,
     setTheme,
     setLocale,
     setCurrency,
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     resetToDefaults,
+    setTableDensity,
+    resetUserPreferenceStore,
   } = usePreferencesContext();
   const { t } = useTranslation();
 
@@ -316,6 +320,7 @@ const Settings: React.FC = () => {
   const handleReset = () => {
     if (resetConfirm) {
       resetToDefaults();
+      resetUserPreferenceStore();
       setResetConfirm(false);
     } else {
       setResetConfirm(true);
@@ -387,6 +392,36 @@ const Settings: React.FC = () => {
 
         <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
 
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '12px' }}>
+            Table density
+          </label>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {(["compact", "comfortable", "spacious"] as const).map((density) => (
+              <button
+                key={density}
+                type="button"
+                onClick={() => setTableDensity(density)}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  border: tableDensity === density ? '1px solid var(--accent-cyan)' : '1px solid var(--border-glass)',
+                  background: tableDensity === density ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  textTransform: 'capitalize',
+                }}
+              >
+                {density}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
+
         {/* Display toggles */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0', borderBottom: '1px solid var(--border-glass)' }}>
@@ -402,6 +437,13 @@ const Settings: React.FC = () => {
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.showBalancesDesc")}</div>
             </div>
             <Toggle id="settings-show-balances" checked={preferences.showBalances} onChange={toggleShowBalances} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0' }}>
+            <div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>{t("settings.appearance.maskSensitiveValues")}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.maskSensitiveValuesDesc")}</div>
+            </div>
+            <Toggle id="settings-mask-sensitive" checked={preferences.maskSensitiveValues} onChange={toggleMaskSensitiveValues} />
           </div>
         </div>
       </SettingsSection>
@@ -464,7 +506,7 @@ const Settings: React.FC = () => {
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {NOTIF_KEYS.map(({ key }) => (
+          {NOTIF_KEYS.map((key) => (
             <NotifRow
               key={key}
               id={`settings-notif-${key}`}

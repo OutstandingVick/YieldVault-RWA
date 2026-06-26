@@ -1,6 +1,6 @@
 import request from 'supertest';
 import express, { Request, Response, NextFunction } from 'express';
-import { sanitizationMiddleware } from '../sanitization';
+import { sanitizationMiddleware, isValidStellarAddress } from '../sanitization';
 
 const app = express();
 
@@ -68,5 +68,42 @@ describe('Sanitization Middleware', () => {
       .set('Content-Type', 'application/json')
       .send('{ "bad": json ');
     expect(response.status).toBe(400);
+  });
+});
+
+describe('isValidStellarAddress', () => {
+  // Canonical ED25519 public key generated via Keypair.random()
+  const VALID = 'GCGVC7NGJB23OGD6DVABCYGLUHC2FBPWSKZGLL3KK6AX2VJLQ67HWDCY';
+
+  it('accepts a valid G-address', () => {
+    expect(isValidStellarAddress(VALID)).toBe(true);
+  });
+
+  it('rejects a muxed M-address', () => {
+    // M-addresses start with 'M' and are not ED25519 public keys
+    expect(isValidStellarAddress('MA7QYNF7SOWQ3GLR2BGMZEHXR45KFKQPQWIFMZOOVUSV4G35AKFBZOABZGAI')).toBe(false);
+  });
+
+  it('rejects a string that is too short', () => {
+    expect(isValidStellarAddress('GABC123')).toBe(false);
+  });
+
+  it('rejects a string with an invalid checksum', () => {
+    const corrupted = VALID.slice(0, -1) + (VALID.endsWith('A') ? 'B' : 'A');
+    expect(isValidStellarAddress(corrupted)).toBe(false);
+  });
+
+  it('rejects a lowercase address', () => {
+    expect(isValidStellarAddress(VALID.toLowerCase())).toBe(false);
+  });
+
+  it('rejects empty string', () => {
+    expect(isValidStellarAddress('')).toBe(false);
+  });
+
+  it('rejects non-string values', () => {
+    expect(isValidStellarAddress(null)).toBe(false);
+    expect(isValidStellarAddress(42)).toBe(false);
+    expect(isValidStellarAddress(undefined)).toBe(false);
   });
 });
