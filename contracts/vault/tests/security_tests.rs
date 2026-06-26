@@ -129,8 +129,8 @@ mod security_tests {
         // (unit-level check without a full Soroban env)
         use soroban_sdk::Env;
         let env = Env::default();
-        let strategy_a = soroban_sdk::Address::generate(&env);
-        let strategy_b = soroban_sdk::Address::generate(&env);
+        let strategy_a = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let strategy_b = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // Calling require_strategy_auth with mismatched addresses should panic
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -140,18 +140,7 @@ mod security_tests {
         assert!(result.is_err(), "mismatched strategy must be rejected");
         println!("✓ require_strategy_auth rejects non-strategy addresses");
     }
-        // Setup: Create vault with legitimate strategy contract
 
-        // Test: Attempt to use malicious strategy contract
-        // - Only whitelisted strategies should be accepted
-        // - Invalid contract addresses should fail
-
-        // Verification:
-        // let result = vault.set_strategy(&malicious_contract);
-        // assert!(result.is_err());
-
-        println!("✓ Strategy contracts are properly validated");
-    }
 
     /// Tests that unsafe code blocks are necessary and safe
     ///

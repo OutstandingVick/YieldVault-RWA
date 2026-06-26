@@ -199,8 +199,6 @@ impl SecureWhitelist {
             caller.require_auth();
             return Err(WhitelistError::Unauthorized);
         }
-        admin.require_auth();
-
         if approved {
             Self::add_strategy(env, caller, strategy)?;
         } else {
@@ -213,7 +211,7 @@ impl SecureWhitelist {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
 
     #[test]
     fn test_whitelist_documentation_exists() {
