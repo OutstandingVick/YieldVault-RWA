@@ -156,8 +156,8 @@ mod tests {
     #[test]
     fn test_distinct_approvers_required() {
         let env = Env::default();
-        let a = Address::generate(&env);
-        let b = Address::generate(&env);
+        let a = <soroban_sdk::Address as TestAddress>::generate(&env);
+        let b = <soroban_sdk::Address as TestAddress>::generate(&env);
         require_distinct_approvers(&a, &b);
     }
 
@@ -165,7 +165,7 @@ mod tests {
     #[should_panic(expected = "approvers must be distinct")]
     fn test_same_approver_rejected() {
         let env = Env::default();
-        let a = Address::generate(&env);
+        let a = <soroban_sdk::Address as TestAddress>::generate(&env);
         require_distinct_approvers(&a, &a);
     }
 

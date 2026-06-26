@@ -5,6 +5,7 @@
   },
   "auth": [
     [],
+    [],
     []
   ],
   "ledger": {
@@ -58,6 +59,14 @@
                       },
                       {
                         "key": {
+                          "u32": 4
+                        },
+                        "val": {
+                          "u32": 2
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "DaoThreshold"
@@ -87,6 +96,49 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "State"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "is_paused"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_assets"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 0
+                                }
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_shares"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 0
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "TokenAsset"
                             }
                           ]
@@ -100,6 +152,21 @@
                           "vec": [
                             {
                               "symbol": "TotalAssets"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TotalShares"
                             }
                           ]
                         },

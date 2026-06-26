@@ -1,7 +1,12 @@
 import request from 'supertest';
 import app from '../index';
+import { resetAdaptiveThrottleStateForTests } from '../middleware/adaptiveThrottle';
 
 describe('Backend API', () => {
+  beforeEach(() => {
+    resetAdaptiveThrottleStateForTests();
+  });
+
   // ─── Health Endpoint Tests ───────────────────────────────────────────────
 
   describe('GET /health', () => {
@@ -132,6 +137,24 @@ describe('Backend API', () => {
 
       expect([200, 429]).toContain(response.status);
     });
+
+    it('should adaptively throttle repeated 4xx abuse patterns per IP', async () => {
+      const clientIp = '198.51.100.33';
+
+      for (let i = 0; i < 8; i++) {
+        await request(app)
+          .get('/api/not-found-abuse')
+          .set('x-forwarded-for', clientIp);
+      }
+
+      const throttled = await request(app)
+        .get('/api/not-found-abuse')
+        .set('x-forwarded-for', clientIp);
+
+      expect(throttled.status).toBe(429);
+      expect(throttled.body).toHaveProperty('error', 'Too many invalid requests');
+      expect(throttled.headers).toHaveProperty('retry-after');
+    });
   });
 
   // ─── Error Handling Tests ────────────────────────────────────────────────
@@ -187,7 +210,7 @@ describe('Backend API', () => {
         .send({
           amount: '100',
           asset: 'USDC',
-          walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ234567',
+          walletAddress: 'G234567ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQ',
           email: 'user@example.com',
         });
 

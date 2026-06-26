@@ -39,6 +39,7 @@ For a comprehensive overview of the smart contract architecture, module responsi
 
 - **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)** – Complete setup guide with step-by-step instructions
 - **[Service Dependency Matrix](./docs/SERVICE_DEPENDENCY_MATRIX.md)** – Visual dependency graph and service specifications
+- **[Stellar Testnet & Mainnet Deployment Runbook](./docs/DEPLOYMENT.md)** – Pinned toolchain alignment, optimizations, and upgrade guide
 
 ### Quick Start (5 minutes)
 
@@ -79,7 +80,13 @@ npm run docs:api
 
 See `docs/api/README.md` for output locations. Integrators should also read
 [`docs/api/ERROR_CODE_CATALOG.md`](docs/api/ERROR_CODE_CATALOG.md) for error codes
-and remediation guidance.
+and remediation guidance, and [`docs/api/PAGINATION.md`](docs/api/PAGINATION.md) for
+deterministic cursor paging examples.
+
+**Pagination consumer examples:**
+
+- [TypeScript](./docs/examples/api_pagination_consumer.ts)
+- [Python](./docs/examples/api_pagination_consumer.py)
 
 ## Webhook Integration
 
@@ -127,9 +134,9 @@ YieldVault has comprehensive disaster recovery procedures to ensure system resil
 
 - **RTO (Recovery Time Objective):** 1 hour for critical systems
 - **RPO (Recovery Point Objective):** 15 minutes maximum data loss
-- **Runbooks:** Step-by-step recovery procedures for all failure scenarios
-
-See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedures.
+- **Runbooks:** Step-by-step recovery procedures for all failure scenarios. Key runbooks include:
+  - [Disaster Recovery Runbooks Overview](./docs/runbooks/README.md)
+  - [Replay and State Recovery Procedures](./docs/runbooks/REPLAY_PROCEDURES.md)
 
 ## Roadmap (Phases)
 
