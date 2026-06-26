@@ -80,7 +80,13 @@ npm run docs:api
 
 See `docs/api/README.md` for output locations. Integrators should also read
 [`docs/api/ERROR_CODE_CATALOG.md`](docs/api/ERROR_CODE_CATALOG.md) for error codes
-and remediation guidance.
+and remediation guidance, and [`docs/api/PAGINATION.md`](docs/api/PAGINATION.md) for
+deterministic cursor paging examples.
+
+**Pagination consumer examples:**
+
+- [TypeScript](./docs/examples/api_pagination_consumer.ts)
+- [Python](./docs/examples/api_pagination_consumer.py)
 
 ## Webhook Integration
 
