@@ -12,7 +12,11 @@ import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
-import { validate, VaultOperationSchema } from './middleware/validate';
+import {
+  validate,
+  VaultDepositBodySchema,
+  VaultWithdrawalBodySchema,
+} from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import { createTimeoutFor } from './middleware/timeoutMiddleware';
@@ -334,7 +338,7 @@ router.post(
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
@@ -350,7 +354,7 @@ router.post(
   invalidateReadCaches,
   requireSignedWalletAction('withdrawal'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultWithdrawalBodySchema }),
   withdrawalDailyLimitMiddleware(),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
@@ -369,7 +373,7 @@ router.post(
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   requireFlag('deposit-v2'),
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 
