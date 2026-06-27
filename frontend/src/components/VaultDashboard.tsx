@@ -28,6 +28,7 @@ import { createDepositFormSchema, MIN_DEPOSIT_AMOUNT } from "../forms/schemas/de
 import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
 import { mapServerError } from "../lib/errorMappers";
 import CopyButton from "./CopyButton";
+import { Button } from "./ui/Button";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
@@ -1261,10 +1262,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                 </div>
                               </div>
                               {approvalStatus !== "confirmed" && (
-                                <button
+                                <Button
                                   type="button"
-                                  className="btn btn-outline"
+                                  variant="outline"
                                   style={{ width: "100%", padding: "10px" }}
+                                  status={approvalStatus === "pending" ? "pending" : "idle"}
+                                  loadingLabel="Approving..."
                                   disabled={approvalStatus === "pending"}
                                   onClick={async () => {
                                     try {
@@ -1275,8 +1278,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                     }
                                   }}
                                 >
-                                  {approvalStatus === "pending" ? "Approving..." : "Approve USDC"}
-                                </button>
+                                  Approve USDC
+                                </Button>
                               )}
                             </div>
                           )}
@@ -1306,11 +1309,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           >
                             Back
                           </button>
-                          <button
+                          <Button
                             type="button"
                             id={`vault-${tab}-confirm`}
-                            className="btn btn-primary"
+                            variant="primary"
                             style={{ flex: 2 }}
+                            status={isBusy ? "pending" : "idle"}
+                            loadingLabel="Processing..."
                             onClick={() => void handleTransaction(tab)}
                             disabled={
                               isBusy || 
@@ -1318,15 +1323,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               (tab === "deposit" && xlmBalance < feeXlm)
                             }
                           >
-                            {isBusy ? (
-                              <>
-                                <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
-                                Processing...
-                              </>
-                            ) : (
-                              `Confirm ${tab}`
-                            )}
-                          </button>
+                            {`Confirm ${tab}`}
+                          </Button>
                         </div>
                       </div>
                     )}

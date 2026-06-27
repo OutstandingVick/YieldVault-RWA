@@ -33,4 +33,5 @@ export {
   PackageOpen,
   Inbox,
   PackageSearch,
+  Columns3,
 } from "lucide-react";

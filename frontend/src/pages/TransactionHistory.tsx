@@ -12,7 +12,8 @@ import { SkeletonText } from "../components/Skeleton";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
 import TransactionDetailDrawer from "../components/TransactionDetailDrawer";
 import EmptyState from "../components/ui/EmptyState";
-import { Activity, Loader2, Wallet } from "../components/icons";
+import { Popover } from "../components/ui/Popover";
+import { Activity, Loader2, Wallet, Columns3 } from "../components/icons";
 import {
   normalizeApiError,
   isValidationError,
@@ -34,7 +35,8 @@ import { networkConfig } from "../config/network";
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useTranslation } from "../i18n";
 import { useUserPreferenceStore } from "../hooks/useUserPreferenceStore";
-import type { TransactionPageSize } from "../lib/userPreferenceStore";
+import type { TransactionPageSize, TransactionColumnId } from "../lib/userPreferenceStore";
+import { TRANSACTION_COLUMN_IDS } from "../lib/userPreferenceStore";
 
 interface TransactionHistoryProps {
   walletAddress: string | null;
@@ -56,6 +58,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     tables: tablePreferences,
     setTransactionViewMode,
     setTransactionPageSize,
+    toggleTransactionColumnVisibility,
   } = useUserPreferenceStore(walletAddress);
   const { data: queryTransactions, isLoading, error: queryError } = useTransactionHistory(walletAddress);
   const delayedLoading = useDelayedLoading(isLoading);
@@ -138,6 +141,23 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       ),
     },
   ], [t]);
+
+  const visibleColumnIds = tablePreferences.transactionVisibleColumns;
+  const visibleColumns = React.useMemo(
+    () => columns.filter((column) => visibleColumnIds[column.id as TransactionColumnId]),
+    [columns, visibleColumnIds],
+  );
+
+  const columnLabelById: Record<TransactionColumnId, string> = {
+    type: t("txHistory.typeHeader"),
+    status: t("txHistory.statusHeader"),
+    amount: t("txHistory.amountHeader"),
+    asset: t("txHistory.assetHeader"),
+    date: t("txHistory.dateHeader"),
+    hash: t("txHistory.hashHeader"),
+  };
+
+  const visibleColumnCount = TRANSACTION_COLUMN_IDS.filter((id) => visibleColumnIds[id]).length;
 
   const error = queryError 
     ? (isValidationError(queryError) ? queryError : normalizeApiError(queryError)) 
@@ -383,7 +403,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
 
   const sharedTableProps = {
     caption: "Transaction history",
-    columns,
+    columns: visibleColumns,
     rows: displayRows,
     rowKey: (row: Transaction) => row.id,
     emptyMessage,
@@ -529,6 +549,46 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                     </button>
                   </div>
                 </div>
+
+                <Popover
+                  title={t("txHistory.columns.title")}
+                  content={
+                    <div className="flex flex-col gap-sm" role="group" aria-label={t("txHistory.columns.title")}>
+                      {TRANSACTION_COLUMN_IDS.map((columnId) => {
+                        const isVisible = visibleColumnIds[columnId];
+                        const isLastVisible = isVisible && visibleColumnCount <= 1;
+                        return (
+                          <label
+                            key={columnId}
+                            className="flex items-center gap-sm"
+                            style={{
+                              cursor: isLastVisible ? "not-allowed" : "pointer",
+                              opacity: isLastVisible ? 0.6 : 1,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isVisible}
+                              disabled={isLastVisible}
+                              onChange={() => toggleTransactionColumnVisibility(columnId)}
+                            />
+                            <span className="text-body-sm">{columnLabelById[columnId]}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  }
+                >
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ alignSelf: "flex-end", height: "42px", display: "flex", gap: "8px" }}
+                    aria-label={t("txHistory.columns.toggle")}
+                  >
+                    <Columns3 size={16} />
+                    {t("txHistory.columns.button")}
+                  </button>
+                </Popover>
 
                 <button
                   type="button"

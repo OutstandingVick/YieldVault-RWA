@@ -302,6 +302,15 @@ export const en = {
     headingAccent: "Decentralized Access.",
     description: "Deposit USDC to earn stable, predictable yield backed by tokenized Sovereign Debt and Real-World Assets.",
   },
+  securityOffer: {
+    badge: "Pre-mainnet security review",
+    title: "Free initial security audit before mainnet",
+    description:
+      "We are offering a complimentary initial smart-contract and frontend security review for early vault participants while YieldVault runs on testnet.",
+    cta: "Request free audit",
+    disclaimer: "Limited availability · No obligation",
+    emailSubject: "YieldVault pre-mainnet security audit request",
+  },
   withdrawal: {
     title: "Confirm Withdrawal",
     subtitle: "Please review the details before confirming your withdrawal.",
@@ -435,6 +444,11 @@ export const en = {
     liveStatus: "Live Status",
     dismissTimeline: "Dismiss timeline",
     tableCaption: "Transaction history",
+    columns: {
+      title: "Visible columns",
+      button: "Columns",
+      toggle: "Customize visible transaction table columns",
+    },
   },
   txDetail: {
     title: "Transaction Details",
