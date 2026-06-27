@@ -31,10 +31,15 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
+            packages/api-schemas/package-lock.json
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+
+      - name: Build shared API schemas
+        run: npm ci && npm run build
+        working-directory: packages/api-schemas
       - name: Install backend dependencies
         run: npm ci
         working-directory: backend

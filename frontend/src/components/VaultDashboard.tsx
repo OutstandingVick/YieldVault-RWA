@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
   AlertTriangle,
   Check,
-  Loader2,
   Share2,
   ShieldCheck,
   TrendingUp,
@@ -27,6 +26,7 @@ import { useTokenAllowance } from "../hooks/useTokenAllowance";
 import { createDepositFormSchema, MIN_DEPOSIT_AMOUNT } from "../forms/schemas/depositFormSchema";
 import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
 import { mapServerError } from "../lib/errorMappers";
+import confetti from "canvas-confetti";
 import CopyButton from "./CopyButton";
 import { Button } from "./ui/Button";
 import { copyTextToClipboard } from "../lib/clipboard";
@@ -45,7 +45,7 @@ import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
-import { saveVaultFormDraft } from "../lib/formDraftStorage";
+import { saveVaultFormDraft, clearVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {

@@ -2,6 +2,7 @@ export {
   Activity,
   AlertTriangle,
   ChevronRight,
+  Clock,
   AlertCircle,
   Check,
   Copy,

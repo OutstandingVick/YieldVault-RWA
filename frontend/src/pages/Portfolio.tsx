@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Activity, TrendingUp, DollarSign, Percent, Briefcase, Share2 } from "../components/icons";
 import { useTranslation } from "../i18n";
 import ApiStatusBanner from "../components/ApiStatusBanner";

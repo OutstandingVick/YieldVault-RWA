@@ -3,7 +3,9 @@ import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
 import { LogOut, Wallet, AlertCircle } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useToast } from "../context/ToastContext";
+import { usePreferencesContext } from "../context/PreferencesContext";
 import { useTranslation } from "../i18n";
+import { displayIdentifier } from "../lib/maskSensitiveValues";
 import CopyButton from "./CopyButton";
 import {
   discoverConnectedAddress,
@@ -23,6 +25,7 @@ import {
 } from "../lib/walletSession";
 import { Button } from "./ui/Button";
 import WalletSessionIndicator from "./WalletSessionIndicator";
+import WalletReconnectPrompt from "./WalletReconnectPrompt";
 
 const IS_AUTOMATED_TEST =
   typeof process !== "undefined" &&
