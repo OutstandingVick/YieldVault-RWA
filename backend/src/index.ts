@@ -35,7 +35,7 @@ import {
 import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
 import { startApySnapshotScheduler } from './apySnapshot';
 import { startDbBackupScheduler } from './dbBackupJob';
-import { startPositionReconciliationScheduler } from './positionReconciliationJob';
+import { startPositionReconciliationScheduler, startLedgerReconciliationScheduler } from './positionReconciliationJob';
 import { setupSwagger } from './swagger';
 import { sorobanCircuitBreaker } from './circuitBreaker';
 import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
@@ -163,7 +163,13 @@ import {
   createExportManifest,
   getExportManifestById,
   listExportManifests,
+  verifyExportManifestChecksum,
 } from './exportManifest';
+import {
+  reconciliationReportHandler,
+  automatedReconciliationSummaryHandler,
+} from './reconciliationReport';
+import { diagnosticsBundleHandler } from './diagnosticsBundle';
 
 declare global {
   namespace Express {
@@ -559,6 +565,7 @@ app.use(maintenanceModeMiddleware);
 app.get('/metrics', async (_req: Request, res: Response) => {
   try {
     syncJobGovernanceMetrics();
+    latencyMonitoringService.syncSloMetrics();
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (err) {
@@ -3115,10 +3122,11 @@ app.post('/admin/transactions/backfill', validateApiKey, async (req: Request, re
 /**
  * GET /admin/transactions/backfill - list recent backfill jobs
  */
-app.get('/admin/transactions/backfill', validateApiKey, (req: Request, res: Response) => {
+app.get('/admin/transactions/backfill', validateApiKey, async (req: Request, res: Response) => {
   const limit = parseInt(String(req.query.limit || '20'), 10);
+  const data = await listTransactionBackfillJobs(limit);
   res.status(200).json({
-    data: listTransactionBackfillJobs(limit),
+    data,
     timestamp: new Date().toISOString(),
   });
 });
@@ -3126,8 +3134,8 @@ app.get('/admin/transactions/backfill', validateApiKey, (req: Request, res: Resp
 /**
  * GET /admin/transactions/backfill/:jobId - fetch a specific backfill job
  */
-app.get('/admin/transactions/backfill/:jobId', validateApiKey, (req: Request, res: Response) => {
-  const job = getTransactionBackfillJob(String(req.params.jobId));
+app.get('/admin/transactions/backfill/:jobId', validateApiKey, async (req: Request, res: Response) => {
+  const job = await getTransactionBackfillJob(String(req.params.jobId));
   if (!job) {
     res.status(404).json({
       error: 'Not Found',
@@ -3145,7 +3153,7 @@ app.get('/admin/transactions/backfill/:jobId', validateApiKey, (req: Request, re
 /**
  * POST /admin/reports/exports - generate a report export and immutable manifest record
  */
-app.post('/admin/reports/exports', validateApiKey, (req: Request, res: Response) => {
+app.post('/admin/reports/exports', validateApiKey, async (req: Request, res: Response) => {
   const reportType = String(req.body?.reportType || 'transactions').trim();
   const requester = resolveActingAdminAddress(req);
   const filters =
@@ -3161,7 +3169,7 @@ app.post('/admin/reports/exports', validateApiKey, (req: Request, res: Response)
     },
   ];
 
-  const manifest = createExportManifest({
+  const manifest = await createExportManifest({
     requester,
     reportType,
     filters,
@@ -3177,10 +3185,15 @@ app.post('/admin/reports/exports', validateApiKey, (req: Request, res: Response)
 /**
  * GET /admin/reports/exports/manifests - list immutable export manifests
  */
-app.get('/admin/reports/exports/manifests', validateApiKey, (req: Request, res: Response) => {
+app.get('/admin/reports/exports/manifests', validateApiKey, async (req: Request, res: Response) => {
   const limit = parseInt(String(req.query.limit || '50'), 10);
+  const offset = parseInt(String(req.query.offset || '0'), 10);
+  const result = await listExportManifests(limit, offset);
   res.status(200).json({
-    data: listExportManifests(limit),
+    data: result.data,
+    total: result.total,
+    limit,
+    offset,
     timestamp: new Date().toISOString(),
   });
 });
@@ -3188,8 +3201,8 @@ app.get('/admin/reports/exports/manifests', validateApiKey, (req: Request, res: 
 /**
  * GET /admin/reports/exports/manifests/:id - fetch a manifest by id
  */
-app.get('/admin/reports/exports/manifests/:id', validateApiKey, (req: Request, res: Response) => {
-  const manifest = getExportManifestById(String(req.params.id));
+app.get('/admin/reports/exports/manifests/:id', validateApiKey, async (req: Request, res: Response) => {
+  const manifest = await getExportManifestById(String(req.params.id));
   if (!manifest) {
     res.status(404).json({
       error: 'Not Found',
@@ -3201,6 +3214,37 @@ app.get('/admin/reports/exports/manifests/:id', validateApiKey, (req: Request, r
 
   res.status(200).json({
     manifest,
+  });
+});
+
+/**
+ * POST /admin/reports/exports/manifests/:id/verify - verify manifest checksum
+ */
+app.post('/admin/reports/exports/manifests/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  const checksum = String(req.body?.checksum || '').trim();
+  if (!checksum) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'checksum is required',
+    });
+    return;
+  }
+
+  const result = await verifyExportManifestChecksum(String(req.params.id), checksum);
+  if (!result.manifest) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Export manifest not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    match: result.match,
+    manifest: result.manifest,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -4024,6 +4068,12 @@ app.get('/admin/diagnostics', validateApiKey, diagnosticsBundleHandler);
  */
 app.get('/admin/reconciliation', validateApiKey, reconciliationReportHandler);
 
+/**
+ * GET /admin/reconciliation/latest
+ * Returns the latest automated reconciliation summary without re-running Horizon queries.
+ */
+app.get('/admin/reconciliation/latest', validateApiKey, automatedReconciliationSummaryHandler);
+
 // ─── Typed Error Boundary (Issue #708) ──────────────────────────────────────
 // Mounted before the generic error handler so upstream dependency failures
 // are mapped to typed API errors with stable codes and retry hints.
@@ -4108,6 +4158,11 @@ if (process.env.NODE_ENV !== 'test') {
   const stopPositionReconciliationScheduler = startPositionReconciliationScheduler();
   shutdownHandler.onShutdown(async () => {
     stopPositionReconciliationScheduler();
+  });
+
+  const stopLedgerReconciliationScheduler = startLedgerReconciliationScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopLedgerReconciliationScheduler();
   });
 
   // Register event polling service shutdown
