@@ -1,6 +1,6 @@
 # YieldVault-RWA — Domain Glossary
 
-> **Last Updated:** 2026-05-29
+> **Last Updated:** 2026-06-27
 
 A shared reference for technical and product terminology used across the YieldVault-RWA codebase, specifications, and documentation. Terms are grouped by domain — covering **core vault concepts** (shares, APY, strategies) as well as **supporting systems** (rate limiting, logging, accessibility, CI/CD). Individual specs may define additional context-specific terms in their own `## Glossary` sections.
 
@@ -13,6 +13,7 @@ A shared reference for technical and product terminology used across the YieldVa
 - [Vault & Shares](#vault--shares)
 - [APY & Yield](#apy--yield)
 - [Strategies](#strategies)
+- [Governance & Emergency Controls](#governance--emergency-controls)
 - [Real-World Assets (RWA)](#real-world-assets-rwa)
 - [Smart Contracts & On-Chain](#smart-contracts--on-chain)
 - [Frontend & UI](#frontend--ui)
@@ -105,6 +106,91 @@ The process of adjusting Strategy Allocations — moving capital between strateg
 
 **Strategy Manager**
 The privileged role or contract responsible for adding, removing, and rebalancing Strategies within the Vault.
+
+---
+
+## Governance & Emergency Controls
+
+**Admin**
+The privileged address with authority to configure strategies, manage protocol parameters, and perform administrative operations. Set during contract initialization and transferable via a two-step process (`propose_admin` → `accept_admin`).
+
+**Pending Admin**
+An address proposed to become the new admin via `propose_admin()`. Must call `accept_admin()` to complete the transfer, preventing accidental loss of admin control.
+
+**Governance**
+Decentralized decision-making for the protocol through weighted voting on strategy proposals. Any user can create proposals, but execution requires meeting the quorum threshold.
+
+**Governance Signer**
+An authorized address in the multi-signer governance set. During migrations, both old and new signer sets are accepted until the migration deadline passes.
+
+**Governance Threshold**
+The minimum number of signatures (M) required from the governance signer set (N) to authorize a governance operation. Configured via `set_governance_signers`.
+
+**DAO Threshold**
+The minimum vote weight required to execute a strategy proposal. Configured via `set_dao_threshold` and checked during `execute_strategy_proposal`.
+
+**Strategy Proposal**
+A governance proposal to set the active strategy. Created via `create_strategy_proposal`, voted on via `vote_on_proposal`, and executed via `execute_strategy_proposal` when quorum is reached.
+
+**Emergency Approver**
+One of two distinct addresses authorized to initiate and confirm emergency actions. Configured via `set_emergency_approvers` (primary + secondary). Both approvers must be distinct addresses.
+
+**Primary Emergency Approver**
+The approver who initiates an emergency action proposal. Cannot confirm their own proposal; must wait for secondary approver or admin cancellation.
+
+**Secondary Emergency Approver**
+The approver who confirms and triggers execution of an emergency proposal after the dispute window has elapsed. Must be a different address from the primary.
+
+**Emergency Action**
+A critical operation that can be executed during exceptional circumstances. Types include `Pause`, `Unpause`, `EmergencyDivest`, and `ForceUpgrade`.
+
+**EmergencyActionKind**
+Enum classifying emergency actions: `Pause` (halt deposits/withdrawals), `Unpause` (resume operations), `EmergencyDivest` (forced strategy withdrawal), `ForceUpgrade` (WASM upgrade without normal admin flow).
+
+**Emergency Proposal**
+A dual-approval proposal for emergency actions. Contains the action kind, parameters, initiator, confirmation status, and dispute deadline. Stored under `EmergencyProposal(u32)` key.
+
+**Dispute Window**
+A configurable time period (default 3600 seconds / 1 hour) during which the admin can cancel an emergency proposal. After this window closes, only the secondary approver can confirm. Configured via `set_emergency_dispute_window`.
+
+**Pause**
+The act of halting vault operations, blocking deposits and withdrawals. Triggered by admin directly or via confirmed emergency proposal. Related to `EmergencyActionKind::Pause`.
+
+**Pause Reason** (`PauseReason`)
+An explicit code recorded when the vault is paused: `SecurityIncident`, `OracleFailure`, `LiquidityCrisis`, `Governance`, `Maintenance`, or `Other`. Stored in the `State` struct.
+
+**Security Incident**
+A pause reason indicating suspected exploit or unauthorized activity. Requires immediate investigation and potential emergency procedures.
+
+**Oracle Failure**
+A pause reason indicating oracle feed is stale, invalid, or manipulated. Related to price validation infrastructure in `oracle.rs`.
+
+**Liquidity Crisis**
+A pause reason indicating insufficient liquidity or bank-run conditions. Triggers emergency protocols for capital preservation.
+
+**Emergency Unwind**
+The process of simulating forced liquidation of all strategy assets. Calculated via `simulate_emergency_unwind` to assess feasibility and potential losses before executing `EmergencyDivest`.
+
+**EmergencyUnwindResult**
+A simulation result struct containing `total_assets_recovered`, `estimated_losses`, `net_amount_available`, `operational_cost`, and `feasibility` assessment.
+
+**Timelock**
+A time-based lock on certain operations. Used for large withdrawals (24-hour delay) and governance signer migrations. Prevents immediate execution for safety.
+
+**Large Withdrawal Threshold**
+The amount above which withdrawals trigger a 24-hour timelock. Configured via `set_large_withdrawal_threshold` and enforced by `execute_withdrawal`.
+
+**Pending Withdrawal**
+A queued large withdrawal with an unlock timestamp. User must call `execute_withdrawal` after the timelock expires.
+
+**Admin Parameter Change Interval**
+Minimum time required between admin parameter changes. Configurable guard preventing rapid-fire parameter modifications. Stored in `WithdrawalQueueMeta.admin_min_interval_secs`.
+
+**Multisig Governance**
+M-of-N signature requirement for governance operations. Managed via `GovernanceConfig` struct containing signers, threshold, and migration state.
+
+**Migration Mode**
+State where both old and new governance signer sets are accepted. Active during transitions between governance configurations until `migration_deadline` passes.
 
 ---
 
