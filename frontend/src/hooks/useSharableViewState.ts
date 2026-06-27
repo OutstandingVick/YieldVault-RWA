@@ -97,7 +97,7 @@ export function useSharableViewState(options: UseSharableViewStateOptions = {}) 
 
   const setState = useCallback(
     (updates: Partial<SharableViewState>) => {
-      setSearchParams((_prev) => {
+      setSearchParams(() => {
         const next = new URLSearchParams();
 
         const merged = { ...state, ...updates };

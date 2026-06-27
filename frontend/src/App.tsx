@@ -75,8 +75,8 @@ function AppContent() {
       return () => window.cancelIdleCallback(idleId);
     }
 
-    const timeoutId = window.setTimeout(schedulePrefetch, 1500);
-    return () => window.clearTimeout(timeoutId);
+    const timeoutId = globalThis.setTimeout(schedulePrefetch, 1500);
+    return () => globalThis.clearTimeout(timeoutId);
   }, [location.pathname]);
 
   const handleConnect = useCallback((address: string) => {

@@ -25,6 +25,7 @@ import {
 } from "../lib/walletSession";
 import { Button } from "./ui/Button";
 import WalletSessionIndicator from "./WalletSessionIndicator";
+import WalletReconnectPrompt from "./WalletReconnectPrompt";
 
 const IS_AUTOMATED_TEST =
   typeof process !== "undefined" &&
