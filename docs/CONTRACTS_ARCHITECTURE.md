@@ -318,6 +318,8 @@ Soroban instance storage has a default TTL of ~6 months. The vault does **not** 
 
 ## 7. Security Model
 
+For a comprehensive threat model covering trust assumptions, trust boundaries, attack surface, and categorized threat scenarios, see **[Threat Model & Trust Boundaries](./THREAT_MODEL.md)**.
+
 ### Authorization Boundaries
 
 | Function | Required Auth | Notes |
@@ -438,6 +440,11 @@ cargo test -- --nocapture
 
 # Run fuzz tests (10,000 iterations)
 cargo test fuzz_deposit_withdraw_symmetry_no_fee
+
+# Run libFuzzer share-price harness (60s smoke)
+cd vault
+cargo install cargo-fuzz
+cargo +nightly fuzz run share_price_math -- -max_total_time=60
 
 # Run security tests
 cargo test --test security_tests
@@ -624,6 +631,7 @@ See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK
 - **Soroban SDK:** https://github.com/stellar/rs-soroban-sdk
 - **ERC-4626 Standard:** https://eips.ethereum.org/EIPS/eip-4626
 - **Stellar Docs:** https://developers.stellar.org/
+- **Threat Model:** `docs/THREAT_MODEL.md`
 - **Deployment Guide:** `contracts/vault/DEPLOYMENT.md`
 - **Security Checklist:** `docs/SECURITY_CHECKLIST.md`
 - **False Positives:** `contracts/.false-positives.md`

@@ -27,6 +27,22 @@ flowchart LR
 4. Wait for confirmation.
 5. Check that your share balance increased.
 
+### Preparing a testnet wallet
+
+Developers can fund a new testnet wallet with:
+
+```bash
+read -rsp "Testnet secret key: " TESTNET_SECRET_KEY && echo
+export TESTNET_SECRET_KEY
+node scripts/fund-testnet-account.js
+unset TESTNET_SECRET_KEY
+```
+
+The script requests test XLM from Friendbot. Set `TESTNET_USDC_ISSUER` to add a
+classic USDC trustline. If you control the test issuer, set
+`TESTNET_USDC_ISSUER_SECRET` to send test tokens after the trustline is created.
+Do not store either secret in the repository or shell history.
+
 ## 4. How to Withdraw
 
 1. Open the withdraw section.

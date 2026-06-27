@@ -288,14 +288,14 @@ const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
   { value: 'XLM', label: 'XLM — Stellar Lumens' },
 ];
 
-const NOTIF_KEYS: { key: keyof NotificationPreferences }[] = [
-  { key: 'depositAlerts' },
-  { key: 'withdrawalAlerts' },
-  { key: 'yieldUpdates' },
-  { key: 'priceAlerts' },
-  { key: 'weeklyReport' },
-  { key: 'securityAlerts' },
-];
+const NOTIF_KEYS = [
+  'depositAlerts',
+  'withdrawalAlerts',
+  'yieldUpdates',
+  'priceAlerts',
+  'weeklyReport',
+  'securityAlerts',
+] as const satisfies readonly (keyof NotificationPreferences)[];
 
 const Settings: React.FC = () => {
   const {
@@ -308,6 +308,7 @@ const Settings: React.FC = () => {
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     resetToDefaults,
     setTableDensity,
     resetUserPreferenceStore,
@@ -437,6 +438,13 @@ const Settings: React.FC = () => {
             </div>
             <Toggle id="settings-show-balances" checked={preferences.showBalances} onChange={toggleShowBalances} />
           </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0' }}>
+            <div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>{t("settings.appearance.maskSensitiveValues")}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.maskSensitiveValuesDesc")}</div>
+            </div>
+            <Toggle id="settings-mask-sensitive" checked={preferences.maskSensitiveValues} onChange={toggleMaskSensitiveValues} />
+          </div>
         </div>
       </SettingsSection>
 
@@ -498,7 +506,7 @@ const Settings: React.FC = () => {
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {NOTIF_KEYS.map(({ key }) => (
+          {NOTIF_KEYS.map((key) => (
             <NotifRow
               key={key}
               id={`settings-notif-${key}`}

@@ -1,4 +1,5 @@
 import { logger } from './middleware/structuredLogging';
+import { Pool, PoolConfig } from 'pg';
 
 /**
  * Interface for a database pool.
@@ -11,42 +12,43 @@ export interface IDatabasePool {
 }
 
 /**
- * Mock database pool for demonstration purposes.
- * In a real application, this would be replaced by a real database driver (e.g., pg).
+ * PostgreSQL-backed pool used by the application at runtime.
  */
-class MockDatabasePool implements IDatabasePool {
-  private name: string;
-  private failNext: boolean = false;
+export class PostgresDatabasePool implements IDatabasePool {
+  private readonly pool: Pool;
 
-  constructor(name: string) {
-    this.name = name;
+  constructor(connectionString: string, name: string) {
+    const config: PoolConfig = {
+      connectionString,
+      max: parsePositiveInt(process.env.DATABASE_POOL_SIZE, 10),
+      connectionTimeoutMillis: parsePositiveInt(
+        process.env.DATABASE_CONNECTION_TIMEOUT_MS,
+        5000
+      ),
+      idleTimeoutMillis: parsePositiveInt(process.env.DATABASE_IDLE_TIMEOUT_MS, 30000),
+      application_name: `yieldvault-backend-${name}`,
+    };
+
+    this.pool = new Pool(config);
+    this.pool.on('error', (error) => {
+      logger.log('error', `Unexpected PostgreSQL ${name} pool error`, {
+        error: error.message,
+      });
+    });
   }
 
   async query<T = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
-    if (this.failNext) {
-      this.failNext = false;
-      throw new Error(`Database error in ${this.name}`);
-    }
-    
-    logger.log('info', `Executing query on ${this.name}`, { text, params });
-    
-    // Simulate query execution
-    return { rows: [] };
+    const result = await this.pool.query(text, params);
+    return { rows: result.rows as T[] };
   }
 
   async end(): Promise<void> {
-    logger.log('info', `Closing ${this.name} pool`);
+    await this.pool.end();
   }
 
   async isHealthy(): Promise<boolean> {
-    return !this.failNext;
-  }
-
-  /**
-   * Method for testing failover logic.
-   */
-  setFailNext(fail: boolean): void {
-    this.failNext = fail;
+    await this.pool.query('SELECT 1');
+    return true;
   }
 }
 
@@ -57,18 +59,25 @@ class MockDatabasePool implements IDatabasePool {
 export class DatabaseManager {
   private primaryPool: IDatabasePool;
   private replicaPool: IDatabasePool;
+  private poolsAreShared: boolean;
 
   constructor(primaryPool?: IDatabasePool, replicaPool?: IDatabasePool) {
-    // In a real app, these URLs would come from process.env
-    const primaryUrl = process.env.DATABASE_URL || 'postgres://localhost:5432/primary';
-    const replicaUrl = process.env.DATABASE_REPLICA_URL || 'postgres://localhost:5432/replica';
-
-    this.primaryPool = primaryPool || new MockDatabasePool('primary');
-    this.replicaPool = replicaPool || new MockDatabasePool('replica');
+    if (primaryPool) {
+      this.primaryPool = primaryPool;
+      this.replicaPool = replicaPool || primaryPool;
+    } else {
+      const primaryUrl = requireDatabaseUrl();
+      this.primaryPool = new PostgresDatabasePool(primaryUrl, 'primary');
+      this.replicaPool = process.env.DATABASE_REPLICA_URL
+        ? new PostgresDatabasePool(process.env.DATABASE_REPLICA_URL, 'replica')
+        : this.primaryPool;
+    }
+    this.poolsAreShared = this.primaryPool === this.replicaPool;
 
     logger.log('info', 'DatabaseManager initialized', {
       primaryConfigured: !!process.env.DATABASE_URL,
       replicaConfigured: !!process.env.DATABASE_REPLICA_URL,
+      replicaUsesPrimary: this.poolsAreShared,
     });
   }
 
@@ -126,10 +135,14 @@ export class DatabaseManager {
    * which is useful for analytics dashboards where exact counts are not critical.
    */
   async estimatedCount(table: string): Promise<number> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+      throw new Error(`Invalid table name: ${table}`);
+    }
+
     const result = await this.queryReplica<{ count: number }>(
       `SELECT COUNT(*) as count FROM "${table}"`
     );
-    return result.rows[0]?.count ?? 0;
+    return Number(result.rows[0]?.count ?? 0);
   }
 
   /**
@@ -159,11 +172,31 @@ export class DatabaseManager {
    * Closes all database connections.
    */
   async shutdown(): Promise<void> {
-    await Promise.all([
-      this.primaryPool.end(),
-      this.replicaPool.end(),
-    ]);
+    if (this.poolsAreShared) {
+      await this.primaryPool.end();
+      return;
+    }
+
+    await Promise.all([this.primaryPool.end(), this.replicaPool.end()]);
   }
+}
+
+function requireDatabaseUrl(): string {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl) {
+    return databaseUrl;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('DATABASE_URL is required in production');
+  }
+
+  return 'postgres://postgres:postgres@localhost:5432/yieldvault';
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 // Export a singleton instance

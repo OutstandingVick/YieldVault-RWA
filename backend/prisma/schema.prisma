@@ -315,3 +315,57 @@ model FeatureFlagOverride {
   @@index([expiresAt])
   @@index([actor])
 }
+
+model ExportManifest {
+  id              String   @id
+  requester       String
+  reportType      String
+  filters         String
+  checksum        String
+  generatedAt     DateTime
+  fileName        String
+  rowCount        Int
+  bulkExportJobId String?
+  artifactId      String?
+
+  @@index([generatedAt])
+  @@index([requester])
+  @@index([reportType])
+  @@index([checksum])
+}
+
+model ReconciliationSnapshot {
+  id          String   @id
+  generatedAt DateTime
+  traceId     String?
+  status      String
+  windowFrom  DateTime
+  windowTo    DateTime
+  summaryJson String
+  driftCount  Int
+
+  @@index([generatedAt])
+  @@index([status])
+}
+
+model TransactionBackfillJob {
+  id                  String    @id
+  jobKey              String    @unique
+  startLedger         Int
+  endLedger           Int
+  batchSize           Int
+  dryRun              Boolean
+  status              String
+  rpcUrl              String
+  contractId          String
+  lastProcessedLedger Int?
+  progressJson        String
+  errorMessage        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  completedAt         DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([dryRun])
+}

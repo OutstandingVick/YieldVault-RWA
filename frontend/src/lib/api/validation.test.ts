@@ -152,7 +152,7 @@ describe("DepositRequestSchema", () => {
 describe("WithdrawalRequestSchema", () => {
   const validWithdrawal = {
     walletAddress: VALID_ADDRESS,
-    shares: 100,
+    amount: "100",
     asset: "yUSDC" as const,
   };
 
@@ -169,15 +169,15 @@ describe("WithdrawalRequestSchema", () => {
     ).not.toThrow();
   });
 
-  it("rejects zero shares", () => {
+  it("rejects zero amount", () => {
     expect(() =>
-      validate(WithdrawalRequestSchema, { ...validWithdrawal, shares: 0 }),
+      validate(WithdrawalRequestSchema, { ...validWithdrawal, amount: "0" }),
     ).toThrow(ValidationError);
   });
 
-  it("rejects fractional shares", () => {
+  it("rejects invalid decimal amount", () => {
     expect(() =>
-      validate(WithdrawalRequestSchema, { ...validWithdrawal, shares: 1.5 }),
+      validate(WithdrawalRequestSchema, { ...validWithdrawal, amount: "1.5.5" }),
     ).toThrow(ValidationError);
   });
 
@@ -192,7 +192,7 @@ describe("WithdrawalRequestSchema", () => {
 
   it("rejects a missing walletAddress", () => {
     expect(() =>
-      validate(WithdrawalRequestSchema, { shares: 10, asset: "XLM" }),
+      validate(WithdrawalRequestSchema, { amount: "10", asset: "XLM" }),
     ).toThrow(ValidationError);
   });
 });

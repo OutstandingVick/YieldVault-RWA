@@ -62,21 +62,19 @@ export function mapServerError(
     // Check if this is a field-level error
     if (err.details?.field) {
       const fieldMessage =
-        typeof err.details.message === "string" && err.details.message.trim()
-          ? err.details.message
-          : err.message;
-      if (fieldMessage) {
-        fieldErrors.push({
-          fieldName: err.details.field,
-          message: sanitizeErrorMessage(fieldMessage),
-        });
-        return { fieldErrors, generalError };
-      }
-    }
-
-    if (err.message?.trim()) {
+        typeof err.details.message === "string" ? err.details.message : err.message;
+      fieldErrors.push({
+        fieldName: err.details.field,
+        message: sanitizeErrorMessage(fieldMessage),
+      });
+    } else if (err.message) {
+      // General error message
       generalError = sanitizeErrorMessage(err.message);
     } else {
+      generalError = "An error occurred. Please try again.";
+    }
+
+    if (fieldErrors.length === 0 && !generalError) {
       generalError = "An error occurred. Please try again.";
     }
 

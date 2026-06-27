@@ -1,6 +1,7 @@
 import React from "react";
 import { Modal } from "./Modal";
-import { AlertTriangle, Check, Loader2, Copy } from "./icons";
+import { AlertTriangle, Check, Copy } from "./icons";
+import { Button } from "./ui/Button";
 import type { TransactionSummary } from "../types/transaction";
 import { copyTextToClipboard } from "../lib/clipboard";
 
@@ -229,34 +230,28 @@ export const TransactionConfirmationModal: React.FC<TransactionConfirmationModal
 
         {/* Action Buttons */}
         <div className="flex gap-md">
-          <button
+          <Button
             type="button"
-            className="btn btn-outline"
+            variant="outline"
             style={{ flex: 1 }}
             onClick={onCancel}
             disabled={isLoading}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={hasWarnings ? "btn btn-warning" : "btn btn-primary"}
-            style={{ flex: 2, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+            variant="primary"
+            className={hasWarnings ? "btn btn-warning" : ""}
+            style={{ flex: 2 }}
             onClick={onConfirm}
             disabled={isLoading}
+            status={isLoading ? "pending" : "idle"}
+            loadingLabel="Signing..."
+            leftIcon={!isLoading ? <Check size={18} /> : undefined}
           >
-            {isLoading ? (
-              <>
-                <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
-                Signing...
-              </>
-            ) : (
-              <>
-                <Check size={18} />
-                {confirmButtonLabel}
-              </>
-            )}
-          </button>
+            {confirmButtonLabel}
+          </Button>
         </div>
       </div>
     </Modal>

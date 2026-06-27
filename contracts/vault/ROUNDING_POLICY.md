@@ -142,7 +142,11 @@ The rounding policy is verified by:
    - Round-trip value extraction tests
    - Yield accrual impact tests
 
-3. **Integration Tests** (`src/test.rs`):
+3. **libFuzzer Harness** (`fuzz/fuzz_targets/share_price_math.rs`):
+   - Time-bounded `cargo fuzz` job in CI (60s on PR)
+   - Seed corpus documented in `fuzz/seed_fixtures/` and `fuzz/corpus/share_price_math/`
+
+4. **Integration Tests** (`src/test.rs`):
    - Multi-user deposit/withdrawal sequences
    - Share price consistency tests
    - Total supply invariant tests

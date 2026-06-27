@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "contracts/vault",
     "contracts/mock-strategy",
+    "contracts/share-price-math",
 ]
 
 [workspace.dependencies]

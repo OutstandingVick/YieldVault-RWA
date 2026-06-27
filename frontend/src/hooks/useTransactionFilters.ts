@@ -70,11 +70,12 @@ function parseIsoDate(raw: string | null): string {
   // Must match YYYY-MM-DD and be a valid calendar date
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
   const [year, month, day] = raw.split("-").map(Number);
-  const d = new Date(year, month - 1, day);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
   if (
-    d.getFullYear() !== year ||
-    d.getMonth() !== month - 1 ||
-    d.getDate() !== day
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
   ) {
     return "";
   }

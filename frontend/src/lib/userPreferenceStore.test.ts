@@ -10,6 +10,7 @@ import {
   setTransactionViewMode,
   setTransactionPageSize,
   resetUserPreferenceStore,
+  toggleTransactionColumnVisibility,
   getPreferenceStorageKey,
 } from "./userPreferenceStore";
 
@@ -94,6 +95,14 @@ describe("userPreferenceStore", () => {
           density: "invalid" as never,
           transactionViewMode: "paginated",
           transactionPageSize: 10,
+          transactionVisibleColumns: {
+            type: true,
+            status: true,
+            amount: true,
+            asset: true,
+            date: true,
+            hash: true,
+          },
         },
       },
       WALLET,
@@ -111,6 +120,29 @@ describe("userPreferenceStore", () => {
     const prefs = loadUserPreferenceStore(WALLET);
     expect(prefs.tables.transactionViewMode).toBe("infinite");
     expect(prefs.tables.transactionPageSize).toBe(50);
+  });
+
+  it("persists transaction column visibility and prevents hiding all columns", () => {
+    toggleTransactionColumnVisibility("hash", WALLET);
+    toggleTransactionColumnVisibility("asset", WALLET);
+
+    let prefs = loadUserPreferenceStore(WALLET);
+    expect(prefs.tables.transactionVisibleColumns.hash).toBe(false);
+    expect(prefs.tables.transactionVisibleColumns.asset).toBe(false);
+
+    for (const columnId of ["type", "status", "amount", "date"] as const) {
+      toggleTransactionColumnVisibility(columnId, WALLET);
+    }
+
+    prefs = loadUserPreferenceStore(WALLET);
+    expect(prefs.tables.transactionVisibleColumns).toEqual({
+      type: true,
+      status: true,
+      amount: true,
+      asset: true,
+      date: true,
+      hash: true,
+    });
   });
 
   it("resets preferences to defaults", () => {

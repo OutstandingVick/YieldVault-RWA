@@ -61,7 +61,32 @@ For a comprehensive overview of the smart contract architecture, module responsi
    cd frontend && npm install && npm run dev
    ```
 
-4. **Open browser**: http://localhost:5173
+4. **Configure frontend contract env** (required before on-chain features work):
+
+   ```bash
+   cp frontend/.env.local.example frontend/.env.local
+   # Set VITE_VAULT_CONTRACT_ID from deployment.json after a contract deploy
+   npm run validate:frontend-env -- --env-file frontend/.env.local --strict --check-rpc
+   ```
+
+5. **Open browser**: http://localhost:5173
+
+### Fund a Stellar testnet account
+
+After installing backend dependencies, fund a contributor wallet with Friendbot:
+
+```bash
+read -rsp "Testnet secret key: " TESTNET_SECRET_KEY && echo
+export TESTNET_SECRET_KEY
+node scripts/fund-testnet-account.js
+unset TESTNET_SECRET_KEY
+```
+
+To create a classic test-USDC trustline, set `TESTNET_USDC_ISSUER`. For a
+locally controlled test issuer, also set `TESTNET_USDC_ISSUER_SECRET`; the
+script will send `TESTNET_USDC_AMOUNT` (default `1000`) to the contributor
+wallet. Secrets are read only from environment variables and are never
+committed or printed.
 
 For detailed setup instructions, prerequisites, and troubleshooting, see **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)**.
 
@@ -80,7 +105,13 @@ npm run docs:api
 
 See `docs/api/README.md` for output locations. Integrators should also read
 [`docs/api/ERROR_CODE_CATALOG.md`](docs/api/ERROR_CODE_CATALOG.md) for error codes
-and remediation guidance.
+and remediation guidance, and [`docs/api/PAGINATION.md`](docs/api/PAGINATION.md) for
+deterministic cursor paging examples.
+
+**Pagination consumer examples:**
+
+- [TypeScript](./docs/examples/api_pagination_consumer.ts)
+- [Python](./docs/examples/api_pagination_consumer.py)
 
 ## Webhook Integration
 
@@ -128,9 +159,9 @@ YieldVault has comprehensive disaster recovery procedures to ensure system resil
 
 - **RTO (Recovery Time Objective):** 1 hour for critical systems
 - **RPO (Recovery Point Objective):** 15 minutes maximum data loss
-- **Runbooks:** Step-by-step recovery procedures for all failure scenarios
-
-See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedures.
+- **Runbooks:** Step-by-step recovery procedures for all failure scenarios. Key runbooks include:
+  - [Disaster Recovery Runbooks Overview](./docs/runbooks/README.md)
+  - [Replay and State Recovery Procedures](./docs/runbooks/REPLAY_PROCEDURES.md)
 
 ## Roadmap (Phases)
 

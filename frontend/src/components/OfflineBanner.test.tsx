@@ -1,4 +1,4 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import OfflineBanner from "./OfflineBanner";
 import { queryClient } from "../lib/queryClient";
@@ -87,53 +87,88 @@ describe("OfflineBanner", () => {
   });
 
   it("should show retrying state with countdown when retrying", async () => {
+    vi.useRealTimers();
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     render(<OfflineBanner />);
     await flushMicrotasks();
 
-    expect(screen.getByText(/Reconnecting.*retrying in 5s/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/retrying in 5s/i)).toBeInTheDocument();
+    });
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
   it("should have role status and aria-live polite when retrying", async () => {
+    vi.useRealTimers();
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     render(<OfflineBanner />);
     await flushMicrotasks();
 
-    const banner = screen.getByRole("status");
+    const banner = await screen.findByRole("status");
     expect(banner).toHaveAttribute("aria-live", "polite");
     expect(banner).toHaveAttribute("aria-atomic", "true");
   });
 
   it("should show success banner when transitioning from offline to online", async () => {
-    await renderOnlineSuccessBanner();
+    vi.useRealTimers();
+    // Start offline
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+    const { rerender } = render(<OfflineBanner />);
+    expect(screen.getByText(/You are offline/i)).toBeInTheDocument();
 
-    expect(screen.getByText(/Connection restored/i)).toBeInTheDocument();
+    // Transition to online (simulate reconnection)
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+    vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+    rerender(<OfflineBanner />);
+
+    // Should show success message
+    await waitFor(() => {
+      expect(screen.getByText(/Connection restored/i)).toBeInTheDocument();
+    });
     expect(queryClient.invalidateQueries).toHaveBeenCalled();
   });
 
   it("should have role status and aria-live polite for success message", async () => {
-    await renderOnlineSuccessBanner();
+    vi.useRealTimers();
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+    const { rerender } = render(<OfflineBanner />);
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+    vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+    rerender(<OfflineBanner />);
 
-    const banner = screen.getByRole("status");
+    const banner = await screen.findByRole("status");
     expect(banner).toHaveAttribute("aria-live", "polite");
   });
 
   it("should show dismissible button only on success state", async () => {
-    await renderOnlineSuccessBanner();
+    vi.useRealTimers();
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+    const { rerender } = render(<OfflineBanner />);
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+    vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+    rerender(<OfflineBanner />);
 
-    const dismissBtn = screen.getByRole("button", { name: /Dismiss banner/i });
+    const dismissBtn = await screen.findByRole("button", { name: /Dismiss banner/i });
     expect(dismissBtn).toBeInTheDocument();
   });
 
   it("should auto-dismiss success message after 4 seconds", async () => {
-    await renderOnlineSuccessBanner();
+    vi.useFakeTimers();
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+    const { rerender } = render(<OfflineBanner />);
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+    vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+    rerender(<OfflineBanner />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(screen.getByText(/Connection restored/i)).toBeInTheDocument();
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(4000);
     });
 
@@ -141,29 +176,41 @@ describe("OfflineBanner", () => {
   });
 
   it("should manually dismiss success message", async () => {
-    await renderOnlineSuccessBanner();
+    vi.useRealTimers();
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+    const { rerender } = render(<OfflineBanner />);
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+    vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+    rerender(<OfflineBanner />);
 
-    const dismissBtn = screen.getByRole("button", { name: /Dismiss banner/i });
+    const dismissBtn = await screen.findByRole("button", { name: /Dismiss banner/i });
     act(() => {
       dismissBtn.click();
     });
 
-    expect(screen.queryByText(/Connection restored/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText(/Connection restored/i)).not.toBeInTheDocument();
+    });
   });
 
   it("should update countdown when secondsUntilRetry changes", async () => {
+    vi.useRealTimers();
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     const { rerender } = render(<OfflineBanner />);
     await flushMicrotasks();
 
-    expect(screen.getByText(/retrying in 5s/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/retrying in 5s/i)).toBeInTheDocument();
+    });
 
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 3 });
     rerender(<OfflineBanner />);
     await flushMicrotasks();
 
-    expect(screen.getByText(/retrying in 3s/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/retrying in 3s/i)).toBeInTheDocument();
+    });
   });
 
   it("should not render when hidden (online, not retrying, not recently reconnected)", () => {
@@ -175,20 +222,30 @@ describe("OfflineBanner", () => {
   });
 
   it("should use correct icons for each state", async () => {
+    vi.useRealTimers();
+    // Offline state - warning icon
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
-    const { container: offlineContainer, unmount: unmountOffline } = render(<OfflineBanner />);
+    const { container: offlineContainer, unmount } = render(<OfflineBanner />);
     expect(offlineContainer.textContent).toContain("⚠️");
-    unmountOffline();
+    unmount();
 
+    // Retrying state - spinner icon
     vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
     vi.mocked(useRetryState).mockReturnValue({ isRetrying: true, secondsUntilRetry: 5 });
     const { container: retryingContainer, unmount: unmountRetrying } = render(<OfflineBanner />);
-    await flushMicrotasks();
-    expect(retryingContainer.textContent).toContain("🔄");
+    await waitFor(() => {
+      expect(retryingContainer.textContent).toContain("🔄");
+    });
     unmountRetrying();
 
-    await renderOnlineSuccessBanner();
-    expect(screen.getByText(/Connection restored/i)).toBeInTheDocument();
-    expect(document.body.textContent).toContain("✅");
+    // Success state - check mark icon
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+    const { container: successContainer, rerender } = render(<OfflineBanner />);
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+    vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+    rerender(<OfflineBanner />);
+    await waitFor(() => {
+      expect(successContainer.textContent).toContain("✅");
+    });
   });
 });

@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
   return {
     resolve: {
       alias: {
+        "@yieldvault/api-schemas": path.resolve(__dirname, "../packages/api-schemas/src/index.ts"),
         "es-toolkit/compat/sortBy": path.resolve(__dirname, "src/shims/esToolkitSortBy.ts"),
       },
     },

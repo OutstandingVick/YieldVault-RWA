@@ -65,7 +65,7 @@ impl StrategyTrait for BenjiStrategy {
         // once the Franklin Templeton BENJI contract address is confirmed on Stellar mainnet.
         // The 1:1 assumption holds as long as BENJI NAV ≈ 1 USD; update total_value for
         // non-unity NAV by querying an oracle for the BENJI/USDC exchange rate.
-        let benji_client = token::Client::new(&env, &benji_addr);
+        let benji_client = token::StellarAssetClient::new(&env, &benji_addr);
         benji_client.mint(&env.current_contract_address(), &amount);
     }
 
