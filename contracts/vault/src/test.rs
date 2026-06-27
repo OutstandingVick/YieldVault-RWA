@@ -810,7 +810,7 @@ fn test_update_shipment_status_same_status_is_noop() {
 
     let (vault, _, _, _) = setup_vault(&env);
     vault.add_shipment(&7, &ShipmentStatus::Pending);
-    vault.update_shipment_status(&7, &ShipmentStatus::Pending); // no-op, must not panic.
+    vault.update_shipment_status(&7, &ShipmentStatus::Pending); // no-op, must not panic
 
     let page = vault.shipment_ids_by_status(&ShipmentStatus::Pending, &None, &10);
     assert_eq!(page.shipment_ids, Vec::from_array(&env, [7u64]));
@@ -2406,8 +2406,6 @@ fn test_admin_param_change_interval_applies_across_setters() {
     let blocked = vault.try_set_dao_threshold(&5);
     assert_eq!(blocked, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 }
-
-
 
 // ─── #806: invest/divest return VaultError when strategy unset ───────────────
 
