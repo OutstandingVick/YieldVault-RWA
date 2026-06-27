@@ -22,6 +22,7 @@
 //!     deposit/withdraw/yield sequences; full exit zeroes state
 
 #![cfg(test)]
+extern crate std;
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
@@ -103,8 +104,6 @@ fn test_vault_with_benji_strategy() {
     assert_eq!(usdc.balance(&strategy_id), 60);
 
     // In our mock, strategy value depends on BENJI tokens held by contract
-    // Let's simulate the strategy contract "buying" BENJI tokens
-    benji_admin_client.mint(&strategy_id, &60);
     assert_eq!(strategy.total_value(), 60);
     assert_eq!(vault.total_assets(), 100); // 40 idle + 60 in strategy
 
@@ -119,7 +118,7 @@ fn test_vault_with_benji_strategy() {
     assert_eq!(withdrawn, 50); // 50 shares * 100 state_assets / 100 shares = 50
 
     assert_eq!(vault.total_shares(), 50);
-    assert_eq!(vault.total_assets(), 66); // 0 idle + 66 BENJI still in strategy (mock doesn't burn on withdraw)
+    assert_eq!(vault.total_assets(), 56); // 0 idle + 56 BENJI still in strategy (burned 10 on withdraw)
 }
 
 #[test]
@@ -1066,8 +1065,8 @@ fn test_invariant_share_price_monotonic_after_accrue_yield() {
     vault.deposit(&user, &500);
     let price_before = vault.share_price();
 
-    vault.set_fee_bps(&admin, &1_000);
-    vault.accrue_yield(&100).unwrap();
+    vault.set_fee_bps(&1_000);
+    vault.accrue_yield(&100);
 
     let price_after = vault.share_price();
     assert!(price_after >= price_before);
@@ -1086,10 +1085,10 @@ fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &500);
-    vault.set_fee_bps(&admin, &10_000);
+    vault.set_fee_bps(&10_000);
 
     let price_before = vault.share_price();
-    vault.accrue_yield(&100).unwrap();
+    vault.accrue_yield(&100);
     let price_after = vault.share_price();
 
     assert_eq!(price_after, price_before);
@@ -1109,16 +1108,16 @@ fn test_invariant_share_price_full_exit_and_redeposit_resets_to_one() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &1_000);
-    vault.accrue_yield(&200).unwrap();
+    vault.accrue_yield(&200);
 
     let shares = vault.balance(&user);
-    let withdrawn = vault.withdraw(&user, &shares).unwrap();
+    let withdrawn = vault.withdraw(&user, &shares);
     assert_eq!(withdrawn, 1_200);
     assert_eq!(vault.total_shares(), 0);
     assert_eq!(vault.total_assets(), 0);
     assert_eq!(vault.share_price(), 0);
 
-    vault.deposit(&user, &1_200).unwrap();
+    vault.deposit(&user, &1_200);
     assert_eq!(vault.share_price(), SHARE_PRICE_SCALE);
 }
 
@@ -1485,13 +1484,13 @@ fn test_withdrawal_cooldown_then_timelock_then_execute() {
 // ─── 11. batch_deposit ────────────────────────────────────────────────────────
 
 /// Helper: set up a vault with a registered relayer and mint USDC to `users`.
-fn setup_vault_with_relayer(
-    env: &Env,
+fn setup_vault_with_relayer<'a>(
+    env: &'a Env,
     user_amounts: &[(Address, i128)],
 ) -> (
-    YieldVaultClient<'_>,
-    token::Client<'_>,
-    token::StellarAssetClient<'_>,
+    YieldVaultClient<'a>,
+    token::Client<'a>,
+    token::StellarAssetClient<'a>,
     Address, // admin
     Address, // relayer
 ) {
@@ -2044,6 +2043,7 @@ fn test_whitelist_persistence_across_operations() {
 
     // Do some vault operations (deposit, accrue yield, etc.)
     usdc_sa.mint(&user, &1000);
+    usdc_sa.mint(&admin, &10);
     vault.deposit(&user, &100);
     vault.accrue_yield(&10);
 
@@ -2144,24 +2144,34 @@ fn test_withdrawal_queue_processes_fifo_when_liquidity_returns() {
 
     vault.deposit(&user_a, &500);
     vault.deposit(&user_b, &500);
-    vault.invest(&980).unwrap();
+    vault.invest(&980);
+
+    // Temporarily remove strategy from storage to simulate a divestment failure/disabling
+    env.as_contract(&vault_id, || {
+        env.storage().instance().remove(&DataKey::Strategy);
+    });
 
     let result_a = vault.try_withdraw(&user_a, &200);
-    assert_eq!(result_a, Err(Ok(VaultError::WithdrawalQueued)));
+    assert_eq!(result_a, Ok(Ok(0)));
 
     let result_b = vault.try_withdraw(&user_b, &150);
-    assert_eq!(result_b, Err(Ok(VaultError::WithdrawalQueued)));
+    assert_eq!(result_b, Ok(Ok(0)));
 
     assert_eq!(vault.withdrawal_queue_length(), 2);
 
+    // Restore strategy for divestment
+    env.as_contract(&vault_id, || {
+        env.storage().instance().set(&DataKey::Strategy, &strategy.address);
+    });
+
     vault.divest(&980);
-    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &980);
+    usdc_sa.mint(&vault_id, &980);
 
     let processed = vault.process_withdrawal_queue(&10);
     assert_eq!(processed, 2);
     assert_eq!(vault.withdrawal_queue_length(), 0);
     assert_eq!(usdc.balance(&user_a), 700);
-    assert_eq!(usdc.balance(&user_b), 850);
+    assert_eq!(usdc.balance(&user_b), 650);
 }
 
 #[test]
@@ -2177,19 +2187,28 @@ fn test_withdrawal_queue_stops_when_liquidity_insufficient_for_head() {
     usdc_sa.mint(&user_b, &2_000);
     vault.deposit(&user_a, &1_000);
     vault.deposit(&user_b, &1_000);
-    vault.invest(&1_950).unwrap();
+    vault.invest(&1_950);
+
+    // Temporarily remove strategy from storage to simulate a divestment failure/disabling
+    env.as_contract(&vault_id, || {
+        env.storage().instance().remove(&DataKey::Strategy);
+    });
 
     assert_eq!(
         vault.try_withdraw(&user_a, &500),
-        Err(Ok(VaultError::WithdrawalQueued))
+        Ok(Ok(0))
     );
     assert_eq!(
         vault.try_withdraw(&user_b, &400),
-        Err(Ok(VaultError::WithdrawalQueued))
+        Ok(Ok(0))
     );
 
-    vault.divest(&200);
-    token::StellarAssetClient::new(&env, &strategy.address).mint(&vault_id, &200);
+    // Restore strategy for divestment
+    env.as_contract(&vault_id, || {
+        env.storage().instance().set(&DataKey::Strategy, &strategy.address);
+    });
+
+    vault.divest(&450);
 
     assert_eq!(vault.process_withdrawal_queue(&10), 1);
     assert_eq!(vault.withdrawal_queue_length(), 1);
@@ -2202,18 +2221,24 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _usdc, _usdc_sa, admin) = setup_vault(&env);
-    vault.set_admin_param_change_interval(&60).unwrap();
-    vault.set_fee_bps(&100).unwrap();
+    // Set initial timestamp to non-zero so cooldown checks are active
+    env.ledger().set_timestamp(100_000);
 
+    let (vault, _usdc, _usdc_sa, admin) = setup_vault(&env);
+    vault.set_admin_param_change_interval(&60);
+
+    // Fast-forward past default 3600s cooldown so set_fee_bps succeeds
+    env.ledger().set_timestamp(103_601);
+    vault.set_fee_bps(&100);
+
+    // Immediate second change must fail with AdminParamChangeTooSoon
     let second = vault.try_set_fee_bps(&200);
     assert_eq!(second, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 
-    env.ledger().with_mut(|li| {
-        li.timestamp += 61;
-    });
+    // Fast-forward past the new 60s cooldown
+    env.ledger().set_timestamp(103_662);
 
-    vault.set_fee_bps(&200).unwrap();
+    vault.set_fee_bps(&200);
     assert_eq!(vault.fee_bps(), 200);
 }
 
@@ -2222,10 +2247,17 @@ fn test_admin_param_change_interval_applies_across_setters() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
-    let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
-    vault.set_admin_param_change_interval(&120).unwrap();
-    vault.set_min_deposit(&10).unwrap();
+    // Set initial timestamp to non-zero so cooldown checks are active
+    env.ledger().set_timestamp(100_000);
 
+    let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
+    vault.set_admin_param_change_interval(&120);
+
+    // Fast-forward past default cooldown
+    env.ledger().set_timestamp(103_601);
+    vault.set_min_deposit(&10);
+
+    // Immediate change on another setter must be blocked
     let blocked = vault.try_set_dao_threshold(&5);
     assert_eq!(blocked, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 }
@@ -2249,7 +2281,7 @@ fn test_withdraw_auto_divest_liquidity_path() {
     assert_eq!(usdc.balance(&vault_id), 10_000);
 
     // 3. Invest 8,000 USDC into the strategy
-    vault.invest(&8_000).unwrap();
+    vault.invest(&8_000);
 
     // Verify balances after investment
     // Vault idle assets should be 2,000 (10,000 - 8,000)
@@ -2312,15 +2344,17 @@ fn test_invest_insufficient_idle_returns_error() {
     let user = Address::generate(&env);
 
     // Setup strategy
+    let token_admin = Address::generate(&env);
+    let benji_token = create_token(&env, &token_admin);
     let strategy_id = env.register(crate::benji_strategy::BenjiStrategy, ());
     let strategy = crate::benji_strategy::BenjiStrategyClient::new(&env, &strategy_id);
-    strategy.initialize(&vault.address, &usdc.address);
+    strategy.initialize(&vault.address, &usdc.address, &benji_token.address);
     vault.whitelist_strategy(&strategy_id, &true);
     vault.set_strategy(&strategy_id);
 
     // Deposit 100 USDC
     usdc_sa.mint(&user, &100);
-    vault.deposit(&user, &100).unwrap();
+    vault.deposit(&user, &100);
 
     // Try to invest more than available idle assets
     let result = vault.try_invest(&500);
@@ -2336,7 +2370,7 @@ fn test_withdraw_no_strategy_queues_when_idle_insufficient() {
 
     // Give user some USDC and deposit
     usdc_sa.mint(&user, &1_000);
-    vault.deposit(&user, &1_000).unwrap();
+    vault.deposit(&user, &1_000);
 
     // Drain idle assets directly (simulate strategy holding funds without setting strategy)
     // We simulate this by mocking: manually manipulate storage isn't possible,

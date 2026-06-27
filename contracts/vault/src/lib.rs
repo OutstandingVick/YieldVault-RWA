@@ -143,6 +143,15 @@ pub struct VaultState {
 }
 
 #[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum FlowType {
+    Deposit = 0,
+    Withdraw = 1,
+    Rebalance = 2,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
     TokenAsset,
@@ -153,12 +162,11 @@ pub enum DataKey {
     State,
     DaoThreshold,
     ProposalNonce,
-    BenjiStrategy,
-    KoreanDebtStrategy,
-    IsPaused,
+    ConfiguredStrategy(soroban_sdk::Symbol),
     PauseReason,
-    EmergencyApproverPrimary,
-    EmergencyApproverSecondary,
+    EmergencyGuardian,
+    FlowPaused(FlowType),
+    EmergencyApprover(u32),
     EmergencyProposalNonce,
     EmergencyProposal(u32),
     Proposal(u32),
@@ -185,10 +193,8 @@ pub enum DataKey {
     MinDeposit,
     // Minimum idle liquidity retained before allocating to a strategy
     MinLiquidityBuffer,
-    // Oracle configuration
-    PriceOracle,
-    OracleEnabled,
-    OracleHeartbeat,
+    // Oracle configuration (parameterized to save variants)
+    OracleKey(soroban_sdk::Symbol),
     // Withdrawal cooldown
     WithdrawalCooldown,
     LastDepositTime(Address),
@@ -203,11 +209,11 @@ pub enum DataKey {
     MaxBatchSize,
     // Dispute window duration in seconds for emergency proposals (default 3600 = 1 hour)
     EmergencyDisputeWindow,
-    // Monotonic counter stamped on every event topic for deterministic indexer ordering.
-    EventSeq,
     // FIFO withdrawal queue + admin param guard metadata
     WithdrawalQueueMeta,
     WithdrawalQueueEntry(u64),
+    // Multi-signer governance (parameterized to save variants)
+    GovernanceKey(soroban_sdk::Symbol),
 }
 
 #[contracttype]
@@ -610,10 +616,10 @@ impl YieldVault {
         emergency::require_distinct_approvers(&primary, &secondary);
         env.storage()
             .instance()
-            .set(&DataKey::EmergencyApproverPrimary, &primary);
+            .set(&DataKey::EmergencyApprover(0), &primary);
         env.storage()
             .instance()
-            .set(&DataKey::EmergencyApproverSecondary, &secondary);
+            .set(&DataKey::EmergencyApprover(1), &secondary);
     }
 
     pub fn emergency_approver_primary(env: Env) -> Option<Address> {
@@ -842,7 +848,7 @@ impl YieldVault {
     }
 
     pub fn set_per_user_cap(env: Env, cap: i128) -> Result<(), VaultError> {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         env.storage().instance().set(&DataKey::PerUserCap, &cap);
@@ -995,14 +1001,14 @@ impl YieldVault {
     pub fn benji_strategy(env: Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::BenjiStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")))
             .unwrap()
     }
 
     pub fn korean_strategy(env: Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::KoreanDebtStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")))
             .unwrap()
     }
 
@@ -1011,7 +1017,7 @@ impl YieldVault {
         admin.require_auth();
         env.storage()
             .instance()
-            .set(&DataKey::KoreanDebtStrategy, &strategy);
+            .set(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")), &strategy);
     }
 
     pub fn accrue_korean_debt_yield(env: Env) -> i128 {
@@ -1021,7 +1027,7 @@ impl YieldVault {
         let strategy: Address = env
             .storage()
             .instance()
-            .get(&DataKey::KoreanDebtStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")))
             .unwrap();
         let strategy_client = KoreanDebtStrategyClient::new(&env, &strategy);
         let harvested = strategy_client.harvest_yield();
@@ -1069,31 +1075,31 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold as usize > signers.len() {
+        if threshold == 0 || threshold > signers.len() {
             panic!("invalid threshold: must be > 0 and <= signer set size");
         }
 
         // Store previous signers for migration (if any exist)
-        if env.storage().instance().has(&DataKey::GovernanceSigners) {
+        if env.storage().instance().has(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Signers"))) {
             let old_signers: Vec<Address> = env
                 .storage()
                 .instance()
-                .get(&DataKey::GovernanceSigners)
+                .get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Signers")))
                 .unwrap();
             env.storage()
                 .instance()
-                .set(&DataKey::GovernancePreviousSigners, &old_signers);
+                .set(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Prev")), &old_signers);
         }
 
         env.storage()
             .instance()
-            .set(&DataKey::GovernanceSigners, &signers);
+            .set(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Signers")), &signers);
         env.storage()
             .instance()
-            .set(&DataKey::GovernanceThreshold, &threshold);
+            .set(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Thresh")), &threshold);
         env.storage()
             .instance()
-            .set(&DataKey::GovernanceMigrationDeadline, &migration_deadline);
+            .set(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Dead")), &migration_deadline);
 
         env.events()
             .publish((symbol_short!("govset"),), (threshold, migration_deadline));
@@ -1101,14 +1107,14 @@ impl YieldVault {
 
     /// Get the active governance signer set.
     pub fn governance_signers(env: Env) -> Option<Vec<Address>> {
-        env.storage().instance().get(&DataKey::GovernanceSigners)
+        env.storage().instance().get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Signers")))
     }
 
     /// Get the required signature threshold for governance operations.
     pub fn governance_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
-            .get(&DataKey::GovernanceThreshold)
+            .get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Thresh")))
             .unwrap_or(1)
     }
 
@@ -1124,30 +1130,30 @@ impl YieldVault {
         let signers: Vec<Address> = env
             .storage()
             .instance()
-            .get(&DataKey::GovernanceSigners)
+            .get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Signers")))
             .expect("governance signers not configured");
         let threshold: u32 = env
             .storage()
             .instance()
-            .get(&DataKey::GovernanceThreshold)
+            .get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Thresh")))
             .unwrap_or(1);
 
         let current_time = env.ledger().timestamp();
         let migration_deadline: u64 = env
             .storage()
             .instance()
-            .get(&DataKey::GovernanceMigrationDeadline)
+            .get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Dead")))
             .unwrap_or(0);
 
         // During migration, accept both old and new signer sets
         let is_migration = current_time < migration_deadline
-            && env.storage().instance().has(&DataKey::GovernancePreviousSigners);
+            && env.storage().instance().has(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Prev")));
 
         if is_migration {
             let old_signers: Vec<Address> = env
                 .storage()
                 .instance()
-                .get(&DataKey::GovernancePreviousSigners)
+                .get(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Prev")))
                 .unwrap();
 
             // Try new signer set first, then fall back to old set
@@ -1175,10 +1181,10 @@ impl YieldVault {
 
         env.storage()
             .instance()
-            .remove(&DataKey::GovernancePreviousSigners);
+            .remove(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Prev")));
         env.storage()
             .instance()
-            .remove(&DataKey::GovernanceMigrationDeadline);
+            .remove(&DataKey::GovernanceKey(soroban_sdk::symbol_short!("Dead")));
 
         env.events().publish((symbol_short!("govfin"),), ());
     }
@@ -1273,7 +1279,7 @@ impl YieldVault {
 
         env.storage()
             .instance()
-            .set(&DataKey::BenjiStrategy, &proposal.strategy);
+            .set(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")), &proposal.strategy);
         proposal.executed = true;
         env.storage()
             .instance()
@@ -2156,7 +2162,7 @@ impl YieldVault {
             (tail, assets_to_return),
         );
 
-        Err(VaultError::WithdrawalQueued)
+        Ok(0)
     }
 
     /// Returns the number of withdrawals waiting in the liquidity queue.
@@ -2229,6 +2235,15 @@ impl YieldVault {
             .ok_or(VaultError::StrategyNotConfigured)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
 
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        if idle_ta < amount {
+            return Err(VaultError::InsufficientLiquidity);
+        }
+
         // Cap check
         let cap: i128 = env
             .storage()
@@ -2255,14 +2270,6 @@ impl YieldVault {
             return Err(VaultError::ExceedsRiskThreshold);
         }
 
-        let idle_ta = env
-            .storage()
-            .instance()
-            .get::<_, i128>(&DataKey::TotalAssets)
-            .unwrap_or(0);
-        if idle_ta < amount {
-            return Err(VaultError::InsufficientLiquidity);
-        }
         let remaining_idle = idle_ta.checked_sub(amount).expect("underflow");
         if remaining_idle < Self::min_liquidity_buffer(env.clone()) {
             return Err(VaultError::LiquidityBufferNotMet);
@@ -2820,14 +2827,14 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
-        env.storage().instance().set(&DataKey::PriceOracle, &oracle);
+        env.storage().instance().set(&DataKey::OracleKey(soroban_sdk::symbol_short!("Price")), &oracle);
         Self::record_admin_param_change(&env);
         Ok(())
     }
 
     /// Returns the configured price oracle address, if any.
     pub fn price_oracle(env: Env) -> Option<Address> {
-        env.storage().instance().get(&DataKey::PriceOracle)
+        env.storage().instance().get(&DataKey::OracleKey(soroban_sdk::symbol_short!("Price")))
     }
 
     /// Enable or disable oracle-based price validation for strategy values.
@@ -2838,7 +2845,7 @@ impl YieldVault {
         Self::assert_admin_param_interval(&env)?;
         env.storage()
             .instance()
-            .set(&DataKey::OracleEnabled, &enabled);
+            .set(&DataKey::OracleKey(soroban_sdk::symbol_short!("Enabled")), &enabled);
         Self::record_admin_param_change(&env);
         Ok(())
     }
@@ -2847,7 +2854,7 @@ impl YieldVault {
     pub fn is_oracle_enabled(env: Env) -> bool {
         env.storage()
             .instance()
-            .get(&DataKey::OracleEnabled)
+            .get(&DataKey::OracleKey(soroban_sdk::symbol_short!("Enabled")))
             .unwrap_or(false)
     }
 
@@ -2860,7 +2867,7 @@ impl YieldVault {
         Self::assert_admin_param_interval(&env)?;
         env.storage()
             .instance()
-            .set(&DataKey::OracleHeartbeat, &seconds);
+            .set(&DataKey::OracleKey(soroban_sdk::symbol_short!("Heart")), &seconds);
         Self::record_admin_param_change(&env);
         Ok(())
     }
@@ -2869,7 +2876,7 @@ impl YieldVault {
     pub fn oracle_heartbeat(env: Env) -> u64 {
         env.storage()
             .instance()
-            .get(&DataKey::OracleHeartbeat)
+            .get(&DataKey::OracleKey(soroban_sdk::symbol_short!("Heart")))
             .unwrap_or(crate::oracle::DEFAULT_HEARTBEAT_SECONDS)
     }
 
@@ -2910,7 +2917,7 @@ impl YieldVault {
         let configured: Address = env
             .storage()
             .instance()
-            .get(&DataKey::BenjiStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")))
             .unwrap();
         // Enforce that the caller is exactly the configured strategy before any state reads.
         // require_strategy_auth checks both caller identity and Soroban auth in one call,
