@@ -44,7 +44,7 @@ export function useWalletHeartbeat(
       const elapsed = performance.now() - start;
 
       if (result?.isConnected) {
-        setHeartbeat((prev) => ({
+        setHeartbeat((_prev) => ({
           state: elapsed > DEGRADED_LATENCY_THRESHOLD_MS ? "degraded" : "healthy",
           latencyMs: Math.round(elapsed),
           lastChecked: new Date(),
