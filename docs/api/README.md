@@ -114,6 +114,15 @@ curl "http://localhost:3000/api/transactions?limit=20&cursor=base64encodedcursor
 - [TypeScript pagination consumer](../examples/api_pagination_consumer.ts)
 - [Python pagination consumer](../examples/api_pagination_consumer.py)
 
+### API Versioning
+
+The API uses URL path versioning (`/api/v1/`). All new integrations must target the
+versioned base path. Unversioned legacy paths redirect with `301` and will be removed
+after the transition window.
+
+See [VERSIONING.md](./VERSIONING.md) for the complete versioning scheme, deprecation
+windows, sunset policy, and client migration guide.
+
 ### Rate Limiting
 
 API endpoints are rate limited. See [RATE_LIMITING.md](./RATE_LIMITING.md) for details.
@@ -300,6 +309,9 @@ GET /api/vault/history
 ```
 
 ## Changelog
+
+### Version 1.1.0 (2026-06-27)
+- Added API versioning and deprecation policy ([VERSIONING.md](./VERSIONING.md))
 
 ### Version 1.0.0 (2026-03-28)
 - Initial API documentation

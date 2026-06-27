@@ -21,6 +21,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 - Add release notes playbook and changelog curation guidelines (#618)
+- Add API versioning and deprecation policy with sunset windows, migration guide, and breaking-change classification (#610)
 
 ### Chores
 - Resolve merge conflict in Skeleton and dateUtils imports
