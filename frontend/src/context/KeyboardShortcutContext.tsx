@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useKeyboardShortcuts, formatShortcut } from '../hooks/useKeyboardShortcuts';
 import type { ShortcutDefinition } from '../hooks/useKeyboardShortcuts';
 import { useTranslation } from '../i18n';
+import { prefetchRoute, type PrefetchableRoute } from '../lib/routePrefetch';
 
 interface KeyboardShortcutContextValue {
   shortcuts: ShortcutDefinition[];
@@ -31,6 +32,11 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
+  const navigateWithPrefetch = useCallback((path: PrefetchableRoute) => {
+    prefetchRoute(path);
+    navigate(path);
+  }, [navigate]);
+
   const openHelpModal = useCallback(() => {
     setIsHelpModalOpen(true);
   }, []);
@@ -51,25 +57,25 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
     // ── Navigation ──
     {
       key: 'g',
-      action: () => navigate('/'),
+      action: () => navigateWithPrefetch('/'),
       description: t('commands.goToVaults'),
       scope: t('commands.scopes.navigation')
     },
     {
       key: 'p',
-      action: () => navigate('/portfolio'),
+      action: () => navigateWithPrefetch('/portfolio'),
       description: t('commands.goToPortfolio'),
       scope: t('commands.scopes.navigation')
     },
     {
       key: 'a',
-      action: () => navigate('/analytics'),
+      action: () => navigateWithPrefetch('/analytics'),
       description: t('commands.goToAnalytics'),
       scope: t('commands.scopes.navigation')
     },
     {
       key: 'h',
-      action: () => navigate('/transactions'),
+      action: () => navigateWithPrefetch('/transactions'),
       description: t('commands.goToHistory'),
       scope: t('commands.scopes.navigation')
     },
@@ -136,7 +142,7 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
       description: t('commands.closeModal'),
       scope: t('commands.scopes.general')
     }
-  ], [navigate, openHelpModal, closeHelpModal, openPalette, closePalette, walletAddress, t]);
+  ], [navigateWithPrefetch, openHelpModal, closeHelpModal, openPalette, closePalette, walletAddress, t]);
 
   useKeyboardShortcuts(shortcuts, true);
 

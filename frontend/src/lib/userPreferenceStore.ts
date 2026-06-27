@@ -19,6 +19,26 @@ export const TABLE_DENSITY_VALUES: readonly TableDensity[] = [
 export const TRANSACTION_PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 export type TransactionPageSize = (typeof TRANSACTION_PAGE_SIZE_OPTIONS)[number];
 
+export const TRANSACTION_COLUMN_IDS = [
+  "type",
+  "status",
+  "amount",
+  "asset",
+  "date",
+  "hash",
+] as const;
+export type TransactionColumnId = (typeof TRANSACTION_COLUMN_IDS)[number];
+export type TransactionVisibleColumns = Record<TransactionColumnId, boolean>;
+
+export const DEFAULT_TRANSACTION_VISIBLE_COLUMNS: TransactionVisibleColumns = {
+  type: true,
+  status: true,
+  amount: true,
+  asset: true,
+  date: true,
+  hash: true,
+};
+
 export interface ChartModePreferences {
   /** Default visualization mode for vault performance charts */
   vaultPerformance: ChartMode;
@@ -32,6 +52,7 @@ export interface TablePreferences {
   density: TableDensity;
   transactionViewMode: TransactionViewMode;
   transactionPageSize: TransactionPageSize;
+  transactionVisibleColumns: TransactionVisibleColumns;
 }
 
 export interface UserPreferenceStoreData {
@@ -60,6 +81,7 @@ export const DEFAULT_TABLE_PREFERENCES: TablePreferences = {
   density: "comfortable",
   transactionViewMode: "paginated",
   transactionPageSize: 10,
+  transactionVisibleColumns: { ...DEFAULT_TRANSACTION_VISIBLE_COLUMNS },
 };
 
 export const DEFAULT_USER_PREFERENCE_STORE: UserPreferenceStoreData = {
@@ -89,6 +111,28 @@ function isTransactionPageSize(value: unknown): value is TransactionPageSize {
     typeof value === "number" &&
     (TRANSACTION_PAGE_SIZE_OPTIONS as readonly number[]).includes(value)
   );
+}
+
+function mergeTransactionVisibleColumns(
+  partial?: Partial<TransactionVisibleColumns>,
+): TransactionVisibleColumns {
+  const merged: TransactionVisibleColumns = {
+    ...DEFAULT_TRANSACTION_VISIBLE_COLUMNS,
+    ...partial,
+  };
+
+  for (const id of TRANSACTION_COLUMN_IDS) {
+    if (typeof merged[id] !== "boolean") {
+      merged[id] = DEFAULT_TRANSACTION_VISIBLE_COLUMNS[id];
+    }
+  }
+
+  const visibleCount = TRANSACTION_COLUMN_IDS.filter((id) => merged[id]).length;
+  if (visibleCount === 0) {
+    return { ...DEFAULT_TRANSACTION_VISIBLE_COLUMNS };
+  }
+
+  return merged;
 }
 
 function parsePageSize(raw: string | null): TransactionPageSize | undefined {
@@ -165,6 +209,9 @@ function mergeTablePreferences(
     transactionPageSize: isTransactionPageSize(merged.transactionPageSize)
       ? merged.transactionPageSize
       : DEFAULT_TABLE_PREFERENCES.transactionPageSize,
+    transactionVisibleColumns: mergeTransactionVisibleColumns(
+      merged.transactionVisibleColumns,
+    ),
   };
 }
 
@@ -323,6 +370,42 @@ export function setTransactionPageSize(
       ...prev,
       tables: { ...prev.tables, transactionPageSize: pageSize },
     }),
+    walletAddress,
+  );
+}
+
+export function setTransactionVisibleColumns(
+  columns: TransactionVisibleColumns,
+  walletAddress?: string | null,
+): UserPreferenceStoreData {
+  return updateUserPreferenceStore(
+    (prev) => ({
+      ...prev,
+      tables: {
+        ...prev.tables,
+        transactionVisibleColumns: mergeTransactionVisibleColumns(columns),
+      },
+    }),
+    walletAddress,
+  );
+}
+
+export function toggleTransactionColumnVisibility(
+  columnId: TransactionColumnId,
+  walletAddress?: string | null,
+): UserPreferenceStoreData {
+  return updateUserPreferenceStore(
+    (prev) => {
+      const current = prev.tables.transactionVisibleColumns;
+      const next = mergeTransactionVisibleColumns({
+        ...current,
+        [columnId]: !current[columnId],
+      });
+      return {
+        ...prev,
+        tables: { ...prev.tables, transactionVisibleColumns: next },
+      };
+    },
     walletAddress,
   );
 }

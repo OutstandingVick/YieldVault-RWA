@@ -288,6 +288,15 @@ export const es = {
     headingAccent: "Acceso descentralizado.",
     description: "Deposita USDC para ganar rendimiento estable y predecible respaldado por deuda soberana tokenizada y activos del mundo real.",
   },
+  securityOffer: {
+    badge: "Revisión de seguridad pre-mainnet",
+    title: "Auditoría de seguridad inicial gratuita antes del mainnet",
+    description:
+      "Ofrecemos una revisión inicial gratuita de contratos inteligentes y frontend para participantes tempranos mientras YieldVault opera en testnet.",
+    cta: "Solicitar auditoría gratuita",
+    disclaimer: "Disponibilidad limitada · Sin obligación",
+    emailSubject: "Solicitud de auditoría de seguridad pre-mainnet de YieldVault",
+  },
   withdrawal: {
     title: "Confirmar retiro",
     subtitle: "Por favor, revisa los detalles antes de confirmar tu retiro.",
@@ -421,6 +430,11 @@ export const es = {
     liveStatus: "Estado en vivo",
     dismissTimeline: "Descartar línea de tiempo",
     tableCaption: "Historial de transacciones",
+    columns: {
+      title: "Columnas visibles",
+      button: "Columnas",
+      toggle: "Personalizar columnas visibles de la tabla de transacciones",
+    },
   },
   txDetail: {
     title: "Detalles de la transacción",
