@@ -1,5 +1,6 @@
 import { logger } from './middleware/structuredLogging';
-import { ENDPOINT_SLA_REGISTRY, resolveLatencyBudgetMs, EndpointType } from './endpointSlaRegistry';
+import { ENDPOINT_SLA_REGISTRY, resolveLatencyBudgetMs, EndpointType, getEndpointSla } from './endpointSlaRegistry';
+import { recordSloBreachAlert, endpointSloP95LatencyMs, endpointSloBudgetMs, endpointSloBreach } from './metrics';
 
 export { EndpointType } from './endpointSlaRegistry';
 
@@ -261,6 +262,7 @@ export class LatencyMonitoringService {
     };
     
     tracker.recordAlert();
+    this.recordSloBreachMetric(endpoint, tracker.endpointType);
     await this.sendAlerts([violation]);
     
     logger.log('info', 'Immediate SLO breach alert triggered', {
@@ -284,6 +286,7 @@ export class LatencyMonitoringService {
         });
         
         tracker.recordAlert();
+        this.recordSloBreachMetric(endpoint, tracker.endpointType);
       }
     });
 
@@ -305,6 +308,30 @@ export class LatencyMonitoringService {
       });
     } catch (error: any) {
       logger.log('error', 'Failed to send some alerts', { error: error.message });
+    }
+  }
+
+  private recordSloBreachMetric(endpoint: string, type: EndpointType): void {
+    const sla = getEndpointSla(endpoint);
+    const tier = sla?.tier ?? 'unknown';
+    recordSloBreachAlert(endpoint, tier, type);
+  }
+
+  /**
+   * Syncs endpoint SLO state into Prometheus gauges.
+   * Call before scraping /metrics.
+   */
+  syncSloMetrics(): void {
+    const detailed = this.getDetailedMetrics();
+
+    for (const metric of detailed) {
+      const sla = getEndpointSla(metric.endpoint);
+      const tier = sla?.tier ?? 'unknown';
+      const labels = { path: metric.endpoint, tier, type: metric.type };
+
+      endpointSloP95LatencyMs.set(labels, metric.currentP95);
+      endpointSloBudgetMs.set(labels, metric.threshold);
+      endpointSloBreach.set(labels, metric.isBreaching ? 1 : 0);
     }
   }
 

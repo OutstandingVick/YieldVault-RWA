@@ -83,6 +83,37 @@ These are updated by `updateVaultMetrics()` whenever vault state changes. A flat
 
 An event-loop lag above **100 ms** is a sign of CPU saturation.
 
+### 1.6 Endpoint SLO Metrics
+
+Per-route SLO breach state is exported directly from `latencyMonitoring.ts` via `syncSloMetrics()` on each `/metrics` scrape.
+
+| Metric | Type | Labels | What it measures |
+|---|---|---|---|
+| `backend_slo_breach_total` | Counter | `path`, `tier`, `type` | SLO breach alerts emitted (respects alert cooldown) |
+| `backend_slo_p95_latency_ms` | Gauge | `path`, `tier`, `type` | Current rolling P95 latency vs budget |
+| `backend_slo_budget_ms` | Gauge | `path`, `tier`, `type` | Configured P95 latency budget |
+| `backend_slo_breach` | Gauge | `path`, `tier`, `type` | `1` when breaching, `0` when within budget |
+
+Critical tier routes (`/health`, `/ready`) use `tier="critical"` labels from `ENDPOINT_SLA_REGISTRY`.
+
+**Key derived queries (PromQL):**
+
+```promql
+# Endpoints currently breaching latency SLO
+backend_slo_breach == 1
+
+# Alert rate per endpoint (15m window)
+rate(backend_slo_breach_total[15m])
+```
+
+### 1.7 Reconciliation Drift Metrics
+
+| Metric | Type | Labels | What it measures |
+|---|---|---|---|
+| `reconciliation_drift_total` | Counter | `issue` | Drift issues detected by scheduled reconciliation |
+| `reconciliation_status` | Gauge | — | `1` = clean, `0` = drift detected |
+| `reconciliation_last_run_timestamp` | Gauge | — | Unix timestamp of last automated reconciliation run |
+
 ---
 
 ## 2. Latency SLO Alerts
