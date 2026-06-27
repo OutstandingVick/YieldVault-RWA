@@ -1,6 +1,7 @@
 # YieldVault-RWA Webhook Consumer Integration Guide
 
 ## Table of Contents
+
 1. [Overview](#overview)
 2. [Event Catalog](#event-catalog)
 3. [Setting Up a Webhook Consumer](#setting-up-a-webhook-consumer)
@@ -31,6 +32,7 @@ These events are published to the Stellar blockchain and can be consumed by off-
 ### Who Should Read This Guide?
 
 This guide is for developers building:
+
 - **Off-chain indexers** that track vault activity
 - **Backend services** that need to react to vault events
 - **Analytics platforms** that monitor protocol metrics
@@ -48,6 +50,7 @@ Soroban contract events are cryptographically tied to transactions and ledger st
 5. **Is network-specific** — Events are tied to a specific Stellar network (testnet/mainnet)
 
 Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by:
+
 - Contract address
 - Event type (symbol)
 - Ledger range
@@ -64,14 +67,15 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 **When:** A user successfully deposits USDC into the vault and receives fractional shares in return.
 
 **Topic structure:**
+
 - `topic[0]`: Contract address (the vault contract)
 - `topic[1]`: `"deposit"` symbol (8 bytes, left-padded)
 
 **Data payload:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `amount` | `i128` | The quantity of underlying tokens (USDC) deposited |
+| Field           | Type   | Description                                              |
+| --------------- | ------ | -------------------------------------------------------- |
+| `amount`        | `i128` | The quantity of underlying tokens (USDC) deposited       |
 | `shares_minted` | `i128` | The number of vault shares (`yvUSDC`) minted to the user |
 
 **Example (JSON representation):**
@@ -91,6 +95,7 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 ```
 
 **Interpretation:**
+
 - User deposited 1,000 USDC (10^9 stroops, assuming 6 decimals)
 - Received 950 shares (accounting for vault fee or share dilution)
 
@@ -103,16 +108,17 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 **When:** A user initiates a withdrawal that exceeds the `large_withdrawal_threshold`, triggering a 24-hour timelock.
 
 **Topic structure:**
+
 - `topic[0]`: Contract address (the vault contract)
 - `topic[1]`: `"pndwdraw"` symbol (8 bytes, left-padded)
 - `topic[2]`: User address (the account initiating the withdrawal)
 
 **Data payload:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `shares` | `i128` | The number of shares being withdrawn |
-| `unlock_timestamp` | `u64` | Unix timestamp when the withdrawal can be executed (current_time + 86,400 seconds) |
+| Field              | Type   | Description                                                                        |
+| ------------------ | ------ | ---------------------------------------------------------------------------------- |
+| `shares`           | `i128` | The number of shares being withdrawn                                               |
+| `unlock_timestamp` | `u64`  | Unix timestamp when the withdrawal can be executed (current_time + 86,400 seconds) |
 
 **Example (JSON representation):**
 
@@ -136,6 +142,7 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 ```
 
 **Interpretation:**
+
 - User initiated withdrawal of 5,000 shares
 - Withdrawal is locked until Unix timestamp 1717062600 (24 hours from now)
 - User must call `execute_withdrawal()` after this timestamp to complete the transfer
@@ -149,16 +156,17 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 **When:** A user successfully completes a withdrawal and receives underlying tokens.
 
 **Topic structure:**
+
 - `topic[0]`: Contract address (the vault contract)
 - `topic[1]`: `"withdraw"` symbol (8 bytes, left-padded)
 - `topic[2]`: User address (the account receiving the withdrawal)
 
 **Data payload:**
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field             | Type   | Description                                                   |
+| ----------------- | ------ | ------------------------------------------------------------- |
 | `assets_returned` | `i128` | The quantity of underlying tokens (USDC) returned to the user |
-| `shares_burned` | `i128` | The number of shares burned from the user's balance |
+| `shares_burned`   | `i128` | The number of shares burned from the user's balance           |
 
 **Example (JSON representation):**
 
@@ -182,6 +190,7 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 ```
 
 **Interpretation:**
+
 - User withdrew 5,000 shares
 - Received 4,950 USDC (accounting for protocol fees)
 - Share-to-asset ratio: 1 share ≈ 0.99 USDC
@@ -195,15 +204,16 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 **When:** The vault admin updates the protocol fee (in basis points).
 
 **Topic structure:**
+
 - `topic[0]`: Contract address (the vault contract)
 - `topic[1]`: `"feechg"` symbol (8 bytes, left-padded)
 
 **Data payload:**
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field     | Type   | Description                                    |
+| --------- | ------ | ---------------------------------------------- |
 | `old_bps` | `i128` | Previous fee in basis points (e.g., 50 = 0.5%) |
-| `new_bps` | `i128` | New fee in basis points |
+| `new_bps` | `i128` | New fee in basis points                        |
 
 **Example (JSON representation):**
 
@@ -222,6 +232,7 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 ```
 
 **Interpretation:**
+
 - Protocol fee increased from 0.5% to 0.75%
 - This affects future withdrawal calculations
 
@@ -234,15 +245,16 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 **When:** The vault admin updates the minimum deposit threshold.
 
 **Topic structure:**
+
 - `topic[0]`: Contract address (the vault contract)
 - `topic[1]`: `"mindepchg"` symbol (8 bytes, left-padded)
 
 **Data payload:**
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field     | Type   | Description                     |
+| --------- | ------ | ------------------------------- |
 | `old_min` | `i128` | Previous minimum deposit amount |
-| `new_min` | `i128` | New minimum deposit amount |
+| `new_min` | `i128` | New minimum deposit amount      |
 
 **Example (JSON representation):**
 
@@ -261,6 +273,7 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 ```
 
 **Interpretation:**
+
 - Minimum deposit increased from 100 USDC to 500 USDC
 - Future deposits below 500 USDC will be rejected
 
@@ -282,7 +295,8 @@ npm install @stellar/stellar-sdk
 import { Server, scValToNative } from "@stellar/stellar-sdk";
 
 const RPC_URL = "https://soroban-testnet.stellar.org";
-const VAULT_CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+const VAULT_CONTRACT_ID =
+  "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
 const server = new Server(RPC_URL);
@@ -302,7 +316,7 @@ interface VaultEvent {
 async function listenForEvents(
   contractId: string,
   startLedger: number = 0,
-  onEvent?: (event: VaultEvent) => void
+  onEvent?: (event: VaultEvent) => void,
 ): Promise<void> {
   let cursor = startLedger;
   const pollInterval = 5000; // Poll every 5 seconds (one ledger close)
@@ -416,31 +430,31 @@ async function main() {
     switch (event.type) {
       case "deposit":
         console.log(
-          `  User deposited ${event.data.amount} and received ${event.data.shares_minted} shares`
+          `  User deposited ${event.data.amount} and received ${event.data.shares_minted} shares`,
         );
         break;
 
       case "pndwdraw":
         console.log(
-          `  Pending withdrawal of ${event.data.shares} shares, unlocks at ${event.data.unlock_timestamp}`
+          `  Pending withdrawal of ${event.data.shares} shares, unlocks at ${event.data.unlock_timestamp}`,
         );
         break;
 
       case "withdraw":
         console.log(
-          `  User withdrew ${event.data.shares_burned} shares for ${event.data.assets_returned} assets`
+          `  User withdrew ${event.data.shares_burned} shares for ${event.data.assets_returned} assets`,
         );
         break;
 
       case "feechg":
         console.log(
-          `  Fee changed from ${event.data.old_bps} to ${event.data.new_bps} bps`
+          `  Fee changed from ${event.data.old_bps} to ${event.data.new_bps} bps`,
         );
         break;
 
       case "mindepchg":
         console.log(
-          `  Min deposit changed from ${event.data.old_min} to ${event.data.new_min}`
+          `  Min deposit changed from ${event.data.old_min} to ${event.data.new_min}`,
         );
         break;
     }
@@ -472,7 +486,7 @@ NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
 server = Server(RPC_URL)
 
 class VaultEvent:
-    def __init__(self, event_type: str, ledger: int, contract_id: str, 
+    def __init__(self, event_type: str, ledger: int, contract_id: str,
                  topics: list, data: Dict[str, Any]):
         self.type = event_type
         self.ledger = ledger
@@ -484,38 +498,38 @@ def parse_vault_event(raw_event: Dict) -> Optional[VaultEvent]:
     """Parse a raw Soroban event into a structured VaultEvent"""
     try:
         event_type = raw_event.get("topic", [None, None])[1]
-        
+
         if not event_type:
             return None
-        
+
         # Decode the event data
         decoded_data = raw_event.get("value", {}).get("sc", {})
         parsed_data = {}
-        
+
         # Parse based on event type
         if event_type == "deposit":
             parsed_data["amount"] = decoded_data.get("fields", [None, None])[0]
             parsed_data["shares_minted"] = decoded_data.get("fields", [None, None])[1]
-        
+
         elif event_type == "pndwdraw":
             parsed_data["shares"] = decoded_data.get("fields", [None, None])[0]
             parsed_data["unlock_timestamp"] = decoded_data.get("fields", [None, None])[1]
-        
+
         elif event_type == "withdraw":
             parsed_data["assets_returned"] = decoded_data.get("fields", [None, None])[0]
             parsed_data["shares_burned"] = decoded_data.get("fields", [None, None])[1]
-        
+
         elif event_type == "feechg":
             parsed_data["old_bps"] = decoded_data.get("fields", [None, None])[0]
             parsed_data["new_bps"] = decoded_data.get("fields", [None, None])[1]
-        
+
         elif event_type == "mindepchg":
             parsed_data["old_min"] = decoded_data.get("fields", [None, None])[0]
             parsed_data["new_min"] = decoded_data.get("fields", [None, None])[1]
-        
+
         else:
             return None
-        
+
         return VaultEvent(
             event_type=event_type,
             ledger=raw_event.get("ledger"),
@@ -523,7 +537,7 @@ def parse_vault_event(raw_event: Dict) -> Optional[VaultEvent]:
             topics=raw_event.get("topic", []),
             data=parsed_data
         )
-    
+
     except Exception as e:
         print(f"Error parsing event: {e}")
         return None
@@ -536,7 +550,7 @@ def listen_for_events(
     """Listen for vault events with cursor-based pagination"""
     cursor = start_ledger
     poll_interval = 5  # Poll every 5 seconds (one ledger close)
-    
+
     while True:
         try:
             # Fetch events from the RPC
@@ -548,7 +562,7 @@ def listen_for_events(
                 start_ledger=cursor,
                 limit=100
             )
-            
+
             # Process each event
             for event in response.get("events", []):
                 if event.get("type") == "contract":
@@ -557,10 +571,10 @@ def listen_for_events(
                         on_event(parsed_event)
                     # Update cursor to the next ledger
                     cursor = event.get("ledger", cursor) + 1
-            
+
             # Wait before polling again
             time.sleep(poll_interval)
-        
+
         except Exception as e:
             print(f"Error fetching events: {e}")
             # Exponential backoff on error
@@ -569,25 +583,25 @@ def listen_for_events(
 def main():
     """Example usage"""
     print("Starting YieldVault event listener...")
-    
+
     def handle_event(event: VaultEvent):
         print(f"[{event.type}] Ledger {event.ledger}: {event.data}")
-        
+
         if event.type == "deposit":
             print(f"  User deposited {event.data['amount']} and received {event.data['shares_minted']} shares")
-        
+
         elif event.type == "pndwdraw":
             print(f"  Pending withdrawal of {event.data['shares']} shares, unlocks at {event.data['unlock_timestamp']}")
-        
+
         elif event.type == "withdraw":
             print(f"  User withdrew {event.data['shares_burned']} shares for {event.data['assets_returned']} assets")
-        
+
         elif event.type == "feechg":
             print(f"  Fee changed from {event.data['old_bps']} to {event.data['new_bps']} bps")
-        
+
         elif event.type == "mindepchg":
             print(f"  Min deposit changed from {event.data['old_min']} to {event.data['new_min']}")
-    
+
     listen_for_events(VAULT_CONTRACT_ID, 0, handle_event)
 
 if __name__ == "__main__":
@@ -734,7 +748,7 @@ async function verifyEventSource(
   event: VaultEvent,
   expectedContractId: string,
   expectedNetworkPassphrase: string,
-  server: Server
+  server: Server,
 ): Promise<VerificationResult> {
   // 1. Verify contract ID matches
   if (event.contract_id !== expectedContractId) {
@@ -773,7 +787,7 @@ async function verifyEventSource(
 
     // Find the transaction that matches this event
     const matchingTx = txResponse.records.find(
-      (tx) => tx.hash === event.transactionHash
+      (tx) => tx.hash === event.transactionHash,
     );
 
     if (!matchingTx) {
@@ -810,7 +824,7 @@ async function verifyEventSource(
  */
 function detectReplayedEvent(
   event: VaultEvent,
-  processedEventHashes: Set<string>
+  processedEventHashes: Set<string>,
 ): boolean {
   // Create a unique hash for this event
   const eventHash = `${event.contract_id}:${event.ledger}:${event.type}:${JSON.stringify(event.data)}`;
@@ -852,7 +866,7 @@ async function main() {
     event,
     expectedContractId,
     expectedNetwork,
-    server
+    server,
   );
 
   if (!verification.isValid) {
@@ -880,7 +894,7 @@ from datetime import datetime, timedelta
 import hashlib
 
 class VerificationResult:
-    def __init__(self, is_valid: bool, reason: str = None, 
+    def __init__(self, is_valid: bool, reason: str = None,
                  contract_id: str = None, ledger: int = None):
         self.is_valid = is_valid
         self.reason = reason
@@ -894,41 +908,41 @@ def verify_event_source(
     server: Server
 ) -> VerificationResult:
     """Verify that an event came from the expected contract on the correct network"""
-    
+
     # 1. Verify contract ID matches
     if event.contract_id != expected_contract_id:
         return VerificationResult(
             is_valid=False,
             reason=f"Contract ID mismatch. Expected {expected_contract_id}, got {event.contract_id}"
         )
-    
+
     # 2. Verify ledger is reasonable (not too far in the past)
     try:
         current_ledger = server.ledgers().limit(1).call()
         ledger_diff = current_ledger["records"][0]["sequence"] - event.ledger
-        
+
         if ledger_diff < 0:
             return VerificationResult(
                 is_valid=False,
                 reason=f"Event is from the future (ledger {event.ledger} vs current {current_ledger['records'][0]['sequence']})"
             )
-        
+
         if ledger_diff > 1000000:  # More than ~1 month old
             return VerificationResult(
                 is_valid=False,
                 reason=f"Event is too old ({ledger_diff} ledgers ago)"
             )
-    
+
     except Exception as e:
         return VerificationResult(
             is_valid=False,
             reason=f"Failed to fetch current ledger: {e}"
         )
-    
+
     # 3. Verify the transaction that emitted this event
     try:
         tx_response = server.transactions().for_ledger(event.ledger).limit(100).call()
-        
+
         # In a real implementation, you would match the transaction hash
         # For now, we just verify the ledger exists
         if not tx_response.get("records"):
@@ -936,13 +950,13 @@ def verify_event_source(
                 is_valid=False,
                 reason=f"No transactions found for ledger {event.ledger}"
             )
-        
+
         return VerificationResult(
             is_valid=True,
             contract_id=event.contract_id,
             ledger=event.ledger
         )
-    
+
     except Exception as e:
         return VerificationResult(
             is_valid=False,
@@ -956,11 +970,11 @@ def detect_replayed_event(
     """Detect replayed or spoofed events"""
     event_hash = f"{event.contract_id}:{event.ledger}:{event.type}:{str(event.data)}"
     event_hash = hashlib.sha256(event_hash.encode()).hexdigest()
-    
+
     if event_hash in processed_event_hashes:
         print(f"Replayed event detected: {event_hash}")
         return True
-    
+
     processed_event_hashes.add(event_hash)
     return False
 
@@ -969,7 +983,7 @@ def main():
     expected_contract_id = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
     expected_network = "Test SDF Network ; September 2015"
     processed_events = set()
-    
+
     # Simulate receiving an event
     event = VaultEvent(
         event_type="deposit",
@@ -978,7 +992,7 @@ def main():
         topics=[expected_contract_id, "deposit"],
         data={"amount": "1000000000", "shares_minted": "950000000"}
     )
-    
+
     # Verify the event
     verification = verify_event_source(
         event,
@@ -986,16 +1000,16 @@ def main():
         expected_network,
         server
     )
-    
+
     if not verification.is_valid:
         print(f"Event verification failed: {verification.reason}")
         return
-    
+
     # Check for replayed events
     if detect_replayed_event(event, processed_events):
         print("Event is a replay of a previously processed event")
         return
-    
+
     print(f"Event verified successfully: {verification.__dict__}")
 
 if __name__ == "__main__":
@@ -1103,7 +1117,9 @@ function hashEvent(event: VaultEvent): string {
 
 async function processEventWithIdempotency(event: VaultEvent): Promise<void> {
   if (isEventProcessed(event)) {
-    console.log(`Event already processed: ${event.type} at ledger ${event.ledger}`);
+    console.log(
+      `Event already processed: ${event.type} at ledger ${event.ledger}`,
+    );
     return;
   }
 
@@ -1123,7 +1139,7 @@ When the RPC is temporarily unavailable, use exponential backoff:
 async function fetchEventsWithRetry(
   contractId: string,
   startLedger: number,
-  maxRetries: number = 5
+  maxRetries: number = 5,
 ): Promise<any> {
   let retries = 0;
   let backoffMs = 1000; // Start with 1 second
@@ -1143,7 +1159,7 @@ async function fetchEventsWithRetry(
 
       console.warn(
         `RPC error (attempt ${retries}/${maxRetries}), retrying in ${backoffMs}ms:`,
-        error
+        error,
       );
 
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
@@ -1154,6 +1170,63 @@ async function fetchEventsWithRetry(
   }
 }
 ```
+
+### Webhook Delivery Lifecycle
+
+Outbound webhook deliveries follow a strict state machine:
+
+- `pending` — Delivery was created and the first POST attempt is in flight.
+- `delivered` — The endpoint returned HTTP `2xx` before the per-attempt timeout.
+- `failed` — All retry attempts were exhausted without a successful delivery.
+
+For each failed attempt, the delivery records `lastError` and retries until the configured limit. When the maximum number of attempts is reached, the delivery is marked `failed` and a dead-letter record is created for diagnostics.
+
+The actual delivery lifecycle is:
+
+```text
+emitTransactionEvent()
+  └─▶ pending  ──▶ delivered   (HTTP 2xx within timeout)
+                └─▶ failed      (all retry attempts exhausted)
+```
+
+### Retry Matrix
+
+By default, the webhook delivery retry schedule uses:
+
+- `WEBHOOK_MAX_ATTEMPTS=3`
+- `WEBHOOK_DELIVERY_TIMEOUT_MS=5000`
+- `WEBHOOK_RETRY_BASE_DELAY_MS=500`
+- `WEBHOOK_JITTER_FACTOR=0.5`
+- `WEBHOOK_JITTER_MAX_MS=30000`
+
+This produces the following retry timing for the first 3 attempts:
+
+| Attempt | Action           | Delay before next retry | Notes                                                     |
+| ------- | ---------------- | ----------------------- | --------------------------------------------------------- |
+| 1       | Initial delivery | Immediate               | `status = pending` on first POST                          |
+| 2       | First retry      | ~500 ms ± 50% jitter    | Base delay = `500 ms`, jitter range = `±250 ms`           |
+| 3       | Second retry     | ~1,000 ms ± 50% jitter  | Base delay = `1,000 ms`, jitter range = `±500 ms`         |
+| 4       | Terminal failure | none                    | `status = failed` when `attempts >= WEBHOOK_MAX_ATTEMPTS` |
+
+The backoff formula is:
+
+```text
+delayMs = max(100, round(baseDelay * 2^(attempt - 1) + jitter))
+```
+
+where `jitter` is a random value between `-range` and `+range`, and `range = min(baseDelay * jitterFactor, jitterMaxMs)`.
+
+### Failure Handling Behavior
+
+A delivery attempt fails when any of the following occur:
+
+- HTTP response is not in the `2xx` range
+- The request exceeds `WEBHOOK_DELIVERY_TIMEOUT_MS`
+- The network request throws a fetch error
+
+When a delivery fails and retries remain, the system schedules the next attempt after the calculated delay. When retries are exhausted, the delivery is marked `failed` and the payload is saved into a dead-letter store.
+
+Dead-lettered deliveries are retained for debugging and can be retried manually using the backend retry endpoint.
 
 ---
 
@@ -1180,11 +1253,11 @@ const response = await server.getEvents({
 ```typescript
 // Listen to all events, then filter by type
 const depositEvents = response.events.filter(
-  (event) => event.topic?.[1] === "deposit"
+  (event) => event.topic?.[1] === "deposit",
 );
 
 const withdrawalEvents = response.events.filter(
-  (event) => event.topic?.[1] === "withdraw"
+  (event) => event.topic?.[1] === "withdraw",
 );
 ```
 
@@ -1205,7 +1278,7 @@ const response = await server.getEvents({
 
 // Process events up to a specific ledger
 const eventsInRange = response.events.filter(
-  (event) => event.ledger >= 12000 && event.ledger <= 12100
+  (event) => event.ledger >= 12000 && event.ledger <= 12100,
 );
 ```
 
@@ -1265,7 +1338,13 @@ function parseEventDataSafely(event: any): VaultEvent | null {
     }
 
     // Validate event type
-    const validTypes = ["deposit", "pndwdraw", "withdraw", "feechg", "mindepchg"];
+    const validTypes = [
+      "deposit",
+      "pndwdraw",
+      "withdraw",
+      "feechg",
+      "mindepchg",
+    ];
     if (!validTypes.includes(event.topic?.[1])) {
       console.error("Unknown event type:", event.topic?.[1]);
       return null;
@@ -1291,11 +1370,9 @@ function parseEventDataSafely(event: any): VaultEvent | null {
 ```typescript
 async function handleContractUpgrade(
   oldContractId: string,
-  newContractId: string
+  newContractId: string,
 ): Promise<void> {
-  console.warn(
-    `Contract upgraded from ${oldContractId} to ${newContractId}`
-  );
+  console.warn(`Contract upgraded from ${oldContractId} to ${newContractId}`);
 
   // Update configuration
   const config = await loadConfig();
@@ -1312,7 +1389,7 @@ async function handleContractUpgrade(
 ```typescript
 function validateNetworkPassphrase(
   event: VaultEvent,
-  expectedPassphrase: string
+  expectedPassphrase: string,
 ): boolean {
   // The network passphrase is not directly in the event,
   // but you should verify it when connecting to the RPC
@@ -1320,7 +1397,7 @@ function validateNetworkPassphrase(
 
   if (rpcPassphrase !== expectedPassphrase) {
     console.error(
-      `Network mismatch: expected ${expectedPassphrase}, got ${rpcPassphrase}`
+      `Network mismatch: expected ${expectedPassphrase}, got ${rpcPassphrase}`,
     );
     return false;
   }
@@ -1342,7 +1419,7 @@ async function handleCursorExpired(cursor: number): Promise<void> {
   // If more than 1 month behind, reset to current ledger
   if (currentLedger - cursor > 1000000) {
     console.warn(
-      `Resetting cursor from ${cursor} to ${currentLedger} (too far behind)`
+      `Resetting cursor from ${cursor} to ${currentLedger} (too far behind)`,
     );
     await persistCursor(currentLedger);
     return;
@@ -1365,7 +1442,12 @@ const amount = event.data.amount;
 updateUserBalance(amount);
 
 // ✅ GOOD: Verify event source first
-const verification = await verifyEventSource(event, expectedContractId, expectedNetwork, server);
+const verification = await verifyEventSource(
+  event,
+  expectedContractId,
+  expectedNetwork,
+  server,
+);
 if (!verification.isValid) {
   console.error("Event verification failed");
   return;
@@ -1384,12 +1466,12 @@ const KNOWN_DEPLOYMENTS = {
 
 function validateContractAddress(
   contractId: string,
-  network: "testnet" | "mainnet"
+  network: "testnet" | "mainnet",
 ): boolean {
   const expectedId = KNOWN_DEPLOYMENTS[network];
   if (contractId !== expectedId) {
     console.error(
-      `Contract ID mismatch on ${network}: expected ${expectedId}, got ${contractId}`
+      `Contract ID mismatch on ${network}: expected ${expectedId}, got ${contractId}`,
     );
     return false;
   }
@@ -1431,7 +1513,7 @@ const rateLimiter = new RateLimiter({
 
 async function fetchEventsWithRateLimit(
   contractId: string,
-  startLedger: number
+  startLedger: number,
 ): Promise<any> {
   await rateLimiter.acquire();
 
@@ -1586,6 +1668,7 @@ See the accompanying files for complete, runnable examples:
 - **Python:** `docs/examples/webhook_consumer.py`
 
 These examples include:
+
 - Event listening with cursor-based pagination
 - Event parsing and validation
 - Signature verification
@@ -1625,6 +1708,7 @@ python docs/examples/webhook_consumer.py
 ### Events Appearing Out of Order
 
 Events are always returned in ledger order. If you see out-of-order events:
+
 1. Verify you're using cursor-based pagination
 2. Check that you're not mixing events from different contracts
 3. Ensure your event processing is idempotent
@@ -1639,6 +1723,7 @@ Events are always returned in ledger order. If you see out-of-order events:
 ### Rate Limiting
 
 If you're hitting rate limits:
+
 1. **Increase polling interval** — Increase from 5s to 10s or 30s
 2. **Reduce batch size** — Decrease `limit` from 100 to 50
 3. **Use a private RPC** — Avoid public RPC rate limits
@@ -1654,4 +1739,3 @@ If you're hitting rate limits:
 - [Stellar SDK (TypeScript)](https://github.com/stellar/js-stellar-sdk)
 - [Stellar SDK (Python)](https://github.com/stellar/py-stellar-base)
 - [Stellar SDK (Rust)](https://github.com/stellar/rs-stellar-sdk)
-
