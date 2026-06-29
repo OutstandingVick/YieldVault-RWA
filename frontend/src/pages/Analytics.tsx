@@ -8,6 +8,7 @@ import Skeleton from "../components/Skeleton";
 import EmptyState from "../components/ui/EmptyState";
 import APYTrendChart from "../components/APYTrendChart";
 import { useNavigate } from "react-router-dom";
+import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import RefreshControl from "../components/RefreshControl";
 import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
@@ -118,8 +119,8 @@ const Analytics: React.FC = () => {
                     title={t("analytics.emptyTitle")}
                     description={t("analytics.emptyDesc")}
                     icon={<LineChart />}
-                    actionLabel={t("txHistory.depositNow")}
-                    onAction={() => navigate("/")}
+                    actionLabel={t("analytics.depositNow")}
+                    onAction={() => triggerDepositIntent(navigate, null)}
                 />
             )}
         </div>

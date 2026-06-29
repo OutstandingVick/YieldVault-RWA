@@ -128,12 +128,12 @@ describe("VaultDashboard — empty state", () => {
     renderDashboard("GABC123", 0);
 
     await waitFor(() => {
-      expect(screen.getByText("No deposits yet.")).toBeInTheDocument();
+      expect(screen.getByText(/No deposits yet/i)).toBeInTheDocument();
     });
 
     expect(
       screen.getByText(
-        /Start earning yield by depositing USDC into our high-efficiency vaults\./i,
+        /Start earning yield by depositing USDC into our high-efficiency vaults/i,
       ),
     ).toBeInTheDocument();
   });
@@ -156,9 +156,11 @@ describe("VaultDashboard — empty state", () => {
     const cta = await screen.findByRole("button", { name: "Deposit Now" });
     fireEvent.click(cta);
 
-    expect(dispatchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "TRIGGER_DEPOSIT" }),
-    );
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "TRIGGER_DEPOSIT" }),
+      );
+    });
   });
 
   it("does NOT show the empty state when balance is non-zero", async () => {

@@ -30,6 +30,7 @@ import ShareModal from "../components/ShareModal";
 import EmptyState from "../components/ui/EmptyState";
 import FirstTimePortfolioPanel from "../components/FirstTimePortfolioPanel";
 import { useNavigate } from "react-router-dom";
+import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 
 interface PortfolioProps {
@@ -465,7 +466,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
               description={t("portfolio.noPositions.desc")}
               icon={<Briefcase />}
               actionLabel={t("portfolio.depositNow")}
-              onAction={() => navigate("/")}
+              onAction={() => triggerDepositIntent(navigate, walletAddress)}
             />
           ) : (
           <section

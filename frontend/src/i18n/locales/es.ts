@@ -386,6 +386,18 @@ export const es = {
       failed: "Fallido",
     },
   },
+  dashboard: {
+    emptyState: {
+      noDeposits: {
+        title: "Aún no hay depósitos.",
+        desc: "Comienza a generar rendimiento depositando USDC en nuestros vaults de alta eficiencia.",
+      },
+    },
+  },
+  emptyState: {
+    depositNow: "Depositar ahora",
+    withdrawNow: "Retirar ahora",
+  },
   txHistory: {
     pageTitle: "Historial de transacciones",
     pageDesc: "Consulta todos tus depósitos y retiros pasados.",
@@ -406,6 +418,15 @@ export const es = {
     },
     resetFilters: "Restablecer filtros",
     depositNow: "Depositar ahora",
+    noWithdrawals: {
+      title: "Aún no hay retiros",
+      desc: "Tus depósitos están activos — retira en cualquier momento desde el vault.",
+    },
+    connectWallet: {
+      title: "Conecta tu billetera",
+      desc: "Conecta tu billetera para ver tu historial de transacciones.",
+      action: "Conectar billetera",
+    },
     loadingLabel: "Cargando...",
     upToDateLabel: "Al día",
     paginatedView: "Vista paginada",
@@ -474,5 +495,6 @@ export const es = {
     homeLabel: "Inicio",
     emptyTitle: "Aún no hay datos de analítica",
     emptyDesc: "La analítica de la bóveda aparecerá una vez que se realice el primer depósito.",
+    depositNow: "Depositar ahora",
   },
 } as const;
