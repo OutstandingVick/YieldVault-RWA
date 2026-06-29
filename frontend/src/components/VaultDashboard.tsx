@@ -34,6 +34,9 @@ import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
+import { useTranslation } from "../i18n";
+import { useNavigate } from "react-router-dom";
+import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import { networkConfig } from "../config/network";
 import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
 import RefreshControl from "./RefreshControl";
@@ -170,6 +173,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     lastUpdate,
     refresh,
   } = useVault();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const toast = useToast();
   const delayedLoading = useDelayedLoading(isLoading);
 
@@ -843,13 +848,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           {!isLoading && walletAddress && usdcBalance === 0 && (
             <EmptyState
               kind="no-data"
-              title="No deposits yet."
-              description="Start earning yield by depositing USDC into our high-efficiency vaults."
+              title={t("dashboard.emptyState.noDeposits.title")}
+              description={t("dashboard.emptyState.noDeposits.desc")}
               icon={<TrendingUp />}
-              actionLabel="Deposit Now"
-              onAction={() => {
-                window.dispatchEvent(new Event("TRIGGER_DEPOSIT"));
-              }}
+              actionLabel={t("emptyState.depositNow")}
+              onAction={() => triggerDepositIntent(navigate, walletAddress)}
             />
           )}
         </div>

@@ -9,6 +9,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
+- Add empty-state deposit and withdraw intent actions across dashboard pages (#734)
+- CORS configuration for cross-origin API access
 - Add canonical `VaultError` namespace module and replace contract panics with stable error codes (#754)
 - Structured logging, graceful shutdown, caching, and API key authentication
 - Network badge showing testnet vs mainnet status in the frontend

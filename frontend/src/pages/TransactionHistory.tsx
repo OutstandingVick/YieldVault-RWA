@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -34,6 +34,11 @@ import { networkConfig } from "../config/network";
 
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useTranslation } from "../i18n";
+import {
+  triggerDepositIntent,
+  triggerWithdrawIntent,
+  triggerWalletConnectIntent,
+} from "../lib/vaultIntentActions";
 import { useUserPreferenceStore } from "../hooks/useUserPreferenceStore";
 import type { TransactionPageSize, TransactionColumnId } from "../lib/userPreferenceStore";
 import { TRANSACTION_COLUMN_IDS } from "../lib/userPreferenceStore";
@@ -54,6 +59,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   walletAddress,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const {
     tables: tablePreferences,
     setTransactionViewMode,
@@ -378,20 +384,50 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   };
 
   // ── Empty state ─────────────────────────────────────────────────────────
+  const hasDeposits = transactions.some((tx) => tx.type === "deposit");
+  const hasWithdrawals = transactions.some((tx) => tx.type === "withdrawal");
+  const withdrawalFilterOnly =
+    filters.types.length === 1 && filters.types[0] === "withdrawal";
+  const showWithdrawIntent =
+    !hasActiveFilters &&
+    withdrawalFilterOnly &&
+    hasDeposits &&
+    !hasWithdrawals;
+
   const emptyMessage = (
     <EmptyState
       kind={hasActiveFilters ? "search" : "no-data"}
-      title={hasActiveFilters ? "No transactions found" : "No transactions yet"}
+      title={
+        hasActiveFilters
+          ? t("txHistory.noResults.title")
+          : showWithdrawIntent
+            ? t("txHistory.noWithdrawals.title")
+            : t("txHistory.noTransactions.title")
+      }
       description={
         hasActiveFilters
           ? t("txHistory.noResults.desc")
-          : t("txHistory.noTransactions.desc")
+          : showWithdrawIntent
+            ? t("txHistory.noWithdrawals.desc")
+            : t("txHistory.noTransactions.desc")
       }
       icon={<Activity size={24} />}
       action={
         hasActiveFilters
-          ? { label: "Reset filters", onClick: clearAll, variant: "secondary" }
-          : { label: "Deposit Now", href: "/" }
+          ? {
+              label: t("txHistory.resetFilters"),
+              onClick: clearAll,
+              variant: "secondary",
+            }
+          : showWithdrawIntent
+            ? {
+                label: t("emptyState.withdrawNow"),
+                onClick: () => triggerWithdrawIntent(navigate, walletAddress),
+              }
+            : {
+                label: t("emptyState.depositNow"),
+                onClick: () => triggerDepositIntent(navigate, walletAddress),
+              }
       }
     />
   );
@@ -446,10 +482,13 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
       {!walletAddress ? (
         <EmptyState
           kind="permission"
-          title="Connect your wallet"
-          description="Connect your wallet to view your transaction history."
+          title={t("txHistory.connectWallet.title")}
+          description={t("txHistory.connectWallet.desc")}
           icon={<Wallet />}
-          action={{ label: "Go to dashboard", href: "/" }}
+          action={{
+            label: t("txHistory.connectWallet.action"),
+            onClick: triggerWalletConnectIntent,
+          }}
         />
       ) : (
         <div className="flex flex-col gap-lg">

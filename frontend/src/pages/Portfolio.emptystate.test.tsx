@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -92,6 +92,22 @@ describe("Portfolio â€” empty state", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Deposit Now" })).toBeInTheDocument();
+    });
+  });
+
+  it("Deposit Now CTA dispatches TRIGGER_DEPOSIT and navigates home", async () => {
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    vi.mocked(portfolioApi.getPortfolioHoldings).mockResolvedValue([]);
+
+    renderPortfolio("GABC123");
+
+    const cta = await screen.findByRole("button", { name: "Deposit Now" });
+    fireEvent.click(cta);
+
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "TRIGGER_DEPOSIT" }),
+      );
     });
   });
 
