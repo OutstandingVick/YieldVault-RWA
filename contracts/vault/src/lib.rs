@@ -54,6 +54,8 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod benji_strategy;
+pub mod errors;
+pub use errors::VaultError;
 pub mod emergency;
 #[cfg(test)]
 mod event_tests;
@@ -672,7 +674,7 @@ impl YieldVault {
         }
 
         if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
-            panic!("strategy not whitelisted");
+            return Err(VaultError::StrategyNotWhitelisted);
         }
 
         Self::assert_admin_param_interval(&env)?;
@@ -719,7 +721,7 @@ impl YieldVault {
         // Use SecureWhitelist module for whitelist operations
         match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
             Ok(_) => {}
-            Err(_) => panic!("whitelist operation failed"),
+            Err(_) => return Err(VaultError::WhitelistOperationFailed),
         }
     }
 
@@ -1211,7 +1213,7 @@ impl YieldVault {
             .set(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")), &strategy);
     }
 
-    pub fn accrue_korean_debt_yield(env: Env) -> i128 {
+    pub fn accrue_korean_debt_yield(env: Env) -> Result<i128, VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
@@ -1224,7 +1226,7 @@ impl YieldVault {
         let harvested = strategy_client.harvest_yield();
 
         if harvested <= 0 {
-            panic!("yield amount must be > 0");
+            return Err(VaultError::InvalidYieldAmount);
         }
 
         let mut state = Self::get_state(&env);
@@ -1233,6 +1235,7 @@ impl YieldVault {
         state.total_assets = new_total_assets;
         env.storage().instance().set(&DataKey::State, &state);
 
+        Ok(harvested)
         env.events()
             .publish((symbol_short!("k_yield"),), (harvested, new_total_assets));
 
@@ -1244,7 +1247,7 @@ impl YieldVault {
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         if threshold <= 0 {
-            panic!("threshold must be > 0");
+            return Err(VaultError::InvalidDaoThreshold);
         }
         env.storage()
             .instance()
@@ -1268,15 +1271,14 @@ impl YieldVault {
         signers: Vec<Address>,
         threshold: u32,
         migration_deadline: u64,
-    ) {
+    ) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold > signers.len() {
-            panic!("invalid threshold: must be > 0 and <= signer set size");
+        if threshold == 0 || threshold as usize > signers.len() {
+            return Err(VaultError::InvalidGovernanceThreshold);
         }
 
-        // Store previous signers for migration (if any exist)
         let mut config = env
             .storage()
             .instance()
@@ -1310,6 +1312,7 @@ impl YieldVault {
 
         env.events()
             .publish((symbol_short!("govset"),), (threshold, migration_deadline));
+        Ok(())
     }
 
     /// Get the active governance signer set.
@@ -1345,7 +1348,7 @@ impl YieldVault {
             .storage()
             .instance()
             .get(&DataKey::GovernanceConfig)
-            .expect("governance signers not configured");
+            .ok_or(VaultError::GovernanceSignersNotConfigured)?;
         let signers = config.signers;
         let threshold = config.threshold;
 
@@ -1431,11 +1434,17 @@ impl YieldVault {
         proposal_id: u32,
         support: bool,
         weight: i128,
-    ) {
+    ) -> Result<(), VaultError> {
         voter.require_auth();
         if weight <= 0 {
-            panic!("weight must be > 0");
+            return Err(VaultError::InvalidVoteWeight);
         }
+        if env
+            .storage()
+            .instance()
+            .has(&DataKey::Vote(VoteKey { proposal_id, voter: voter.clone() }))
+        {
+            return Err(VaultError::DuplicateVote);
         if env.storage().instance().has(&DataKey::Vote(VoteKey {
             proposal_id,
             voter: voter.clone(),
@@ -1449,7 +1458,7 @@ impl YieldVault {
             .get(&DataKey::Proposal(proposal_id))
             .unwrap();
         if proposal.executed {
-            panic!("proposal already executed");
+            return Err(VaultError::ProposalAlreadyExecuted);
         }
 
         if support {
@@ -1464,16 +1473,17 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::Vote(VoteKey { proposal_id, voter }), &true);
+        Ok(())
     }
 
-    pub fn execute_strategy_proposal(env: Env, proposal_id: u32) {
+    pub fn execute_strategy_proposal(env: Env, proposal_id: u32) -> Result<(), VaultError> {
         let mut proposal: StrategyProposal = env
             .storage()
             .instance()
             .get(&DataKey::Proposal(proposal_id))
             .unwrap();
         if proposal.executed {
-            panic!("proposal already executed");
+            return Err(VaultError::ProposalAlreadyExecuted);
         }
 
         let threshold: i128 = env
@@ -1482,10 +1492,10 @@ impl YieldVault {
             .get(&DataKey::DaoThreshold)
             .unwrap_or(1);
         if proposal.yes_votes < threshold {
-            panic!("quorum not reached");
+            return Err(VaultError::QuorumNotReached);
         }
         if proposal.yes_votes <= proposal.no_votes {
-            panic!("proposal rejected");
+            return Err(VaultError::ProposalRejected);
         }
 
         env.storage()
@@ -1495,6 +1505,7 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::Proposal(proposal_id), &proposal);
+        Ok(())
     }
 
     /// Adds a new RWA shipment to the tracking system.
@@ -1505,7 +1516,7 @@ impl YieldVault {
     ///
     /// ### Authority
     /// Requires `Admin` signature.
-    pub fn add_shipment(env: Env, shipment_id: u64, status: ShipmentStatus) {
+    pub fn add_shipment(env: Env, shipment_id: u64, status: ShipmentStatus) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
@@ -1514,7 +1525,7 @@ impl YieldVault {
             .instance()
             .has(&DataKey::ShipmentStatusOf(shipment_id))
         {
-            panic!("shipment already exists");
+            return Err(VaultError::ShipmentAlreadyExists);
         }
 
         let list_key = DataKey::ShipmentByStatus(status.clone());
@@ -1529,6 +1540,7 @@ impl YieldVault {
         env.storage()
             .instance()
             .set(&DataKey::ShipmentStatusOf(shipment_id), &status);
+        Ok(())
     }
 
     pub fn update_shipment_status(
@@ -1612,9 +1624,9 @@ impl YieldVault {
         status: ShipmentStatus,
         cursor: Option<u64>,
         page_size: u32,
-    ) -> ShipmentPage {
+    ) -> Result<ShipmentPage, VaultError> {
         if page_size == 0 {
-            panic!("page_size must be > 0");
+            return Err(VaultError::InvalidPageSize);
         }
 
         let bounded_size = if page_size > MAX_PAGE_SIZE {
@@ -1646,10 +1658,10 @@ impl YieldVault {
             None
         };
 
-        ShipmentPage {
+        Ok(ShipmentPage {
             shipment_ids: page_ids,
             next_cursor,
-        }
+        })
     }
 
     /// Calculates the number of shares that would be minted for a given asset amount.
@@ -1827,13 +1839,14 @@ impl YieldVault {
     /// Set the maximum number of entries permitted in a single `batch_deposit` call.
     ///
     /// Defaults to 50 if not set. Only the Admin can call this.
-    pub fn set_max_batch_size(env: Env, size: u32) {
+    pub fn set_max_batch_size(env: Env, size: u32) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         if size == 0 {
-            panic!("max_batch_size must be > 0");
+            return Err(VaultError::InvalidMaxBatchSize);
         }
         env.storage().instance().set(&DataKey::MaxBatchSize, &size);
+        Ok(())
     }
 
     /// Returns the maximum batch size (default 50).
@@ -2870,7 +2883,7 @@ impl YieldVault {
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         if !(0..=10_000).contains(&new_bps) {
-            panic!("fee_bps must be 0-10000");
+            return Err(VaultError::InvalidFeeBps);
         }
         let old_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
         env.storage().instance().set(&DataKey::FeeBps, &new_bps);
@@ -2929,6 +2942,8 @@ impl YieldVault {
             .set(&DataKeyExt::TreasuryClaimQuota, &max_claim_amount);
     }
 
+    fn check_and_update_claim_quota(env: &Env, amount: i128) -> Result<(), VaultError> {
+        if let Some(quota) = env.storage().instance().get::<_, i128>(&DataKeyExt::TreasuryClaimQuota) {
     fn check_and_update_claim_quota(env: &Env, amount: i128) {
         if let Some(quota) = env
             .storage()
@@ -2962,12 +2977,13 @@ impl YieldVault {
 
             let new_claimed = claimed.saturating_add(amount);
             if new_claimed > quota {
-                panic!("claim quota exceeded");
+                return Err(VaultError::ClaimQuotaExceeded);
             }
             env.storage()
                 .instance()
                 .set(&DataKeyExt::TreasuryClaimedThisEpoch, &new_claimed);
         }
+        Ok(())
     }
 
     /// Claim all accumulated and rolled-over fees. Transfers both primary and excess to treasury.
@@ -2975,7 +2991,7 @@ impl YieldVault {
     ///
     /// ### Errors
     /// Panics if no treasury address is configured.
-    pub fn claim_all_fees(env: Env) {
+    pub fn claim_all_fees(env: Env) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
@@ -2998,10 +3014,10 @@ impl YieldVault {
 
         let total_claimable = balance.saturating_add(rollover);
         if total_claimable == 0 {
-            panic!("no fees to claim");
+            return Err(VaultError::NoFeesToClaim);
         }
 
-        Self::check_and_update_claim_quota(&env, total_claimable);
+        Self::check_and_update_claim_quota(&env, total_claimable)?;
 
         env.storage()
             .instance()
@@ -3021,6 +3037,7 @@ impl YieldVault {
             (symbol_short!("feeall"),),
             (treasury, total_claimable, rollover),
         );
+        Ok(())
     }
 
     /// Transfers the entire accumulated treasury balance to the treasury address.
@@ -3028,7 +3045,7 @@ impl YieldVault {
     ///
     /// ### Errors
     /// Panics if no treasury address is configured or the balance is zero.
-    pub fn claim_fees(env: Env) {
+    pub fn claim_fees(env: Env) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
@@ -3044,10 +3061,10 @@ impl YieldVault {
             .get(&DataKey::TreasuryBalance)
             .unwrap_or(0);
         if balance == 0 {
-            panic!("no fees to claim");
+            return Err(VaultError::NoFeesToClaim);
         }
 
-        Self::check_and_update_claim_quota(&env, balance);
+        Self::check_and_update_claim_quota(&env, balance)?;
 
         env.storage()
             .instance()
@@ -3062,6 +3079,7 @@ impl YieldVault {
 
         env.events()
             .publish((symbol_short!("feeclm"),), (treasury, balance));
+        Ok(())
     }
 
     // ── Goal 2: Large-withdrawal timelock ────────────────────────────────────
@@ -3072,7 +3090,7 @@ impl YieldVault {
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         if threshold <= 0 {
-            panic!("threshold must be > 0");
+            return Err(VaultError::InvalidDaoThreshold);
         }
         env.storage()
             .instance()
@@ -3097,7 +3115,7 @@ impl YieldVault {
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         if new_min < 0 {
-            panic!("min_deposit must be >= 0");
+            return Err(VaultError::InvalidMinDeposit);
         }
         let old_min: i128 = env
             .storage()
@@ -3125,7 +3143,7 @@ impl YieldVault {
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         if new_buffer < 0 {
-            panic!("min_liquidity_buffer must be >= 0");
+            return Err(VaultError::InvalidLiquidityBuffer);
         }
         let old_buffer = Self::min_liquidity_buffer(env.clone());
         env.storage()
@@ -3252,9 +3270,15 @@ impl YieldVault {
             .get(&DataKeyExt::StrategyHeartbeat)
             .unwrap_or(crate::strategy_heartbeat::DEFAULT_STRATEGY_HEARTBEAT_SECONDS)
     }
-    pub fn record_strategy_heartbeat(env: Env, strategy: Address) {
+    pub fn record_strategy_heartbeat(env: Env, strategy: Address) -> Result<(), VaultError> {
         strategy.require_auth();
         if !SecureWhitelist::is_strategy_whitelisted(&env, &strategy) {
+            return Err(VaultError::StrategyNotWhitelisted);
+        }
+        let now = env.ledger().timestamp();
+        env.storage().instance().set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
+        env.events().publish((symbol_short!("strathb"),), (strategy, now));
+        Ok(())
             panic!("strategy not whitelisted");
         }
         let now = env.ledger().timestamp();
@@ -3280,15 +3304,16 @@ impl YieldVault {
     }
 
     /// Set the strategy risk threshold in basis points (0–10000).
-    pub fn set_strategy_risk_threshold(env: Env, strategy: Address, threshold: i128) {
+    pub fn set_strategy_risk_threshold(env: Env, strategy: Address, threshold: i128) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         if !(0..=10_000).contains(&threshold) {
-            panic!("threshold must be 0-10000");
+            return Err(VaultError::InvalidRiskThreshold);
         }
         env.storage()
             .instance()
             .set(&DataKey::StrategyRiskThreshold(strategy), &threshold);
+        Ok(())
     }
 
     /// Returns the per-strategy high-watermark used for performance-fee accounting.
@@ -3299,9 +3324,9 @@ impl YieldVault {
             .unwrap_or(0)
     }
 
-    pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) {
+    pub fn report_benji_yield(env: Env, strategy: Address, amount: i128) -> Result<(), VaultError> {
         if amount <= 0 {
-            panic!("yield amount must be > 0");
+            return Err(VaultError::InvalidYieldAmount);
         }
 
         let configured: Address = env
@@ -3309,12 +3334,9 @@ impl YieldVault {
             .instance()
             .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")))
             .unwrap();
-        // Enforce that the caller is exactly the configured strategy before any state reads.
-        // require_strategy_auth checks both caller identity and Soroban auth in one call,
-        // preventing an attacker from inflating total_assets by calling with a different address.
         crate::permissions::require_strategy_auth(&strategy, &configured);
         if strategy != configured {
-            panic!("unauthorized strategy");
+            return Err(VaultError::UnauthorizedStrategy);
         }
 
         let token_addr = Self::token(env.clone());
@@ -3352,6 +3374,7 @@ impl YieldVault {
         let mut state = Self::get_state(&env);
         state.total_assets = state.total_assets.checked_add(net_yield).expect("overflow");
         env.storage().instance().set(&DataKey::State, &state);
+        Ok(())
     }
 
     fn run_storage_migration(env: &Env, target_version: u32) -> Result<(), VaultError> {

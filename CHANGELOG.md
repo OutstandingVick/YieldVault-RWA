@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
-- CORS configuration for cross-origin API access
+- Add canonical `VaultError` namespace module and replace contract panics with stable error codes (#754)
 - Structured logging, graceful shutdown, caching, and API key authentication
 - Network badge showing testnet vs mainnet status in the frontend
 - Add wallet activity heatmap aggregation endpoint for admin analytics without exposing raw wallet records (#712)

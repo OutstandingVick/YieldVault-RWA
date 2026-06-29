@@ -174,13 +174,13 @@ fn test_invest_respects_min_liquidity_buffer() {
 }
 
 #[test]
-#[should_panic(expected = "min_liquidity_buffer must be >= 0")]
-fn test_set_min_liquidity_buffer_negative_panics() {
+fn test_set_min_liquidity_buffer_negative_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _) = setup_vault(&env);
-    vault.set_min_liquidity_buffer(&-1);
+    let result = vault.try_set_min_liquidity_buffer(&-1);
+    assert_eq!(result, Err(Ok(VaultError::InvalidLiquidityBuffer)));
 }
 
 #[test]
@@ -196,8 +196,7 @@ fn test_vault_flow_legacy() {
 }
 
 #[test]
-#[should_panic]
-fn test_initialize_double_init_panics() {
+fn test_initialize_double_init_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -208,8 +207,8 @@ fn test_initialize_double_init_panics() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
     vault.initialize(&admin, &usdc.address);
-    // Second call must panic with AlreadyInitialized.
-    vault.initialize(&admin, &usdc.address);
+    let result = vault.try_initialize(&admin, &usdc.address);
+    assert_eq!(result, Err(Ok(VaultError::AlreadyInitialized)));
 }
 
 // ─── 2. deposit ──────────────────────────────────────────────────────────────
@@ -511,8 +510,7 @@ fn test_accrue_yield_full_fee_accumulates_to_treasury_only() {
 }
 
 #[test]
-#[should_panic]
-fn test_report_benji_yield_wrong_strategy_panics() {
+fn test_report_benji_yield_wrong_strategy_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -521,19 +519,17 @@ fn test_report_benji_yield_wrong_strategy_panics() {
     let fake_strategy = Address::generate(&env);
     usdc_sa.mint(&fake_strategy, &100);
 
-    // Set up governance to register real_strategy as the benji strategy.
     vault.set_dao_threshold(&1);
     let pid = vault.create_strategy_proposal(&admin, &real_strategy);
     vault.vote_on_proposal(&admin, &pid, &true, &1);
     vault.execute_strategy_proposal(&pid);
 
-    // Report yield from an unregistered strategy — must panic.
-    vault.report_benji_yield(&fake_strategy, &50);
+    let result = vault.try_report_benji_yield(&fake_strategy, &50);
+    assert_eq!(result, Err(Ok(VaultError::UnauthorizedStrategy)));
 }
 
 #[test]
-#[should_panic]
-fn test_report_benji_yield_zero_amount_panics() {
+fn test_report_benji_yield_zero_amount_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -545,18 +541,19 @@ fn test_report_benji_yield_zero_amount_panics() {
     vault.vote_on_proposal(&admin, &pid, &true, &1);
     vault.execute_strategy_proposal(&pid);
 
-    vault.report_benji_yield(&strategy, &0);
+    let result = vault.try_report_benji_yield(&strategy, &0);
+    assert_eq!(result, Err(Ok(VaultError::InvalidYieldAmount)));
 }
 
 #[test]
 #[should_panic]
-fn test_report_benji_yield_before_strategy_configured_panics() {
+fn test_report_benji_yield_before_strategy_configured_panics_on_missing_key() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _) = setup_vault(&env);
     let strategy = Address::generate(&env);
-    // BenjiStrategy key not set → unwrap panics.
+    // BenjiStrategy key not set → storage get unwrap panics.
     vault.report_benji_yield(&strategy, &10);
 }
 
@@ -583,8 +580,7 @@ fn test_governance_full_happy_path() {
 }
 
 #[test]
-#[should_panic]
-fn test_governance_duplicate_vote_panics() {
+fn test_governance_duplicate_vote_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -594,12 +590,12 @@ fn test_governance_duplicate_vote_panics() {
 
     let pid = vault.create_strategy_proposal(&admin, &strategy);
     vault.vote_on_proposal(&voter, &pid, &true, &1);
-    vault.vote_on_proposal(&voter, &pid, &true, &1); // must panic.
+    let result = vault.try_vote_on_proposal(&voter, &pid, &true, &1);
+    assert_eq!(result, Err(Ok(VaultError::DuplicateVote)));
 }
 
 #[test]
-#[should_panic]
-fn test_governance_zero_weight_panics() {
+fn test_governance_zero_weight_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -608,12 +604,12 @@ fn test_governance_zero_weight_panics() {
     let voter = Address::generate(&env);
 
     let pid = vault.create_strategy_proposal(&admin, &strategy);
-    vault.vote_on_proposal(&voter, &pid, &true, &0); // must panic.
+    let result = vault.try_vote_on_proposal(&voter, &pid, &true, &0);
+    assert_eq!(result, Err(Ok(VaultError::InvalidVoteWeight)));
 }
 
 #[test]
-#[should_panic]
-fn test_governance_execute_below_threshold_panics() {
+fn test_governance_execute_below_threshold_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -622,13 +618,13 @@ fn test_governance_execute_below_threshold_panics() {
 
     vault.set_dao_threshold(&10);
     let pid = vault.create_strategy_proposal(&admin, &strategy);
-    vault.vote_on_proposal(&admin, &pid, &true, &1); // only 1 vote, threshold 10.
-    vault.execute_strategy_proposal(&pid); // must panic: quorum not reached.
+    vault.vote_on_proposal(&admin, &pid, &true, &1);
+    let result = vault.try_execute_strategy_proposal(&pid);
+    assert_eq!(result, Err(Ok(VaultError::QuorumNotReached)));
 }
 
 #[test]
-#[should_panic]
-fn test_governance_execute_rejected_panics() {
+fn test_governance_execute_rejected_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -636,13 +632,13 @@ fn test_governance_execute_rejected_panics() {
     let strategy = Address::generate(&env);
 
     let pid = vault.create_strategy_proposal(&admin, &strategy);
-    vault.vote_on_proposal(&admin, &pid, &false, &5); // no votes > yes votes.
-    vault.execute_strategy_proposal(&pid); // must panic: proposal rejected.
+    vault.vote_on_proposal(&admin, &pid, &false, &5);
+    let result = vault.try_execute_strategy_proposal(&pid);
+    assert_eq!(result, Err(Ok(VaultError::ProposalRejected)));
 }
 
 #[test]
-#[should_panic]
-fn test_governance_execute_twice_panics() {
+fn test_governance_execute_twice_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -652,12 +648,12 @@ fn test_governance_execute_twice_panics() {
     let pid = vault.create_strategy_proposal(&admin, &strategy);
     vault.vote_on_proposal(&admin, &pid, &true, &1);
     vault.execute_strategy_proposal(&pid);
-    vault.execute_strategy_proposal(&pid); // must panic: already executed.
+    let result = vault.try_execute_strategy_proposal(&pid);
+    assert_eq!(result, Err(Ok(VaultError::ProposalAlreadyExecuted)));
 }
 
 #[test]
-#[should_panic]
-fn test_governance_vote_on_executed_proposal_panics() {
+fn test_governance_vote_on_executed_proposal_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -668,7 +664,8 @@ fn test_governance_vote_on_executed_proposal_panics() {
     let pid = vault.create_strategy_proposal(&admin, &strategy);
     vault.vote_on_proposal(&admin, &pid, &true, &1);
     vault.execute_strategy_proposal(&pid);
-    vault.vote_on_proposal(&voter, &pid, &true, &1); // must panic: already executed.
+    let result = vault.try_vote_on_proposal(&voter, &pid, &true, &1);
+    assert_eq!(result, Err(Ok(VaultError::ProposalAlreadyExecuted)));
 }
 
 #[test]
@@ -715,23 +712,23 @@ fn test_set_dao_threshold_happy_path() {
 }
 
 #[test]
-#[should_panic]
-fn test_set_dao_threshold_zero_panics() {
+fn test_set_dao_threshold_zero_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _) = setup_vault(&env);
-    vault.set_dao_threshold(&0);
+    let result = vault.try_set_dao_threshold(&0);
+    assert_eq!(result, Err(Ok(VaultError::InvalidDaoThreshold)));
 }
 
 #[test]
-#[should_panic]
-fn test_set_dao_threshold_negative_panics() {
+fn test_set_dao_threshold_negative_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _) = setup_vault(&env);
-    vault.set_dao_threshold(&-1);
+    let result = vault.try_set_dao_threshold(&-1);
+    assert_eq!(result, Err(Ok(VaultError::InvalidDaoThreshold)));
 }
 
 // ─── 8. configure_korean_strategy ────────────────────────────────────────────
@@ -763,14 +760,14 @@ fn test_add_shipment_stores_and_retrieves() {
 }
 
 #[test]
-#[should_panic]
-fn test_add_shipment_duplicate_panics() {
+fn test_add_shipment_duplicate_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _) = setup_vault(&env);
     vault.add_shipment(&1, &ShipmentStatus::Pending);
-    vault.add_shipment(&1, &ShipmentStatus::Pending); // must panic: already exists.
+    let result = vault.try_add_shipment(&1, &ShipmentStatus::Pending);
+    assert_eq!(result, Err(Ok(VaultError::ShipmentAlreadyExists)));
 }
 
 #[test]
@@ -856,13 +853,13 @@ fn test_shipments_across_statuses_are_isolated() {
 }
 
 #[test]
-#[should_panic]
-fn test_shipment_ids_by_status_zero_page_size_panics() {
+fn test_shipment_ids_by_status_zero_page_size_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _) = setup_vault(&env);
-    vault.shipment_ids_by_status(&ShipmentStatus::Pending, &None, &0);
+    let result = vault.try_shipment_ids_by_status(&ShipmentStatus::Pending, &None, &0);
+    assert_eq!(result, Err(Ok(VaultError::InvalidPageSize)));
 }
 
 #[test]
@@ -1220,7 +1217,6 @@ fn test_create_strategy_proposal_does_not_require_admin() {
 
 /// Verify that report_benji_yield rejects unauthorized strategies
 #[test]
-#[should_panic(expected = "unauthorized strategy")]
 fn test_report_benji_yield_rejects_unauthorized_strategy() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1229,13 +1225,12 @@ fn test_report_benji_yield_rejects_unauthorized_strategy() {
     let authorized_strategy = Address::generate(&env);
     let unauthorized_strategy = Address::generate(&env);
 
-    // Register authorized strategy via governance
     let proposal_id = vault.create_strategy_proposal(&admin, &authorized_strategy);
     vault.vote_on_proposal(&admin, &proposal_id, &true, &1);
     vault.execute_strategy_proposal(&proposal_id);
 
-    // Try to report yield from unauthorized strategy
-    vault.report_benji_yield(&unauthorized_strategy, &100);
+    let result = vault.try_report_benji_yield(&unauthorized_strategy, &100);
+    assert_eq!(result, Err(Ok(VaultError::UnauthorizedStrategy)));
 }
 
 // ─── External Call Safety Tests (Issue #122) ───────────────────────────────
@@ -1967,14 +1962,14 @@ fn test_whitelist_toggle_multiple_strategies() {
 }
 
 #[test]
-#[should_panic(expected = "strategy not whitelisted")]
 fn test_set_strategy_requires_whitelisted_strategy() {
     let env = Env::default();
     env.mock_all_auths();
 
     let (vault, _, _, _admin) = setup_vault(&env);
     let strategy = Address::generate(&env);
-    vault.set_strategy(&strategy);
+    let result = vault.try_set_strategy(&strategy);
+    assert_eq!(result, Err(Ok(VaultError::StrategyNotWhitelisted)));
 }
 
 #[test]
@@ -2276,7 +2271,6 @@ fn test_rebalance_blocks_when_target_strategy_heartbeat_expired() {
 }
 
 #[test]
-#[should_panic(expected = "strategy not whitelisted")]
 fn test_record_strategy_heartbeat_requires_whitelist() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
@@ -2290,7 +2284,8 @@ fn test_record_strategy_heartbeat_requires_whitelist() {
     let vault = YieldVaultClient::new(&env, &vault_id);
     vault.initialize(&admin, &usdc.address);
 
-    vault.record_strategy_heartbeat(&strategy_id);
+    let result = vault.try_record_strategy_heartbeat(&strategy_id);
+    assert_eq!(result, Err(Ok(VaultError::StrategyNotWhitelisted)));
 }
 
 // ─── Issue #740: withdrawal queue sequencing ─────────────────────────────────
