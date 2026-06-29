@@ -417,6 +417,18 @@ export const en = {
       failed: "Failed",
     },
   },
+  dashboard: {
+    emptyState: {
+      noDeposits: {
+        title: "No deposits yet.",
+        desc: "Start earning yield by depositing USDC into our high-efficiency vaults.",
+      },
+    },
+  },
+  emptyState: {
+    depositNow: "Deposit Now",
+    withdrawNow: "Withdraw Now",
+  },
   txHistory: {
     pageTitle: "Transaction History",
     pageDesc: "View all your past deposits and withdrawals.",
@@ -437,6 +449,15 @@ export const en = {
     },
     resetFilters: "Reset filters",
     depositNow: "Deposit Now",
+    noWithdrawals: {
+      title: "No withdrawals yet",
+      desc: "Your deposits are active — withdraw anytime from the vault.",
+    },
+    connectWallet: {
+      title: "Connect your wallet",
+      desc: "Connect your wallet to view your transaction history.",
+      action: "Connect wallet",
+    },
     loadingLabel: "Loading...",
     upToDateLabel: "Up to date",
     paginatedView: "Paginated view",
@@ -524,5 +545,6 @@ export const en = {
     homeLabel: "Home",
     emptyTitle: "No analytics data yet",
     emptyDesc: "Vault analytics will appear once the first deposit is made.",
+    depositNow: "Deposit Now",
   },
 } as const;

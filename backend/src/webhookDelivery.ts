@@ -4,6 +4,7 @@ import {
   webhookDeduplicationStore,
   WebhookDeduplicationStore,
 } from './webhookDeduplication';
+import { getActiveCorrelationId, getActiveRequestId } from './requestContext';
 
 export type TransactionEventType =
   | 'transaction.deposit.created'
@@ -634,12 +635,20 @@ async function deliverWithRetry(
   };
 
   const body = JSON.stringify(envelope);
+  const correlationId = getActiveCorrelationId();
+  const requestId = getActiveRequestId();
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': 'YieldVault-Webhook-Delivery/1.0',
     'X-YieldVault-Event': delivery.eventType,
     'X-YieldVault-Delivery-Id': delivery.id,
   };
+
+  // Propagate correlation identifiers for traceability.
+  // Downstream systems can use these to correlate webhook requests.
+  if (correlationId) headers['X-Correlation-ID'] = correlationId;
+  if (requestId) headers['X-Request-ID'] = requestId;
 
   if (endpoint.secret) {
     headers['X-YieldVault-Signature'] = createWebhookSignature(endpoint.secret, envelope);

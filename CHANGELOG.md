@@ -10,7 +10,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Features
 - Add deterministic admin proposal nonces with replay rejection for admin rotation (#736)
+- Add empty-state deposit and withdraw intent actions across dashboard pages (#734)
 - CORS configuration for cross-origin API access
+- Add canonical `VaultError` namespace module and replace contract panics with stable error codes (#754)
 - Structured logging, graceful shutdown, caching, and API key authentication
 - Network badge showing testnet vs mainnet status in the frontend
 - Add wallet activity heatmap aggregation endpoint for admin analytics without exposing raw wallet records (#712)
@@ -21,6 +23,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Vault performance dynamic date filter
 
 ### Documentation
+- Add incident postmortem templates, publication playbook, and CI validation workflow (#769)
 - Add release notes playbook and changelog curation guidelines (#618)
 - Add API versioning and deprecation policy with sunset windows, migration guide, and breaking-change classification (#610)
 

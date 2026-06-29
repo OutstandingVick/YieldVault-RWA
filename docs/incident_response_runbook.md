@@ -77,7 +77,9 @@ This runbook documents the operational procedures for handling **RPC degradation
 
 ---
 ## 7. Post‑mortem & Continuous Improvement
-- Complete the **Post‑mortem Template** (`docs/POSTMORTEM_TEMPLATE.md`).
+- Complete the **Post‑mortem Template** ([`docs/runbooks/templates/post-mortem.md`](./runbooks/templates/post-mortem.md)).
+- Follow the **Publication Workflow** in [`docs/postmortem-playbook.md`](./postmortem-playbook.md).
+- Publish finalized reports to [`docs/incidents/`](./incidents/README.md).
 - Update runbook if new failure modes were discovered.
 - Review alert thresholds and adjust if false‑positives occurred.
 - Schedule a **runbook drill** quarterly.
