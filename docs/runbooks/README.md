@@ -15,6 +15,8 @@ This directory contains operational runbooks for disaster recovery and incident 
 | [RPC Failover](./RPC_FAILOVER.md) | 5 min | N/A | Stellar RPC node failure |
 | [Full DR Procedure](./FULL_DR_PROCEDURE.md) | 4 hours | 15 min | Complete infrastructure failure |
 | [Replay & State Recovery](./REPLAY_PROCEDURES.md) | N/A | N/A | Recovering/syncing ledger events or email queue |
+| [Postmortem Playbook](../postmortem-playbook.md) | N/A | N/A | Publishing incident postmortems |
+| [Published Postmortems](../incidents/README.md) | N/A | N/A | Archive of finalized incident reports |
 
 ---
 

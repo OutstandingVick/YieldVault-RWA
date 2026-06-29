@@ -146,8 +146,8 @@ All runbooks: `docs/runbooks/`
 3. **Notify** - Alert team via PagerDuty/Slack
 4. **Respond** - Follow appropriate runbook
 5. **Verify** - Confirm system restored
-6. **Document** - Create incident report
-7. **Review** - Post-mortem within 48 hours
+6. **Document** - Create [incident report](./templates/incident-report.md)
+7. **Review** - [Post-mortem](./templates/post-mortem.md) within 48 hours per [playbook](../postmortem-playbook.md)
 
 ---
 
