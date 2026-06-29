@@ -1,10 +1,12 @@
 import { logger } from './middleware/structuredLogging';
 import { emailQueueService } from './emailQueue';
+import { getActiveCorrelationId, getActiveRequestId } from './requestContext';
 
 // Known mainnet passphrases that map to the public (mainnet) explorer.
 const MAINNET_PASSPHRASES = new Set([
   'Public Global Stellar Network ; September 2015',
 ]);
+
 
 /**
  * Returns the stellar.expert transaction URL for the given hash, selecting
@@ -42,9 +44,20 @@ export interface TransactionEmailDetails {
  * Supports SendGrid and Resend providers.
  */
 export class EmailService {
+  private getCorrelationHeaders(): Record<string, string> {
+    const correlationId = getActiveCorrelationId();
+    const requestId = getActiveRequestId();
+
+    const headers: Record<string, string> = {};
+    if (correlationId) headers['X-Correlation-ID'] = correlationId;
+    if (requestId) headers['X-Request-ID'] = requestId;
+    return headers;
+  }
+
   private provider: 'sendgrid' | 'resend';
   private apiKey: string;
   private fromEmail: string;
+
 
   constructor() {
     this.provider = (process.env.EMAIL_PROVIDER as 'sendgrid' | 'resend') || 'resend';
@@ -93,7 +106,7 @@ export class EmailService {
       }
 
       const success = await this.simulateProviderCall(options);
-      
+
       if (success) {
         logger.log('info', `Email sent successfully to ${options.to} via ${this.provider}`);
       } else {
@@ -117,7 +130,7 @@ export class EmailService {
   async sendDepositConfirmation(to: string, details: TransactionEmailDetails): Promise<boolean> {
     const explorerLink = getStellarExplorerUrl(details.txHash);
     const subject = `Deposit Confirmed - ${details.amount} ${details.asset}`;
-    
+
     const text = `Your deposit of ${details.amount} ${details.asset} has been confirmed on-chain.
 Date: ${details.date}
 Transaction Hash: ${details.txHash}
@@ -142,7 +155,7 @@ View on Stellar Explorer: ${explorerLink}`;
   async sendWithdrawalConfirmation(to: string, details: TransactionEmailDetails): Promise<boolean> {
     const explorerLink = getStellarExplorerUrl(details.txHash);
     const subject = `Withdrawal Confirmed - ${details.amount} ${details.asset}`;
-    
+
     const text = `Your withdrawal of ${details.amount} ${details.asset} has been confirmed on-chain.
 Date: ${details.date}
 Transaction Hash: ${details.txHash}
@@ -165,6 +178,8 @@ View on Stellar Explorer: ${explorerLink}`;
    * Simulates a call to the email provider API.
    */
   private async simulateProviderCall(options: EmailOptions): Promise<boolean> {
+    const correlationHeaders = this.getCorrelationHeaders();
+
     if (this.provider === 'resend') {
       try {
         const response = await fetch('https://api.resend.com/emails', {
@@ -172,6 +187,7 @@ View on Stellar Explorer: ${explorerLink}`;
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${this.apiKey}`,
+            ...correlationHeaders,
           },
           body: JSON.stringify({
             from: this.fromEmail,
@@ -193,6 +209,7 @@ View on Stellar Explorer: ${explorerLink}`;
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${this.apiKey}`,
+            ...correlationHeaders,
           },
           body: JSON.stringify({
             personalizations: [{ to: [{ email: options.to }] }],
