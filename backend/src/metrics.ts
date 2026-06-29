@@ -197,3 +197,19 @@ export const endpointSloBreach = new Gauge({
 export function recordSloBreachAlert(path: string, tier: string, type: string): void {
   endpointSloBreachTotal.inc({ path, tier, type });
 }
+
+// --- Adaptive Throttle Metrics ---
+
+export const adaptiveThrottleBlockCount = new Counter({
+  name: 'adaptive_throttle_block_count',
+  help: 'Total number of IPs blocked by adaptive throttle',
+  labelNames: ['using_redis'],
+  registers: [register],
+});
+
+export const adaptiveThrottleActiveBlocks = new Gauge({
+  name: 'adaptive_throttle_active_blocks',
+  help: 'Current number of IPs actively blocked by adaptive throttle',
+  labelNames: ['using_redis'],
+  registers: [register],
+});
