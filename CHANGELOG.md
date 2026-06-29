@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
+- Add deterministic admin proposal nonces with replay rejection for admin rotation (#736)
 - CORS configuration for cross-origin API access
 - Structured logging, graceful shutdown, caching, and API key authentication
 - Network badge showing testnet vs mainnet status in the frontend
