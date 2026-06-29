@@ -11,6 +11,10 @@ export interface TimeoutOptions {
   fallbackResponse?: (req: Request) => Record<string, unknown>;
   /** Optional: custom message for the timeout */
   message?: string;
+  /** Optional HTTP status for the fallback response */
+  fallbackStatusCode?: number;
+  /** Optional route label used in structured fallback payloads */
+  routeName?: string;
 }
 
 /**
@@ -19,6 +23,7 @@ export interface TimeoutOptions {
 export const DEFAULT_TIMEOUT_OPTIONS: TimeoutOptions = {
   timeoutMs: 30000, // 30 seconds default
   message: 'Request timed out',
+  fallbackStatusCode: 408,
 };
 
 /**
@@ -57,12 +62,14 @@ export function timeoutMiddleware(options: TimeoutOptions = DEFAULT_TIMEOUT_OPTI
         const response = fallbackResponse ? fallbackResponse(req) : {
           error: 'Request Timeout',
           status: 408,
+          code: 'TIMEOUT',
           message: message || DEFAULT_TIMEOUT_OPTIONS.message,
           retryAfter: Math.ceil(timeoutMs / 1000),
+          route: routeName ?? req.originalUrl ?? req.path,
           timestamp: new Date().toISOString(),
         };
 
-        res.status(408).json(response);
+        res.status(fallbackStatusCode ?? 408).json(response);
         cleanup();
       }
     }, timeoutMs);
@@ -102,11 +109,31 @@ export function timeoutMiddleware(options: TimeoutOptions = DEFAULT_TIMEOUT_OPTI
  */
 export const createTimeoutFor = {
   /** Read‑heavy endpoints (5 seconds) */
-  read: () => timeoutMiddleware({ timeoutMs: 5000 }),
+  read: (options: Partial<TimeoutOptions> = {}) =>
+    timeoutMiddleware({
+      timeoutMs: 5000,
+      fallbackStatusCode: 503,
+      ...options,
+    }),
   /** Write operations (15 seconds) */
-  write: () => timeoutMiddleware({ timeoutMs: 15000 }),
+  write: (options: Partial<TimeoutOptions> = {}) =>
+    timeoutMiddleware({
+      timeoutMs: 15000,
+      fallbackStatusCode: 503,
+      ...options,
+    }),
   /** Admin operations (30 seconds) */
-  admin: () => timeoutMiddleware({ timeoutMs: 30000 }),
+  admin: (options: Partial<TimeoutOptions> = {}) =>
+    timeoutMiddleware({
+      timeoutMs: 30000,
+      fallbackStatusCode: 503,
+      ...options,
+    }),
   /** Export/download endpoints (60 seconds) */
-  export: () => timeoutMiddleware({ timeoutMs: 60000 }),
+  export: (options: Partial<TimeoutOptions> = {}) =>
+    timeoutMiddleware({
+      timeoutMs: 60000,
+      fallbackStatusCode: 503,
+      ...options,
+    }),
 };

@@ -22,6 +22,8 @@ import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
 import { ChartModeToggle } from "./ChartModeToggle";
+import Badge from "./Badge";
+import { Clock3 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -303,6 +305,16 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
           <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
             Comparative APY across selectable time windows
           </p>
+          <div style={{ marginTop: "8px" }}>
+            <Badge
+              variant="pill"
+              color={isStale ? "warning" : "cyan"}
+              size="compact"
+              icon={<Clock3 size={10} />}
+            >
+              {isStale ? `Stale ${ageText || ""}`.trim() : ageText ? `Fresh ${ageText}` : "Live"}
+            </Badge>
+          </div>
         </div>
 
         {/* Primary range selector */}

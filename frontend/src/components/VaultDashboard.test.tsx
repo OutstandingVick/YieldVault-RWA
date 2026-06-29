@@ -14,6 +14,11 @@ import * as tokenAllowanceHooks from "../hooks/useTokenAllowance";
 import * as vaultMutations from "../hooks/useVaultMutations";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { PortfolioHolding } from "../lib/portfolioApi";
+import confetti from "canvas-confetti";
+
+vi.mock("canvas-confetti", () => ({
+  default: vi.fn(),
+}));
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
@@ -171,6 +176,8 @@ describe("VaultDashboard", () => {
       approve: vi.fn().mockResolvedValue(undefined),
       resetApproval: vi.fn(),
     });
+    window.matchMedia = vi.fn().mockReturnValue({ matches: false } as MediaQueryList);
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -255,6 +262,28 @@ describe("VaultDashboard", () => {
       expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
     }, { timeout: 10000 });
   }, 15000);
+
+  it("plays the first deposit confetti once per wallet", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({});
+    vi.mocked(vaultMutations.useDepositMutation).mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    } as unknown as ReturnType<typeof vaultMutations.useDepositMutation>);
+
+    renderDashboard("GFIRSTDEPOSITWALLET000000000000000000000000000000");
+
+    const input = await screen.findByPlaceholderText("0.00");
+    fireEvent.change(input, { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review Transaction" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Confirm deposit/i }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalled();
+    });
+
+    expect(confetti).toHaveBeenCalled();
+    expect(localStorage.getItem("yieldvault:first-deposit:GFIRSTDEPOSITWALLET000000000000000000000000000000")).toBe("true");
+  });
 
   it("fills the input with max allowable amount via MAX button", async () => {
     renderDashboard("GABC123");
