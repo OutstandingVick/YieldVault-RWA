@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { ArrowDownUp, ArrowUpRight, Clock3, Menu, X } from "lucide-react";
 import {
   Activity,
   AlertCircle,
@@ -28,6 +29,7 @@ import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
 import { mapServerError } from "../lib/errorMappers";
 import confetti from "canvas-confetti";
 import CopyButton from "./CopyButton";
+import Badge from "./Badge";
 import { Button } from "./ui/Button";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
@@ -57,6 +59,37 @@ import {
   type TransactionConflictResolution,
 } from "../lib/transactionConflict";
 import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
+
+const FIRST_DEPOSIT_PREFIX = "yieldvault:first-deposit:";
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function runDepositConfetti(): void {
+  if (prefersReducedMotion()) {
+    return;
+  }
+
+  const end = Date.now() + 2000;
+  const intervalId = window.setInterval(() => {
+    confetti({
+      particleCount: 28,
+      spread: 72,
+      startVelocity: 34,
+      gravity: 1.05,
+      ticks: 90,
+      origin: { x: Math.random() * 0.6 + 0.2, y: 0.6 },
+      colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"],
+    });
+
+    if (Date.now() > end) {
+      window.clearInterval(intervalId);
+    }
+  }, 220);
+}
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -193,6 +226,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     message: string;
     txHash?: string
   } | null>(null);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [activeConflict, setActiveConflict] = useState<{
     conflict: TransactionConflictDetails;
     staleChanges?: StaleFieldChange[];
@@ -476,29 +510,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         await depositMutation.mutateAsync(mutationParams);
 
         try {
-          const depositKey = `has_deposited_${walletAddress}`;
-          const alreadyDeposited = localStorage.getItem(depositKey);
-          const isTest = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
-          if (!alreadyDeposited && !isTest) {
-            confetti({
-              particleCount: 150,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"]
-            });
+          const depositKey = `${FIRST_DEPOSIT_PREFIX}${walletAddress}`;
+          const alreadyCelebrated = localStorage.getItem(depositKey) === "true";
+          if (!alreadyCelebrated) {
             localStorage.setItem(depositKey, "true");
+            runDepositConfetti();
           }
         } catch (storageErr) {
-          console.warn("Storage access failed, triggering confetti anyway", storageErr);
-          const isTest = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
-          if (!isTest) {
-            confetti({
-              particleCount: 150,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"]
-            });
-          }
+          console.warn("Storage access failed while tracking first deposit state", storageErr);
+          runDepositConfetti();
         }
       } else {
         await withdrawMutation.mutateAsync(mutationParams);
@@ -650,6 +670,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   variant="tooltip"
                   content="Annualized yield based on the historical performance of the vault's underlying assets."
                 />
+                <Badge
+                  variant="pill"
+                  color={statsIsStale ? "warning" : "cyan"}
+                  size="compact"
+                  icon={<Clock3 size={10} />}
+                  style={{ marginLeft: "4px", whiteSpace: "nowrap" }}
+                >
+                  {statsIsStale ? `Stale ${statsAgeText || ""}`.trim() : statsAgeText ? `Fresh ${statsAgeText}` : "Live"}
+                </Badge>
               </div>
               <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
                 {delayedLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
@@ -1185,6 +1214,16 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                   {minReceived(estimatedNetAmount).toFixed(4)} USDC
                                 </span>
                               </div>
+                              <div style={{ marginTop: "10px" }}>
+                                <Badge
+                                  variant="outline"
+                                  color={statsIsStale ? "warning" : "info"}
+                                  size="compact"
+                                  icon={<Clock3 size={10} />}
+                                >
+                                  Quote {statsIsStale ? `stale ${statsAgeText}`.trim() : statsAgeText ? `fresh ${statsAgeText}` : "fresh"}
+                                </Badge>
+                              </div>
                             </div>
                           )}
 
@@ -1359,7 +1398,46 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             ))}
           </Tabs>
         </div>
+        <div className="mobile-vault-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setMobileActionsOpen(true)}>
+            <Menu size={16} />
+            Quick actions
+          </button>
+        </div>
       </div>
+      {mobileActionsOpen && (
+        <div className="mobile-bottom-sheet" role="dialog" aria-modal="true" aria-label="Quick vault actions">
+          <button
+            type="button"
+            className="mobile-bottom-sheet__backdrop"
+            aria-label="Close quick actions"
+            onClick={() => setMobileActionsOpen(false)}
+          />
+          <div className="mobile-bottom-sheet__panel">
+            <div className="mobile-bottom-sheet__handle" />
+            <div className="flex justify-between items-center" style={{ marginBottom: "14px" }}>
+              <strong>Quick actions</strong>
+              <button type="button" className="btn btn-outline" onClick={() => setMobileActionsOpen(false)} aria-label="Close quick actions">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mobile-bottom-sheet__actions">
+              <button type="button" className="btn btn-primary" onClick={() => { dashboardUrl.setTab("deposit"); setMobileActionsOpen(false); }}>
+                <ArrowDownUp size={16} />
+                Deposit
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => { dashboardUrl.setTab("withdraw"); setMobileActionsOpen(false); }}>
+                <ArrowUpRight size={16} />
+                Withdraw
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => { navigate("/transactions"); setMobileActionsOpen(false); }}>
+                <Clock3 size={16} />
+                Activity
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

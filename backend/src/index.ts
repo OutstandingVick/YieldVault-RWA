@@ -865,6 +865,20 @@ app.get(
   '/api/v1/vault/summary',
   readsLimiter,
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  createTimeoutFor.read({
+    timeoutMs: 1500,
+    routeName: '/api/v1/vault/summary',
+    message: 'Vault summary took too long to load',
+    fallbackResponse: () => ({
+      error: 'Service Unavailable',
+      status: 503,
+      code: 'VAULT_SUMMARY_TIMEOUT',
+      message: 'Vault summary is temporarily unavailable. Please refresh in a moment.',
+      stale: true,
+      data: buildVaultSummaryResponse(),
+      timestamp: new Date().toISOString(),
+    }),
+  }),
   (_req: Request, res: Response) => {
     res.json(buildVaultSummaryResponse());
   },
@@ -876,6 +890,19 @@ app.get(
 app.get(
   '/api/v1/vault/metrics',
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  createTimeoutFor.read({
+    timeoutMs: 2000,
+    routeName: '/api/v1/vault/metrics',
+    message: 'Vault metrics took too long to load',
+    fallbackResponse: () => ({
+      error: 'Service Unavailable',
+      status: 503,
+      code: 'VAULT_METRICS_TIMEOUT',
+      message: 'Vault metrics are temporarily unavailable. Showing the last known state.',
+      stale: true,
+      timestamp: new Date().toISOString(),
+    }),
+  }),
   (_req: Request, res: Response) => {
     res.json({
       message: 'Vault metrics',
@@ -890,6 +917,19 @@ app.get(
 app.get(
   '/api/v1/vault/apy',
   cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  createTimeoutFor.read({
+    timeoutMs: 1200,
+    routeName: '/api/v1/vault/apy',
+    message: 'Vault APY took too long to load',
+    fallbackResponse: () => ({
+      error: 'Service Unavailable',
+      status: 503,
+      code: 'VAULT_APY_TIMEOUT',
+      message: 'Vault APY is temporarily unavailable. Please try again shortly.',
+      stale: true,
+      timestamp: new Date().toISOString(),
+    }),
+  }),
   (_req: Request, res: Response) => {
     res.json({
       message: 'Vault APY',

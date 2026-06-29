@@ -810,6 +810,11 @@ button {
   transform: scale(0.98);
 }
 
+.mobile-vault-actions,
+.mobile-bottom-sheet {
+  display: none;
+}
+
 /* Animations */
 @keyframes puiseGlow {
   0% { box-shadow: 0 0 20px rgba(0, 240, 255, 0.1); }
@@ -834,6 +839,65 @@ button {
 
   .animate-glow {
     animation: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-vault-actions {
+    position: sticky;
+    bottom: 12px;
+    display: flex;
+    justify-content: center;
+    padding-top: 12px;
+    z-index: 25;
+  }
+
+  .mobile-bottom-sheet {
+    position: fixed;
+    inset: 0;
+    display: block;
+    z-index: 140;
+  }
+
+  .mobile-bottom-sheet__backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.42);
+  }
+
+  .mobile-bottom-sheet__panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 16px;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-glass);
+    box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.28);
+  }
+
+  .mobile-bottom-sheet__handle {
+    width: 44px;
+    height: 4px;
+    border-radius: 999px;
+    margin: 0 auto 12px;
+    background: var(--border-glass);
+  }
+
+  .mobile-bottom-sheet__actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mobile-bottom-sheet__actions .btn {
+    width: 100%;
+    padding: 12px 10px;
+    flex-direction: column;
   }
 }
 
