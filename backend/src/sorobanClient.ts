@@ -16,6 +16,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { logger } from './middleware/structuredLogging';
 import { getCurrentTraceId } from './tracing';
+import { sorobanRetryBudget } from './retryBudget';
 
 // Well-known Stellar network passphrases (avoids importing Networks which is
 // not consistently re-exported across stellar-sdk minor versions).
@@ -103,6 +104,60 @@ export class SorobanSimulationError extends Error implements SorobanTxError {
 
 // ─── Core RPC call ────────────────────────────────────────────────────────────
 
+const MAX_RPC_RETRIES = parseInt(process.env.SOROBAN_MAX_RETRIES || '3', 10);
+const RETRY_DELAY_MS = parseInt(process.env.SOROBAN_RETRY_DELAY_MS || '1000', 10);
+
+/**
+ * Retry helper with exponential backoff and budget control.
+ */
+async function retryWithBudget<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  maxRetries: number = MAX_RPC_RETRIES,
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await operation();
+      sorobanRetryBudget.recordAttempt(true);
+      return result;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      
+      // Don't retry on validation errors
+      if (err instanceof SorobanSimulationError && err.statusCode === 422) {
+        sorobanRetryBudget.recordAttempt(false);
+        throw err;
+      }
+
+      const isLastAttempt = attempt === maxRetries;
+      if (isLastAttempt || !sorobanRetryBudget.canRetry()) {
+        sorobanRetryBudget.recordAttempt(false);
+        logger.log('error', `${operationName} failed after ${attempt + 1} attempts`, {
+          error: lastError.message,
+          retryBudgetStats: sorobanRetryBudget.getStats(),
+          traceId: getCurrentTraceId(),
+        });
+        throw lastError;
+      }
+
+      const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+      logger.log('warn', `${operationName} failed, retrying`, {
+        attempt: attempt + 1,
+        maxRetries,
+        delayMs: delay,
+        error: lastError.message,
+        traceId: getCurrentTraceId(),
+      });
+      
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError || new Error(`${operationName} failed with no error`);
+}
+
 /**
  * Submit a Soroban vault contract invocation (deposit or withdrawal) to the
  * Stellar network. Steps:
@@ -177,7 +232,10 @@ export async function submitVaultOperation(
       traceId: getCurrentTraceId(),
     });
 
-    const simulated = await rpcClient.simulateTransaction(tx);
+    const simulated = await retryWithBudget(
+      () => rpcClient.simulateTransaction(tx),
+      'Soroban simulation',
+    );
 
     if (rpc.Api.isSimulationError(simulated)) {
       const errorMessage = `Soroban simulation failed: ${
@@ -213,7 +271,10 @@ export async function submitVaultOperation(
       traceId: getCurrentTraceId(),
     });
 
-    const txResponse = await rpcClient.sendTransaction(assembled);
+    const txResponse = await retryWithBudget(
+      () => rpcClient.sendTransaction(assembled),
+      'Soroban transaction submission',
+    );
 
     if (txResponse.status === 'ERROR') {
       const detail = txResponse.errorResult?.toXDR?.('base64') ?? 'unknown error';

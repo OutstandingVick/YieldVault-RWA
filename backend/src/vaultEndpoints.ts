@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
 import { allowlistMiddleware } from './middleware/allowlist';
-import { invalidateCache } from './middleware/cache';
+import { triggerCacheInvalidation, registerInvalidationHook } from './middleware/cache';
 import { depositsLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
@@ -12,7 +12,11 @@ import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
-import { validate, VaultOperationSchema } from './middleware/validate';
+import {
+  validate,
+  VaultDepositBodySchema,
+  VaultWithdrawalBodySchema,
+} from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import { createTimeoutFor } from './middleware/timeoutMiddleware';
@@ -26,11 +30,21 @@ const router = Router();
 const ZERO = new Decimal(0);
 const DEFAULT_SHARE_PRICE = new Decimal(1);
 
+// Register cache invalidation hooks for transaction state changes
+registerInvalidationHook((eventType) => {
+  if (eventType.startsWith('transaction.')) {
+    return [
+      'GET:/api/v1/vault',
+      'GET:/api/v1/transactions',
+      'GET:/api/v1/portfolio',
+    ];
+  }
+  return [];
+});
+
 function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
-  // R5: pattern-scoped invalidation — only clear vault, transactions, and portfolio entries
-  invalidateCache('GET:/api/v1/vault');
-  invalidateCache('GET:/api/v1/transactions');
-  invalidateCache('GET:/api/v1/portfolio');
+  // Trigger adaptive cache invalidation via hooks
+  triggerCacheInvalidation('transaction.write');
   next();
 }
 
@@ -267,18 +281,20 @@ async function handleVaultOperation(
         operation,
       );
       if (replayed) res.setHeader('idempotency-status', 'replayed');
-      // R5: pattern-scoped invalidation on successful write
-      invalidateCache('GET:/api/v1/vault');
-      invalidateCache('GET:/api/v1/transactions');
-      invalidateCache('GET:/api/v1/portfolio');
+      // Trigger adaptive cache invalidation via hooks
+      triggerCacheInvalidation(`transaction.${type}.completed`, {
+        wallet: normalizedWallet,
+        amount: String(amount),
+      });
       return res.status(result.statusCode).json(result.body);
     }
 
     const result = await operation();
-    // R5: pattern-scoped invalidation on successful write
-    invalidateCache('GET:/api/v1/vault');
-    invalidateCache('GET:/api/v1/transactions');
-    invalidateCache('GET:/api/v1/portfolio');
+    // Trigger adaptive cache invalidation via hooks
+    triggerCacheInvalidation(`transaction.${type}.completed`, {
+      wallet: normalizedWallet,
+      amount: String(amount),
+    });
     return res.status(result.statusCode).json(result.body);
   } catch (err) {
     if (err instanceof IdempotencyConflictError) {
@@ -334,7 +350,7 @@ router.post(
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
@@ -350,7 +366,7 @@ router.post(
   invalidateReadCaches,
   requireSignedWalletAction('withdrawal'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultWithdrawalBodySchema }),
   withdrawalDailyLimitMiddleware(),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
@@ -369,7 +385,7 @@ router.post(
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   requireFlag('deposit-v2'),
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 

@@ -168,6 +168,7 @@ fn test_claim_fees_transfers_to_treasury() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
     vault.initialize(&admin, &usdc.address);
+    vault.set_admin_param_change_interval(&0);
 
     vault.set_fee_bps(&1000); // 10%
     vault.set_treasury(&treasury);
@@ -183,8 +184,7 @@ fn test_claim_fees_transfers_to_treasury() {
 }
 
 #[test]
-#[should_panic(expected = "no fees to claim")]
-fn test_claim_fees_panics_when_balance_zero() {
+fn test_claim_fees_returns_error_when_balance_zero() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -198,7 +198,8 @@ fn test_claim_fees_panics_when_balance_zero() {
     vault.initialize(&admin, &usdc.address);
     vault.set_treasury(&treasury);
 
-    vault.claim_fees(); // should panic
+    let result = vault.try_claim_fees();
+    assert_eq!(result, Err(Ok(VaultError::NoFeesToClaim)));
 }
 
 #[test]

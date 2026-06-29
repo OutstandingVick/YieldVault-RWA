@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/rules-of-hooks */
-import { test as base, type Page } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 // Inline fixture data — avoids JSON import attribute requirements across Node versions
 export const vaultSummary = {
@@ -30,6 +30,60 @@ export const vaultSummaryAtCapacity = {
   ...vaultSummary,
   tvl: vaultSummary.depositCap,
 };
+
+const HORIZON_USDC_ISSUER =
+  'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO';
+
+function buildHorizonAccountBody(accountId: string) {
+  return JSON.stringify({
+    id: accountId,
+    account_id: accountId,
+    sequence: '12884901882',
+    subentry_count: 0,
+    balances: [
+      { asset_type: 'native', balance: '5.0000000' },
+      {
+        asset_type: 'credit_alphanum4',
+        asset_code: 'USDC',
+        asset_issuer: HORIZON_USDC_ISSUER,
+        balance: '1250.5000000',
+      },
+    ],
+    _links: {
+      self: { href: `https://horizon-testnet.stellar.org/accounts/${accountId}` },
+      transactions: {
+        href: `https://horizon-testnet.stellar.org/accounts/${accountId}/transactions{?cursor,limit,order}`,
+        templated: true,
+      },
+      operations: {
+        href: `https://horizon-testnet.stellar.org/accounts/${accountId}/operations{?cursor,limit,order}`,
+        templated: true,
+      },
+    },
+  });
+}
+
+function buildHorizonOperationsBody() {
+  return JSON.stringify({
+    _embedded: {
+      records: [
+        {
+          id: '12884905984',
+          type: 'payment',
+          from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+          to: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+          amount: '100.0000000',
+          asset_type: 'credit_alphanum4',
+          asset_code: 'USDC',
+          asset_issuer: HORIZON_USDC_ISSUER,
+          created_at: '2026-03-25T10:00:00.000Z',
+          transaction_hash:
+            'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890',
+        },
+      ],
+    },
+  });
+}
 
 const portfolioHoldings = [
   {
@@ -109,51 +163,56 @@ const portfolioHoldings = [
 /**
  * Intercept mock API routes so tests are fully deterministic.
  */
+async function fulfillHorizonRoute(route: import('@playwright/test').Route) {
+  if (route.request().method() !== 'GET') {
+    await route.continue();
+    return;
+  }
+
+  const url = route.request().url();
+
+  if (url.includes('/operations')) {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { date: new Date().toUTCString() },
+      body: buildHorizonOperationsBody(),
+    });
+    return;
+  }
+
+  const accountMatch = url.match(/\/accounts\/([^/?]+)/);
+  const accountId = accountMatch?.[1] ?? 'unknown';
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    headers: { date: new Date().toUTCString() },
+    body: buildHorizonAccountBody(accountId),
+  });
+}
+
 export async function interceptApiRoutes(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem('hasSeenWalkthrough', 'true');
-    window.sessionStorage.removeItem('yieldvault_vault_form_draft');
-
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
-
-      if (url.includes('horizon-testnet.stellar.org') && url.includes('/accounts/')) {
-        const accountId =
-          url.split('/accounts/')[1]?.split(/[/?]/)[0] ?? 'unknown';
-
-        return new Response(
-          JSON.stringify({
-            id: accountId,
-            account_id: accountId,
-            sequence: '12884901882',
-            subentry_count: 0,
-            balances: [
-              { asset_type: 'native', balance: '5.0000000' },
-              {
-                asset_type: 'credit_alphanum4',
-                asset_code: 'USDC',
-                asset_issuer:
-                  'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
-                balance: '1250.5000000',
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        );
-      }
-
-      return originalFetch(input, init);
-    };
+    // Match Cypress: skip service-worker registration so Playwright route mocks
+    // are not bypassed by cross-origin fetches issued from the SW context.
+    (window as Window & { Cypress?: boolean }).Cypress = true;
+    if ('serviceWorker' in navigator) {
+      void navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          void registration.unregister();
+        });
+      });
+    }
   });
+
+  await page.route('**/sw.js', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'disabled in e2e',
+    }),
+  );
 
   await page.route('**/mock-api/vault-summary.json', (route) =>
     route.fulfill({
@@ -170,33 +229,71 @@ export async function interceptApiRoutes(page: Page) {
     }),
   );
 
-  await page.route(/https:\/\/horizon-testnet\.stellar\.org\/accounts\/[^/?]+.*/, async (route) => {
-    if (route.request().method() !== 'GET') {
-      await route.continue();
-      return;
-    }
+  await page.route(/horizon(-testnet)?\.stellar\.org/i, fulfillHorizonRoute);
+}
 
-    const pathname = new URL(route.request().url()).pathname;
-    const accountId = pathname.split('/').filter(Boolean).pop() ?? 'unknown';
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        id: accountId,
-        account_id: accountId,
-        sequence: '12884901882',
-        subentry_count: 0,
-        balances: [
-          { asset_type: 'native', balance: '5.0000000' },
-          {
-            asset_type: 'credit_alphanum4',
-            asset_code: 'USDC',
-            asset_issuer: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO',
-            balance: '1250.5000000',
-          },
-        ],
-      }),
-    });
+/** Wait until the connected wallet banner shows the mocked USDC balance. */
+export async function waitForMockUsdcBalance(page: Page) {
+  await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', {
+    timeout: 20_000,
+  });
+}
+
+export function vaultActionTab(page: Page, tab: 'Deposit' | 'Withdraw') {
+  return page.getByRole('button', { name: tab, exact: true });
+}
+
+/** Fill a deposit amount and wait for client-side validation to enable review. */
+export async function fillDepositAmount(page: Page, amount: string) {
+  const amountInput = page.getByLabel('Deposit amount');
+  await amountInput.fill(amount);
+  await amountInput.blur();
+  const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+  await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
+  return { amountInput, reviewBtn };
+}
+
+/** Approve USDC on the review step when the allowance gate is shown. */
+export async function approveUsdcIfNeeded(page: Page) {
+  const approveBtn = page.getByRole('button', { name: 'Approve USDC' });
+  if (await approveBtn.isVisible()) {
+    await approveBtn.click();
+    await expect(approveBtn).not.toBeVisible({ timeout: 5_000 });
+  }
+}
+
+/** Confirm the secondary transaction summary modal opened by the vault wizard. */
+export async function confirmInTransactionModal(page: Page) {
+  const dialog = page.getByRole('dialog', { name: /Confirm (deposit|withdraw)/i });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  const confirmAnyway = dialog.getByRole('button', { name: /Confirm Anyway/i });
+  if (await confirmAnyway.isVisible()) {
+    await confirmAnyway.click();
+    return;
+  }
+  await dialog.getByRole('button', { name: /^Confirm$/i }).click();
+}
+
+/** Complete the vault wizard review step for deposits or withdrawals. */
+export async function completeVaultReviewStep(
+  page: Page,
+  action: 'deposit' | 'withdraw',
+) {
+  const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+  await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
+  await reviewBtn.click();
+  await expect(page.getByText('Confirm Transaction')).toBeVisible();
+  if (action === 'deposit') {
+    await approveUsdcIfNeeded(page);
+  }
+  const confirmBtn = page.getByRole('button', {
+    name: action === 'deposit' ? /Confirm deposit/i : /Confirm withdraw/i,
+  });
+  await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
+  await confirmBtn.click();
+  await confirmInTransactionModal(page);
+  await expect(page.getByText('Transaction Successful')).toBeVisible({
+    timeout: 20_000,
   });
 }
 
@@ -215,7 +312,6 @@ export async function interceptApiRoutes(page: Page) {
  */
 export async function stubFreighterConnected(page: Page, address: string) {
   await page.addInitScript((addr) => {
-    // Stateful stub — tests can call window.__freighterStub.disconnect()
     const stub = { connected: true };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 
@@ -232,7 +328,7 @@ export async function stubFreighterConnected(page: Page, address: string) {
 
       let response: Record<string, unknown> = {
         source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
-        messagedId: messageId, // note: the library uses "messagedId" (typo in source)
+        messagedId: messageId,
       };
 
       switch (type) {
@@ -271,7 +367,8 @@ export async function stubFreighterConnected(page: Page, address: string) {
 }
 
 /**
- * Stub Freighter starting disconnected; user can connect via the in-app button.
+ * Starts disconnected; flips to connected after SET_ALLOWED_STATUS / REQUEST_ACCESS
+ * so deposit-flow e2e can exercise the real Connect Freighter button.
  */
 export async function stubFreighterManualConnect(page: Page, address: string) {
   await page.addInitScript((addr) => {
@@ -295,14 +392,13 @@ export async function stubFreighterManualConnect(page: Page, address: string) {
       };
 
       switch (type) {
-        case 'REQUEST_ALLOWED_STATUS':
         case 'SET_ALLOWED_STATUS':
-          response = { ...response, isAllowed: stub.connected };
-          break;
         case 'REQUEST_ACCESS':
-        case 'SET_ALLOWED':
           stub.connected = true;
-          response = { ...response, publicKey: addr, isAllowed: true };
+          response = { ...response, isAllowed: true, publicKey: addr };
+          break;
+        case 'REQUEST_ALLOWED_STATUS':
+          response = { ...response, isAllowed: stub.connected };
           break;
         case 'REQUEST_PUBLIC_KEY':
           response = { ...response, publicKey: stub.connected ? addr : '' };

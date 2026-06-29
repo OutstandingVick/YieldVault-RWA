@@ -1,0 +1,26 @@
+# Postmortem Docs CI Workflow
+
+Install this file at `.github/workflows/postmortem-docs.yml` to enable PR validation
+for published postmortem reports.
+
+```yaml
+name: Validate Postmortem Docs
+
+on:
+  pull_request:
+    paths:
+      - 'docs/incidents/**'
+      - 'docs/runbooks/templates/**'
+      - 'docs/postmortem-playbook.md'
+      - 'scripts/validate-postmortem.sh'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate postmortem structure
+        run: chmod +x scripts/validate-postmortem.sh && ./scripts/validate-postmortem.sh
+```
+
+See [ISSUE_769_IMPLEMENTATION_SUMMARY.md](../runbooks/ISSUE_769_IMPLEMENTATION_SUMMARY.md).

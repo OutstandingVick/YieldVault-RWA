@@ -66,6 +66,10 @@ function scanFile(filePath) {
     lines.forEach((line, index) => {
       SECRET_PATTERNS.forEach(({ name, pattern }) => {
         if (pattern.test(line)) {
+          // Notification preference keys like `{ key: 'withdrawalAlerts' }` are not secrets.
+          if (name === 'Generic Secret' && /\{\s*key:\s*'[A-Za-z]+'\s*\}/.test(line.trim())) {
+            return;
+          }
           findings.push({
             file: filePath,
             line: index + 1,

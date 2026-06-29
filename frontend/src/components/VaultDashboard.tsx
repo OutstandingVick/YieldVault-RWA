@@ -1,11 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
-import confetti from "canvas-confetti";
 import {
   Activity,
   AlertCircle,
   AlertTriangle,
   Check,
-  Loader2,
   Share2,
   ShieldCheck,
   TrendingUp,
@@ -28,7 +26,9 @@ import { useTokenAllowance } from "../hooks/useTokenAllowance";
 import { createDepositFormSchema, MIN_DEPOSIT_AMOUNT } from "../forms/schemas/depositFormSchema";
 import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
 import { mapServerError } from "../lib/errorMappers";
+import confetti from "canvas-confetti";
 import CopyButton from "./CopyButton";
+import { Button } from "./ui/Button";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
@@ -48,10 +48,7 @@ import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
-import {
-  clearVaultFormDraft,
-  saveVaultFormDraft,
-} from "../lib/formDraftStorage";
+import { saveVaultFormDraft, clearVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
@@ -239,7 +236,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleChange,
     handleBlur,
     setValues,
-    setFieldError
+    setFieldError,
+    resetErrors,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
@@ -298,7 +296,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setValues({ amount: "" });
     }
     resetApproval();
-  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval]);
+    resetErrors();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval, resetErrors]);
 
   // Reset approval when deposit amount changes
   useEffect(() => {
@@ -373,8 +372,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const resetWizard = () => {
     setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
+    dashboardUrl.setState({ step: "amount", amount: "" });
+    clearVaultFormDraft();
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
@@ -396,6 +395,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
     staleGuard.captureReviewSnapshot();
     dashboardUrl.setStep("review");
+    window.setTimeout(() => {
+      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
+    }, 0);
   };
 
   const executeTransaction = async (
@@ -911,9 +913,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             value={dashboardUrl.state.tab}
             defaultValue="deposit"
             onValueChange={(value) => {
-              dashboardUrl.setTab(value as TransactionTab);
+              dashboardUrl.setState({
+                tab: value as TransactionTab,
+                amount: "",
+              });
               setValues({ amount: "" });
-              dashboardUrl.setAmount("");
             }}
           >
             {dashboardUrl.state.step === "amount" && (
@@ -1261,10 +1265,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                 </div>
                               </div>
                               {approvalStatus !== "confirmed" && (
-                                <button
+                                <Button
                                   type="button"
-                                  className="btn btn-outline"
+                                  variant="outline"
                                   style={{ width: "100%", padding: "10px" }}
+                                  status={approvalStatus === "pending" ? "pending" : "idle"}
+                                  loadingLabel="Approving..."
                                   disabled={approvalStatus === "pending"}
                                   onClick={async () => {
                                     try {
@@ -1275,8 +1281,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                     }
                                   }}
                                 >
-                                  {approvalStatus === "pending" ? "Approving..." : "Approve USDC"}
-                                </button>
+                                  Approve USDC
+                                </Button>
                               )}
                             </div>
                           )}
@@ -1306,11 +1312,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           >
                             Back
                           </button>
-                          <button
+                          <Button
                             type="button"
                             id={`vault-${tab}-confirm`}
-                            className="btn btn-primary"
+                            variant="primary"
                             style={{ flex: 2 }}
+                            status={isBusy ? "pending" : "idle"}
+                            loadingLabel="Processing..."
                             onClick={() => void handleTransaction(tab)}
                             disabled={
                               isBusy || 
@@ -1318,15 +1326,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               (tab === "deposit" && xlmBalance < feeXlm)
                             }
                           >
-                            {isBusy ? (
-                              <>
-                                <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
-                                Processing...
-                              </>
-                            ) : (
-                              `Confirm ${tab}`
-                            )}
-                          </button>
+                            {`Confirm ${tab}`}
+                          </Button>
                         </div>
                       </div>
                     )}

@@ -1,7 +1,7 @@
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
 import { redisClientManager } from './rateLimiter';
-import { scValToNative, xdr } from '@stellar/stellar-sdk';
+import { scValToNative, xdr } from '@stellar/stellar-base';
 import Decimal from 'decimal.js';
 
 const prisma = getPrismaClient();
@@ -325,7 +325,6 @@ export class EventPollingService {
       logger.log('error', 'Event polling failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
-      throw error;
     }
   }
 

@@ -130,3 +130,86 @@ export function syncJobGovernanceMetrics(): void {
     );
   }
 }
+
+// --- Reconciliation Drift Metrics ---
+
+export const reconciliationDriftTotal = new Counter({
+  name: 'reconciliation_drift_total',
+  help: 'Total reconciliation drift issues detected by type',
+  labelNames: ['issue'],
+  registers: [register],
+});
+
+export const reconciliationStatus = new Gauge({
+  name: 'reconciliation_status',
+  help: 'Reconciliation status: 1 = clean, 0 = drift detected',
+  registers: [register],
+});
+
+export const reconciliationLastRunTimestamp = new Gauge({
+  name: 'reconciliation_last_run_timestamp',
+  help: 'Unix timestamp of the last automated reconciliation run',
+  registers: [register],
+});
+
+export function recordReconciliationDrift(issue: string): void {
+  reconciliationDriftTotal.inc({ issue });
+}
+
+export function setReconciliationStatus(clean: number): void {
+  reconciliationStatus.set(clean);
+}
+
+export function setReconciliationLastRunTimestamp(unixSeconds: number): void {
+  reconciliationLastRunTimestamp.set(unixSeconds);
+}
+
+// --- Endpoint SLO Metrics ---
+
+export const endpointSloBreachTotal = new Counter({
+  name: 'backend_slo_breach_total',
+  help: 'Total endpoint SLO breach alerts emitted',
+  labelNames: ['path', 'tier', 'type'],
+  registers: [register],
+});
+
+export const endpointSloP95LatencyMs = new Gauge({
+  name: 'backend_slo_p95_latency_ms',
+  help: 'Current rolling P95 latency per endpoint in milliseconds',
+  labelNames: ['path', 'tier', 'type'],
+  registers: [register],
+});
+
+export const endpointSloBudgetMs = new Gauge({
+  name: 'backend_slo_budget_ms',
+  help: 'Configured P95 latency budget per endpoint in milliseconds',
+  labelNames: ['path', 'tier', 'type'],
+  registers: [register],
+});
+
+export const endpointSloBreach = new Gauge({
+  name: 'backend_slo_breach',
+  help: 'Endpoint SLO breach state: 1 = breaching, 0 = within budget',
+  labelNames: ['path', 'tier', 'type'],
+  registers: [register],
+});
+
+export function recordSloBreachAlert(path: string, tier: string, type: string): void {
+  endpointSloBreachTotal.inc({ path, tier, type });
+}
+
+// --- Adaptive Throttle Metrics ---
+
+export const adaptiveThrottleBlockCount = new Counter({
+  name: 'adaptive_throttle_block_count',
+  help: 'Total number of IPs blocked by adaptive throttle',
+  labelNames: ['using_redis'],
+  registers: [register],
+});
+
+export const adaptiveThrottleActiveBlocks = new Gauge({
+  name: 'adaptive_throttle_active_blocks',
+  help: 'Current number of IPs actively blocked by adaptive throttle',
+  labelNames: ['using_redis'],
+  registers: [register],
+});

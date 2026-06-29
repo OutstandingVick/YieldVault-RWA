@@ -66,7 +66,7 @@ describe('TransactionConfirmationModal', () => {
     it('displays contract address in monospace font', () => {
       render(<TransactionConfirmationModal {...defaultProps} />);
       const addressText = screen.getByText(mockSummary.contractAddress);
-      expect(addressText.parentElement?.getAttribute('style')).toContain('monospace');
+      expect(addressText.parentElement).toHaveStyle({ fontFamily: 'monospace' });
     });
   });
 
@@ -159,7 +159,7 @@ describe('TransactionConfirmationModal', () => {
 
     it('disables confirm button when isLoading is true', () => {
       render(<TransactionConfirmationModal {...defaultProps} isLoading={true} />);
-      const confirmBtn = screen.getByRole('button', { name: /Signing/i });
+      const confirmBtn = screen.getByRole('button', { name: /Signing/ });
       expect(confirmBtn).toBeDisabled();
     });
 

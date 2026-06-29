@@ -38,6 +38,8 @@ interface DataTableProps<T> {
   renderRowDetails?: (row: T) => ReactNode;
   isLoading?: boolean;
   skeletonRows?: number;
+  onRowClick?: (row: T) => void;
+  selectedRowKey?: string;
 }
 
 function getCellAlignment(align: DataTableColumn<unknown>["align"]) {
@@ -67,6 +69,8 @@ export function DataTable<T>({
   renderRowDetails,
   isLoading = false,
   skeletonRows = 5,
+  onRowClick,
+  selectedRowKey,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
   const delayedLoading = useDelayedLoading(isLoading);
@@ -80,6 +84,20 @@ export function DataTable<T>({
       onSortChange?.(columnId);
     }
   };
+
+  const handleRowKeyDown = (
+    event: KeyboardEvent<HTMLTableRowElement>,
+    row: T,
+  ) => {
+    if (!onRowClick) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onRowClick(row);
+    }
+  };
+
+  const isInteractive = Boolean(onRowClick);
 
   return (
     <div className="data-table-shell glass-panel" aria-busy={delayedLoading}>
@@ -141,8 +159,34 @@ export function DataTable<T>({
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={rowKey(row)} tabIndex={0} className="data-table-row">
+              rows.map((row) => {
+                const key = rowKey(row);
+                const isSelected = selectedRowKey === key;
+                const rowClassName = [
+                  "data-table-row",
+                  isInteractive && "data-table-row--interactive",
+                  isSelected && "data-table-row--selected",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+
+                return (
+                <tr
+                  key={key}
+                  tabIndex={isInteractive ? 0 : undefined}
+                  className={rowClassName}
+                  onClick={isInteractive ? () => onRowClick?.(row) : undefined}
+                  onKeyDown={
+                    isInteractive
+                      ? (event) => handleRowKeyDown(event, row)
+                      : undefined
+                  }
+                  aria-selected={isInteractive ? isSelected : undefined}
+                  aria-label={
+                    isInteractive ? t("dataTable.viewRowDetails") : undefined
+                  }
+                  role={isInteractive ? "button" : undefined}
+                >
                   {columns.map((column, columnIndex) => {
                     const content = column.cell
                       ? column.cell(row)
@@ -166,7 +210,8 @@ export function DataTable<T>({
                     );
                   })}
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

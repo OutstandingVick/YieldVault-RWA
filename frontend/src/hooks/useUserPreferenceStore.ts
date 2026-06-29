@@ -12,8 +12,11 @@ import {
   setTableDensity as persistTableDensity,
   setTransactionPageSize as persistTransactionPageSize,
   setTransactionViewMode as persistTransactionViewMode,
+  toggleTransactionColumnVisibility as persistToggleTransactionColumn,
+  setTransactionVisibleColumns as persistTransactionVisibleColumns,
   updateUserPreferenceStore,
 } from "../lib/userPreferenceStore";
+import type { TransactionColumnId, TransactionVisibleColumns } from "../lib/userPreferenceStore";
 
 export function useUserPreferenceStore(walletAddress?: string | null) {
   const [store, setStore] = useState<UserPreferenceStoreData>(() =>
@@ -52,6 +55,20 @@ export function useUserPreferenceStore(walletAddress?: string | null) {
     [walletAddress],
   );
 
+  const setTransactionVisibleColumns = useCallback(
+    (columns: TransactionVisibleColumns) => {
+      setStore(persistTransactionVisibleColumns(columns, walletAddress));
+    },
+    [walletAddress],
+  );
+
+  const toggleTransactionColumnVisibility = useCallback(
+    (columnId: TransactionColumnId) => {
+      setStore(persistToggleTransactionColumn(columnId, walletAddress));
+    },
+    [walletAddress],
+  );
+
   const updateStore = useCallback(
     (
       updater:
@@ -75,6 +92,8 @@ export function useUserPreferenceStore(walletAddress?: string | null) {
     setTableDensity,
     setTransactionViewMode,
     setTransactionPageSize,
+    setTransactionVisibleColumns,
+    toggleTransactionColumnVisibility,
     updateStore,
     resetStore,
   };

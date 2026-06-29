@@ -51,6 +51,11 @@ export const es = {
       checkingStatus: "Buscando una sesión existente de Freighter en este dispositivo",
       errorStatus: "Conexión fallida - intenta de nuevo o verifica Freighter",
     },
+    heartbeat: {
+      healthy: "Sesión de billetera saludable",
+      degraded: "Sesión de billetera degradada",
+      unhealthy: "Sesión de billetera no saludable",
+    },
   },
   toast: {
     walletConnected: {
@@ -83,6 +88,7 @@ export const es = {
     previous: "Anterior",
     next: "Siguiente",
     sortBy: "Ordenar por",
+    viewRowDetails: "Ver detalles de la fila",
   },
   shortcuts: {
     title: "Atajos de teclado",
@@ -282,6 +288,15 @@ export const es = {
     headingAccent: "Acceso descentralizado.",
     description: "Deposita USDC para ganar rendimiento estable y predecible respaldado por deuda soberana tokenizada y activos del mundo real.",
   },
+  securityOffer: {
+    badge: "Revisión de seguridad pre-mainnet",
+    title: "Auditoría de seguridad inicial gratuita antes del mainnet",
+    description:
+      "Ofrecemos una revisión inicial gratuita de contratos inteligentes y frontend para participantes tempranos mientras YieldVault opera en testnet.",
+    cta: "Solicitar auditoría gratuita",
+    disclaimer: "Disponibilidad limitada · Sin obligación",
+    emailSubject: "Solicitud de auditoría de seguridad pre-mainnet de YieldVault",
+  },
   withdrawal: {
     title: "Confirmar retiro",
     subtitle: "Por favor, revisa los detalles antes de confirmar tu retiro.",
@@ -309,6 +324,8 @@ export const es = {
       compactModeDesc: "Reduce el espaciado para mostrar más información en pantalla.",
       showBalances: "Mostrar saldos",
       showBalancesDesc: "Muestra los saldos de billetera y bóveda en toda la app.",
+      maskSensitiveValues: "Ocultar valores sensibles",
+      maskSensitiveValuesDesc: "Enmascara saldos e identificadores por defecto. Desactiva para ver el detalle completo.",
     },
     language: {
       title: "Idioma y región",
@@ -434,6 +451,19 @@ export const es = {
     liveStatus: "Estado en vivo",
     dismissTimeline: "Descartar línea de tiempo",
     tableCaption: "Historial de transacciones",
+    columns: {
+      title: "Columnas visibles",
+      button: "Columnas",
+      toggle: "Personalizar columnas visibles de la tabla de transacciones",
+    },
+  },
+  txDetail: {
+    title: "Detalles de la transacción",
+    description: "Revisa los detalles completos de esta transacción.",
+    viewReceipt: "Ver recibo",
+    hashLabel: "hash de transacción",
+    viewOnExplorer: "Ver en Stellar Explorer",
+    liveStatusSection: "Estado en vivo",
   },
   portfolio: {
     pageTitle: "Portafolio",
@@ -465,6 +495,12 @@ export const es = {
     pendingStatus: "Pendiente",
     searchPlaceholder: "Buscar activo, bóveda, emisor...",
     tableCaption: "Posiciones del portafolio",
+  },
+  networkQuality: {
+    fast: "Red rápida",
+    normal: "Red normal",
+    slow: "Red lenta — frecuencia de actualización reducida",
+    degraded: "Red degradada — los datos pueden estar desactualizados",
   },
   analytics: {
     tag: "Analítica en vivo",

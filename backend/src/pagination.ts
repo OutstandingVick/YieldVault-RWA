@@ -283,31 +283,44 @@ export function paginateWithOffset<T>(
 export function sortItems<T extends Record<string, unknown>>(
   items: T[],
   sortBy: string,
-  sortOrder: 'asc' | 'desc'
+  sortOrder: 'asc' | 'desc',
+  secondarySortBy: string[] = []
 ): T[] {
-  return [...items].sort((a, b) => {
-    const aValue = a[sortBy];
-    const bValue = b[sortBy];
+  const keys = [sortBy, ...secondarySortBy.filter((key) => key !== sortBy)];
 
-    // Handle null/undefined values
+  const compareValues = (aValue: unknown, bValue: unknown): number => {
     if (aValue == null && bValue == null) return 0;
-    if (aValue == null) return sortOrder === 'asc' ? 1 : -1;
-    if (bValue == null) return sortOrder === 'asc' ? -1 : 1;
+    if (aValue == null) return 1;
+    if (bValue == null) return -1;
 
-    // Compare values
-    let comparison = 0;
     if (typeof aValue === 'string' && typeof bValue === 'string') {
-      comparison = aValue.localeCompare(bValue);
-    } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-      comparison = aValue - bValue;
-    } else if (aValue instanceof Date && bValue instanceof Date) {
-      comparison = aValue.getTime() - bValue.getTime();
-    } else {
-      // Fallback to string comparison
-      comparison = String(aValue).localeCompare(String(bValue));
+      return aValue.localeCompare(bValue);
+    }
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+      return aValue - bValue;
+    }
+    if (aValue instanceof Date && bValue instanceof Date) {
+      return aValue.getTime() - bValue.getTime();
     }
 
-    return sortOrder === 'asc' ? comparison : -comparison;
+    return String(aValue).localeCompare(String(bValue));
+  };
+
+  return [...items].sort((a, b) => {
+    for (const key of keys) {
+      const comparison = compareValues(a[key], b[key]);
+      if (comparison !== 0) {
+        return sortOrder === 'asc' ? comparison : -comparison;
+      }
+    }
+
+    // Final deterministic fallback keeps ordering stable even when all configured keys match.
+    const idComparison = compareValues(a.id, b.id);
+    if (idComparison !== 0) {
+      return sortOrder === 'asc' ? idComparison : -idComparison;
+    }
+
+    return compareValues(JSON.stringify(a), JSON.stringify(b));
   });
 }
 

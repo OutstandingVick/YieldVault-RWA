@@ -223,6 +223,51 @@ export function cacheMiddleware(options: CacheOptions) {
 
 // ── Invalidation ─────────────────────────────────────────────────────────────
 
+type InvalidationHook = (eventType: string, metadata?: Record<string, unknown>) => string[];
+
+const invalidationHooks: InvalidationHook[] = [];
+
+/**
+ * Register a hook that returns patterns to invalidate when a write event occurs.
+ * Hooks receive the event type and optional metadata and return an array of cache key patterns.
+ */
+export function registerInvalidationHook(hook: InvalidationHook): void {
+  invalidationHooks.push(hook);
+}
+
+/**
+ * Trigger cache invalidation for a specific event type.
+ * All registered hooks are invoked and their returned patterns are invalidated.
+ */
+export function triggerCacheInvalidation(
+  eventType: string,
+  metadata?: Record<string, unknown>,
+): { patternsInvalidated: string[]; keysRemoved: number } {
+  const patterns: string[] = [];
+
+  for (const hook of invalidationHooks) {
+    try {
+      const hookPatterns = hook(eventType, metadata);
+      patterns.push(...hookPatterns);
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'invalidation_hook_error',
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
+  let totalRemoved = 0;
+  for (const pattern of patterns) {
+    totalRemoved += invalidateCache(pattern);
+  }
+
+  return { patternsInvalidated: patterns, keysRemoved: totalRemoved };
+}
+
 export function invalidateCache(pattern?: string): number {
   if (!pattern) {
     const count = responseCache.size;

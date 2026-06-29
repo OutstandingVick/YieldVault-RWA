@@ -6,6 +6,175 @@ This document describes the standardized pagination conventions used across all 
 
 All list endpoints follow consistent pagination patterns to make API consumption predictable and easy to use.
 
+For runnable consumer examples, see:
+
+- [TypeScript pagination consumer](../examples/api_pagination_consumer.ts)
+- [Python pagination consumer](../examples/api_pagination_consumer.py)
+
+## Deterministic Paging Behavior
+
+YieldVault list endpoints use **stable sort keys** and **opaque cursors** so API consumers can page through results without duplicates or gaps when the underlying dataset is unchanged.
+
+### Guarantees
+
+| Behavior | What it means for consumers |
+|----------|-----------------------------|
+| Stable ordering | Repeating the same query (same filters, `limit`, `sortBy`, `sortOrder`, and no `cursor`) returns the same item order. |
+| Cursor advancement | `nextCursor` always refers to the **last item on the current page**. The next request starts immediately after that anchor. |
+| No page overlap | IDs returned on page *N* never appear again on page *N+1* when you only advance with `nextCursor`. |
+| Opaque cursors | Treat `nextCursor` as an opaque token. Do not parse or construct cursors manually. |
+| Invalid cursors | Malformed or unknown cursors return an empty page (`data: []`, `hasNextPage: false`) on public list routes, or `400 Bad Request` on strict admin routes such as webhook delivery history. |
+
+### Sort keys by endpoint
+
+| Endpoint | Default sort | Cursor anchor |
+|----------|--------------|---------------|
+| `GET /api/transactions` | `timestamp` desc | Base64url-encoded transaction `id` |
+| `GET /api/portfolio/holdings` | `valueUsd` desc | Base64url-encoded holding `id` |
+| `GET /api/vault/history` | `date` desc | Base64url-encoded history point `id` |
+| `GET /admin/webhooks/deliveries` | `createdAt` desc, then `id` desc | Base64url-encoded JSON `{ createdAt, id }` |
+
+### Worked example: three-page walkthrough
+
+Assume seven transactions sorted by `timestamp` descending. Request `limit=3`:
+
+**Request 1 — first page**
+
+```http
+GET /api/transactions?limit=3&sortBy=timestamp&sortOrder=desc
+```
+
+```json
+{
+  "data": [
+    { "id": "tx-7", "timestamp": "2026-06-26T15:00:00.000Z" },
+    { "id": "tx-6", "timestamp": "2026-06-26T14:00:00.000Z" },
+    { "id": "tx-5", "timestamp": "2026-06-26T13:00:00.000Z" }
+  ],
+  "pagination": {
+    "count": 3,
+    "limit": 3,
+    "total": 7,
+    "nextCursor": "dHgtNQ",
+    "prevCursor": null,
+    "currentPage": null,
+    "totalPages": null,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  },
+  "timestamp": "2026-06-26T16:00:00.000Z"
+}
+```
+
+`nextCursor` is the base64url encoding of the last row's `id` (`tx-5` → `dHgtNQ`).
+
+**Request 2 — forward one page**
+
+```http
+GET /api/transactions?limit=3&sortBy=timestamp&sortOrder=desc&cursor=dHgtNQ
+```
+
+```json
+{
+  "data": [
+    { "id": "tx-4", "timestamp": "2026-06-26T12:00:00.000Z" },
+    { "id": "tx-3", "timestamp": "2026-06-26T11:00:00.000Z" },
+    { "id": "tx-2", "timestamp": "2026-06-26T10:00:00.000Z" }
+  ],
+  "pagination": {
+    "count": 3,
+    "limit": 3,
+    "total": 7,
+    "nextCursor": "dHgtMg",
+    "prevCursor": null,
+    "currentPage": null,
+    "totalPages": null,
+    "hasNextPage": true,
+    "hasPrevPage": true
+  },
+  "timestamp": "2026-06-26T16:00:01.000Z"
+}
+```
+
+**Request 3 — final page**
+
+```http
+GET /api/transactions?limit=3&sortBy=timestamp&sortOrder=desc&cursor=dHgtMg
+```
+
+```json
+{
+  "data": [
+    { "id": "tx-1", "timestamp": "2026-06-26T09:00:00.000Z" }
+  ],
+  "pagination": {
+    "count": 1,
+    "limit": 3,
+    "total": 7,
+    "nextCursor": null,
+    "prevCursor": null,
+    "currentPage": null,
+    "totalPages": null,
+    "hasNextPage": false,
+    "hasPrevPage": true
+  },
+  "timestamp": "2026-06-26T16:00:02.000Z"
+}
+```
+
+Across all three pages the union of IDs is `{tx-7, tx-6, tx-5, tx-4, tx-3, tx-2, tx-1}` with **no duplicates**.
+
+### Sequence diagram
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant API as YieldVault API
+
+  Client->>API: GET /api/transactions?limit=3
+  API-->>Client: data=[tx-7,tx-6,tx-5], nextCursor=dHgtNQ
+
+  Client->>API: GET /api/transactions?limit=3&cursor=dHgtNQ
+  API-->>Client: data=[tx-4,tx-3,tx-2], nextCursor=dHgtMg
+
+  Client->>API: GET /api/transactions?limit=3&cursor=dHgtMg
+  API-->>Client: data=[tx-1], hasNextPage=false
+```
+
+### Consumer loop (TypeScript)
+
+```typescript
+let cursor: string | undefined;
+
+while (true) {
+  const url = new URL("/api/transactions", "http://localhost:3000");
+  url.searchParams.set("limit", "20");
+  if (cursor) url.searchParams.set("cursor", cursor);
+
+  const page = await fetch(url).then((res) => res.json());
+
+  for (const row of page.data) {
+    processTransaction(row);
+  }
+
+  if (!page.pagination.hasNextPage || !page.pagination.nextCursor) {
+    break;
+  }
+
+  cursor = page.pagination.nextCursor;
+}
+```
+
+See the full runnable example in [`docs/examples/api_pagination_consumer.ts`](../examples/api_pagination_consumer.ts).
+
+### When data changes between requests
+
+Cursor paging is **stable for a fixed dataset**, but new rows can appear while you page:
+
+- **New rows inserted at the top** (newer `timestamp`): already-fetched pages remain valid; you may see new rows only if you restart from the first page.
+- **Do not mix `page` and `cursor`** on the same traversal. Pick one strategy per export job.
+- **Persist the last `nextCursor`** if you need to resume a long export after a network failure.
+
 ## Query Parameters
 
 ### Standard Pagination Parameters
@@ -202,6 +371,11 @@ curl "http://localhost:3000/api/vault/history?from=2026-01-01&to=2026-03-31&limi
 All list endpoints are subject to API rate limiting. See [RATE_LIMITING.md](./RATE_LIMITING.md) for details.
 
 ## Changelog
+
+### Version 1.1.0 (2026-06-26)
+- Add deterministic paging behavior walkthrough with concrete request/response examples
+- Add cursor usage sequence diagram and consumer loop patterns
+- Add runnable TypeScript and Python pagination consumer examples
 
 ### Version 1.0.0 (2026-03-28)
 - Initial pagination conventions

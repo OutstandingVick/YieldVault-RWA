@@ -14,6 +14,10 @@ import { sorobanCircuitBreaker } from './circuitBreaker';
 import { db } from './database';
 import { getPrismaRuntimeConfig } from './prisma';
 import { getJobHealthStatus, getJobMetrics } from './jobGovernance';
+import {
+  getLastAutomatedReconciliationSummary,
+  getLastAutomatedReconciliationRunAt,
+} from './reconciliationReport';
 import { logger } from './middleware/structuredLogging';
 import { getCurrentTraceId } from './tracing';
 
@@ -152,6 +156,12 @@ export async function diagnosticsBundleHandler(
     runtime: getRuntimeInfo(),
     config: getSanitizedEnvConfig(),
     dependencies: dependencyStatus,
+    lastReconciliation: getLastAutomatedReconciliationSummary()
+      ? {
+          summary: getLastAutomatedReconciliationSummary(),
+          lastRunAt: getLastAutomatedReconciliationRunAt(),
+        }
+      : null,
   };
 
   res.status(200).json(bundle);

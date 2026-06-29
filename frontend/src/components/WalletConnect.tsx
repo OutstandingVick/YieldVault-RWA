@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
-import { Loader2, LogOut, Wallet, AlertCircle } from "./icons";
+import { LogOut, Wallet, AlertCircle } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useToast } from "../context/ToastContext";
+import { usePreferencesContext } from "../context/PreferencesContext";
 import { useTranslation } from "../i18n";
+import { displayIdentifier } from "../lib/maskSensitiveValues";
 import CopyButton from "./CopyButton";
 import {
   discoverConnectedAddress,
@@ -21,6 +23,8 @@ import {
   clearReconnectPromptDismissed,
   isProviderAvailable,
 } from "../lib/walletSession";
+import { Button } from "./ui/Button";
+import WalletSessionIndicator from "./WalletSessionIndicator";
 import WalletReconnectPrompt from "./WalletReconnectPrompt";
 
 const IS_AUTOMATED_TEST =
@@ -56,8 +60,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       !isWalletManualDisconnectSet(),
   );
   const [reconnectProvider, setReconnectProvider] = useState<ReturnType<typeof getLastWalletProvider>>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const initialSyncDoneRef = useRef(false);
+  const { preferences } = usePreferencesContext();
   const toast = useToast();
   const { t } = useTranslation();
 
@@ -196,6 +200,9 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   }, [handleConnect]);
 
   const formatAddress = (addr: string) => {
+    if (preferences.maskSensitiveValues) {
+      return displayIdentifier(addr, true);
+    }
     return `${addr.substring(0, 5)}...${addr.substring(addr.length - 4)}`;
   };
 
@@ -233,6 +240,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   if (walletAddress) {
     return (
       <div className="wallet-status flex items-center gap-md">
+        <WalletSessionIndicator walletAddress={walletAddress} />
         <div
           className="glass-panel"
           style={{
@@ -334,39 +342,29 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           }}
         />
       )}
-      <button
-        ref={buttonRef}
-        className={`btn ${connectionError ? "btn-error" : "btn-primary"} ${isConnecting || showDiscovering ? "animate-glow" : ""}`}
+      <Button
+        variant={connectionError ? "danger" : "primary"}
+        className={isConnecting || showDiscovering ? "animate-glow" : ""}
         onClick={handleConnect}
         disabled={isConnecting || showDiscovering}
-        aria-busy={isConnecting || showDiscovering}
+        status={isConnecting || showDiscovering ? "pending" : connectionError ? "error" : "idle"}
+        loadingLabel={
+          showDiscovering ? t("wallet.checkingFreighter") : t("wallet.connecting")
+        }
+        leftIcon={connectionError ? <AlertCircle size={18} /> : <Wallet size={18} />}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
         onFocus={() => setShowTooltip(true)}
         onBlur={() => setShowTooltip(false)}
         title={getStatusTooltip()}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          position: "relative",
-        }}
+        style={{ position: "relative" }}
       >
-        {isConnecting || showDiscovering ? (
-          <Loader2 size={18} className="spin" style={{ animation: "spin 1s linear infinite" }} />
-        ) : connectionError ? (
-          <AlertCircle size={18} />
-        ) : (
-          <Wallet size={18} />
-        )}
-        <span>
-          {showDiscovering
-            ? t("wallet.checkingFreighter")
-            : isConnecting
-              ? t("wallet.connecting")
-              : t("wallet.connectFreighter")}
-        </span>
-      </button>
+        {showDiscovering
+          ? t("wallet.checkingFreighter")
+          : isConnecting
+            ? t("wallet.connecting")
+            : t("wallet.connectFreighter")}
+      </Button>
 
       {showTooltip && (
         <div

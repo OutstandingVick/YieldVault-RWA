@@ -33,6 +33,8 @@ module.exports = {
   setupFiles: ['<rootDir>/src/__tests__/preload.js'],
   // Override module resolution to prevent @prisma/instrumentation from loading
   moduleNameMapper: {
+    '^@yieldvault/api-schemas$': '<rootDir>/../packages/api-schemas/src/index.ts',
+    '^@yieldvault/api-schemas/(.*)$': '<rootDir>/../packages/api-schemas/src/$1',
     '^@prisma/instrumentation$': '<rootDir>/src/__tests__/mocks/prismainstrumentation.js',
     '^@opentelemetry/(.*)$': '<rootDir>/src/__tests__/mocks/opentelemetry.js',
     // Redirect the sorobanClient module that vaultEndpoints imports (./sorobanClient)

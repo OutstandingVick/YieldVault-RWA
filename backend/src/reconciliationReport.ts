@@ -16,7 +16,7 @@ import { getCurrentTraceId } from './tracing';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface LedgerRecord {
+export interface LedgerRecord {
   transactionHash: string;
   type: string;
   amount: string;
@@ -24,13 +24,13 @@ interface LedgerRecord {
   timestamp: string;
 }
 
-interface DriftEntry {
+export interface DriftEntry {
   transactionHash: string;
   issue: 'MISSING_IN_DB' | 'MISSING_ON_LEDGER' | 'AMOUNT_MISMATCH' | 'TYPE_MISMATCH';
   details: Record<string, unknown>;
 }
 
-interface ReconciliationSummary {
+export interface ReconciliationSummary {
   generatedAt: string;
   traceId: string | undefined;
   window: {
@@ -47,6 +47,24 @@ interface ReconciliationSummary {
   status: 'CLEAN' | 'DRIFT_DETECTED';
 }
 
+export type LedgerFetcher = (from: string, to: string) => Promise<LedgerRecord[]>;
+
+let lastAutomatedSummary: ReconciliationSummary | null = null;
+let lastAutomatedRunAt: string | null = null;
+
+export function getLastAutomatedReconciliationSummary(): ReconciliationSummary | null {
+  return lastAutomatedSummary;
+}
+
+export function getLastAutomatedReconciliationRunAt(): string | null {
+  return lastAutomatedRunAt;
+}
+
+export function resetReconciliationStateForTests(): void {
+  lastAutomatedSummary = null;
+  lastAutomatedRunAt = null;
+}
+
 // ─── Ledger Fetcher ─────────────────────────────────────────────────────────
 
 /**
@@ -54,7 +72,7 @@ interface ReconciliationSummary {
  * In production, this queries the Stellar Horizon /transactions endpoint.
  * Falls back gracefully if Horizon is unreachable.
  */
-async function fetchLedgerRecords(
+export async function fetchLedgerRecords(
   from: string,
   to: string,
 ): Promise<LedgerRecord[]> {
@@ -104,7 +122,7 @@ async function fetchLedgerRecords(
 
 // ─── Database Fetcher ───────────────────────────────────────────────────────
 
-async function fetchDatabaseRecords(
+export async function fetchDatabaseRecords(
   from: string,
   to: string,
 ): Promise<LedgerRecord[]> {
@@ -123,8 +141,6 @@ async function fetchDatabaseRecords(
     });
 
     return transactions.map((tx: any) => ({
-      // Map from Prisma schema fields to our internal LedgerRecord shape.
-      // The Transaction model uses `id` as identifier and `user` for wallet.
       transactionHash: tx.id,
       type: tx.type,
       amount: String(tx.amount),
@@ -141,7 +157,7 @@ async function fetchDatabaseRecords(
 
 // ─── Reconciliation Logic ───────────────────────────────────────────────────
 
-function reconcile(
+export function reconcile(
   ledgerRecords: LedgerRecord[],
   dbRecords: LedgerRecord[],
 ): { matched: number; driftEntries: DriftEntry[] } {
@@ -158,7 +174,6 @@ function reconcile(
   const driftEntries: DriftEntry[] = [];
   let matched = 0;
 
-  // Check ledger records against DB
   for (const ledgerRec of ledgerRecords) {
     const dbRec = dbByHash.get(ledgerRec.transactionHash);
     if (!dbRec) {
@@ -175,7 +190,6 @@ function reconcile(
       continue;
     }
 
-    // Check for mismatches
     if (ledgerRec.amount !== dbRec.amount) {
       driftEntries.push({
         transactionHash: ledgerRec.transactionHash,
@@ -203,7 +217,6 @@ function reconcile(
     matched++;
   }
 
-  // Check DB records missing from ledger
   for (const dbRec of dbRecords) {
     if (!ledgerByHash.has(dbRec.transactionHash) && ledgerRecords.length > 0) {
       driftEntries.push({
@@ -222,38 +235,28 @@ function reconcile(
   return { matched, driftEntries };
 }
 
-// ─── Handler ────────────────────────────────────────────────────────────────
+export interface RunReconciliationOptions {
+  from?: string;
+  to?: string;
+  traceId?: string;
+  ledgerFetcher?: LedgerFetcher;
+  persistSnapshot?: boolean;
+  storeAsAutomated?: boolean;
+}
 
-/**
- * GET /api/v1/admin/reconciliation
- *
- * Query params:
- *   - from: ISO 8601 start timestamp (defaults to 24h ago)
- *   - to:   ISO 8601 end timestamp (defaults to now)
- *
- * Returns a reconciliation report comparing ledger events vs DB state.
- * Requires admin API key with ADMIN_READ permission.
- */
-export async function reconciliationReportHandler(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const traceId = getCurrentTraceId();
+export async function runReconciliationReport(
+  options: RunReconciliationOptions = {},
+): Promise<ReconciliationSummary> {
   const now = new Date();
-  const defaultFrom = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const defaultFrom = new Date(now.getTime() - getReconciliationWindowMs());
 
-  const from = (req.query.from as string) || defaultFrom.toISOString();
-  const to = (req.query.to as string) || now.toISOString();
-
-  logger.log('info', 'Reconciliation report requested', {
-    traceId,
-    from,
-    to,
-    requestedBy: req.get('x-admin-address') || 'unknown',
-  });
+  const from = options.from || defaultFrom.toISOString();
+  const to = options.to || now.toISOString();
+  const traceId = options.traceId;
+  const ledgerFetcher = options.ledgerFetcher || fetchLedgerRecords;
 
   const [ledgerRecords, dbRecords] = await Promise.all([
-    fetchLedgerRecords(from, to),
+    ledgerFetcher(from, to),
     fetchDatabaseRecords(from, to),
   ]);
 
@@ -269,10 +272,92 @@ export async function reconciliationReportHandler(
       matched,
       drifted: driftEntries.length,
     },
-    driftEntries: driftEntries.slice(0, 100), // cap response size
+    driftEntries: driftEntries.slice(0, 100),
     status: driftEntries.length === 0 ? 'CLEAN' : 'DRIFT_DETECTED',
   };
 
-  const statusCode = report.status === 'CLEAN' ? 200 : 200;
-  res.status(statusCode).json(report);
+  if (options.storeAsAutomated) {
+    lastAutomatedSummary = report;
+    lastAutomatedRunAt = report.generatedAt;
+  }
+
+  if (options.persistSnapshot !== false && options.storeAsAutomated) {
+    await persistReconciliationSnapshot(report);
+  }
+
+  return report;
+}
+
+function getReconciliationWindowMs(): number {
+  const hours = parseInt(process.env.RECONCILIATION_WINDOW_HOURS || '24', 10);
+  return Math.max(1, hours) * 60 * 60 * 1000;
+}
+
+async function persistReconciliationSnapshot(report: ReconciliationSummary): Promise<void> {
+  try {
+    const prisma = getPrismaClient();
+    await prisma.reconciliationSnapshot.create({
+      data: {
+        id: `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        generatedAt: new Date(report.generatedAt),
+        traceId: report.traceId ?? null,
+        status: report.status,
+        windowFrom: new Date(report.window.from),
+        windowTo: new Date(report.window.to),
+        summaryJson: JSON.stringify(report),
+        driftCount: report.counts.drifted,
+      },
+    });
+  } catch (error) {
+    logger.log('warn', 'Failed to persist reconciliation snapshot', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+// ─── Handler ────────────────────────────────────────────────────────────────
+
+export async function reconciliationReportHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const traceId = getCurrentTraceId();
+
+  logger.log('info', 'Reconciliation report requested', {
+    traceId,
+    from: req.query.from,
+    to: req.query.to,
+    requestedBy: req.get('x-admin-address') || 'unknown',
+  });
+
+  const report = await runReconciliationReport({
+    from: req.query.from as string | undefined,
+    to: req.query.to as string | undefined,
+    traceId,
+    storeAsAutomated: false,
+    persistSnapshot: false,
+  });
+
+  res.status(200).json(report);
+}
+
+export async function automatedReconciliationSummaryHandler(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const summary = getLastAutomatedReconciliationSummary();
+  if (!summary) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'No automated reconciliation summary available yet',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    summary,
+    lastRunAt: getLastAutomatedReconciliationRunAt(),
+    requestedBy: req.get('x-admin-address') || 'unknown',
+  });
 }
