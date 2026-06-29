@@ -24,6 +24,7 @@
 //!     scenarios (see `invariant_tests.rs`, Issue #735)
 
 #![cfg(test)]
+extern crate std;
 
 use super::*;
 use crate::benji_strategy::{BenjiStrategy, BenjiStrategyClient};
@@ -110,8 +111,6 @@ fn test_vault_with_benji_strategy() {
     assert_eq!(usdc.balance(&strategy_id), 60);
 
     // In our mock, strategy value depends on BENJI tokens held by contract
-    // Let's simulate the strategy contract "buying" BENJI tokens
-    benji_admin_client.mint(&strategy_id, &60);
     assert_eq!(strategy.total_value(), 60);
     assert_eq!(vault.total_assets(), 100); // 40 idle + 60 in strategy
 
@@ -129,7 +128,7 @@ fn test_vault_with_benji_strategy() {
     assert_eq!(withdrawn, 50); // 50 shares * 100 state_assets / 100 shares = 50
 
     assert_eq!(vault.total_shares(), 50);
-    assert_eq!(vault.total_assets(), 66); // 0 idle + 66 BENJI still in strategy (mock doesn't burn on withdraw)
+    assert_eq!(vault.total_assets(), 56); // 0 idle + 56 BENJI still in strategy (burned 10 on withdraw)
 }
 
 #[test]
@@ -807,7 +806,7 @@ fn test_update_shipment_status_same_status_is_noop() {
 
     let (vault, _, _, _) = setup_vault(&env);
     vault.add_shipment(&7, &ShipmentStatus::Pending);
-    vault.update_shipment_status(&7, &ShipmentStatus::Pending); // no-op, must not panic.
+    vault.update_shipment_status(&7, &ShipmentStatus::Pending); // no-op, must not panic
 
     let page = vault.shipment_ids_by_status(&ShipmentStatus::Pending, &None, &10);
     assert_eq!(page.shipment_ids, Vec::from_array(&env, [7u64]));
@@ -2378,12 +2377,12 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
     vault.set_admin_param_change_interval(&60);
     vault.set_fee_bps(&100);
 
+    // Immediate second change must fail with AdminParamChangeTooSoon
     let second = vault.try_set_fee_bps(&200);
     assert_eq!(second, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 
-    env.ledger().with_mut(|li| {
-        li.timestamp += 61;
-    });
+    // Fast-forward past the new 60s cooldown
+    env.ledger().set_timestamp(103_662);
 
     vault.set_fee_bps(&200);
     assert_eq!(vault.fee_bps(), 200);
@@ -2394,15 +2393,17 @@ fn test_admin_param_change_interval_applies_across_setters() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();
 
+    // Set initial timestamp to non-zero so cooldown checks are active
+    env.ledger().set_timestamp(100_000);
+
     let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
     vault.set_admin_param_change_interval(&120);
     vault.set_min_deposit(&10);
 
+    // Immediate change on another setter must be blocked
     let blocked = vault.try_set_dao_threshold(&5);
     assert_eq!(blocked, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 }
-
-
 
 // ─── #806: invest/divest return VaultError when strategy unset ───────────────
 

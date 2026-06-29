@@ -58,9 +58,10 @@ pub fn read_proposal(env: &Env, id: u32) -> Option<EmergencyProposal> {
 }
 
 pub fn write_proposal(env: &Env, id: u32, proposal: &EmergencyProposal) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Emergency(EmergencyStorageKey::Proposal(id)), proposal);
+    env.storage().instance().set(
+        &DataKey::Emergency(EmergencyStorageKey::Proposal(id)),
+        proposal,
+    );
 }
 
 pub fn next_proposal_id(env: &Env) -> u32 {
@@ -70,9 +71,10 @@ pub fn next_proposal_id(env: &Env) -> u32 {
         .get(&DataKey::Emergency(EmergencyStorageKey::ProposalNonce))
         .unwrap_or(0);
     let next = nonce.checked_add(1).expect("proposal nonce overflow");
-    env.storage()
-        .instance()
-        .set(&DataKey::Emergency(EmergencyStorageKey::ProposalNonce), &next);
+    env.storage().instance().set(
+        &DataKey::Emergency(EmergencyStorageKey::ProposalNonce),
+        &next,
+    );
     next
 }
 
@@ -153,7 +155,6 @@ pub fn simulate_emergency_unwind(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_distinct_approvers_required() {

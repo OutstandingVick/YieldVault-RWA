@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from './prismaClient';
 import { emailService, EmailOptions } from './emailService';
 import { logger } from './middleware/structuredLogging';
+import { captureRequestContext } from './requestContext';
 
 interface EmailQueueItem {
   id: string;
@@ -31,6 +32,11 @@ export class EmailQueueService {
   }
 
   async enqueueEmail(options: EmailOptions): Promise<EmailQueueItem> {
+    // Capture context at enqueue time so it can be used when sending.
+    // Note: the EmailQueue model doesn't persist context fields, so
+    // propagation relies on AsyncLocalStorage being available when processed.
+    void captureRequestContext();
+
     return this.queueDelegate.create({
       data: {
         to: options.to,
@@ -183,3 +189,4 @@ export class EmailQueueService {
 }
 
 export const emailQueueService = new EmailQueueService();
+

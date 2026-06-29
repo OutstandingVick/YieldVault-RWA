@@ -163,6 +163,16 @@ YieldVault has comprehensive disaster recovery procedures to ensure system resil
   - [Disaster Recovery Runbooks Overview](./docs/runbooks/README.md)
   - [Replay and State Recovery Procedures](./docs/runbooks/REPLAY_PROCEDURES.md)
 
+## Incident Postmortems
+
+YieldVault documents significant incidents with blameless postmortems and tracked action items:
+
+- **Templates:** [Post-mortem](./docs/runbooks/templates/post-mortem.md), [Incident Report](./docs/runbooks/templates/incident-report.md)
+- **Publication workflow:** [Postmortem Playbook](./docs/postmortem-playbook.md)
+- **Published reports:** [docs/incidents/](./docs/incidents/README.md)
+
+Postmortem drafts are due within 48 hours of incident resolution; publication within 5 business days.
+
 ## Roadmap (Phases)
 
 - **Phase 1**: Planning, Documentation, and Frontend UI Baseline (Completed)
