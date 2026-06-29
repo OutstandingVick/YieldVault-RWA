@@ -261,6 +261,62 @@ export class IdempotencyStore {
       pendingKeys: this.pendingResponses.size,
     };
   }
+
+  // ─── Retention cleanup ─────────────────────────────────────────────────────
+
+  async pruneStaleKeys(
+    retentionMs: number,
+    dryRun = false,
+  ): Promise<{ pruned: number; localPruned: number; redisPruned: number }> {
+    const cutoff = Date.now() - retentionMs;
+    let localPruned = 0;
+    let redisPruned = 0;
+
+    for (const key of this.localCache.keys()) {
+      const entry = this.localCache.get<StoredResponse<unknown>>(key);
+      if (!entry) continue;
+      const createdAt = Date.parse(entry.metadata.createdAt);
+      if (Number.isNaN(createdAt) || createdAt >= cutoff) continue;
+      if (!dryRun) {
+        this.localCache.del(key);
+        this._evictions++;
+      }
+      localPruned++;
+    }
+
+    const r = this.redis;
+    if (r) {
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await r.scan(cursor, 'MATCH', `${REDIS_PREFIX}*`, 'COUNT', 100);
+        cursor = nextCursor;
+        for (const redisKey of keys) {
+          try {
+            const raw = await r.get(redisKey);
+            if (!raw) continue;
+            const entry = JSON.parse(raw) as StoredResponse<unknown>;
+            const createdAt = Date.parse(entry.metadata?.createdAt ?? '');
+            const ttl = await r.ttl(redisKey);
+            const isStale = (!Number.isNaN(createdAt) && createdAt < cutoff) || ttl === 0;
+            if (!isStale) continue;
+            if (!dryRun) {
+              await r.del(redisKey);
+              this._evictions++;
+            }
+            redisPruned++;
+          } catch {
+            if (!dryRun) {
+              await r.del(redisKey);
+              this._evictions++;
+            }
+            redisPruned++;
+          }
+        }
+      } while (cursor !== '0');
+    }
+
+    return { pruned: localPruned + redisPruned, localPruned, redisPruned };
+  }
 }
 
 // ─── Singleton ────────────────────────────────────────────────────────────────

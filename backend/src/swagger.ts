@@ -38,13 +38,23 @@ const options: swaggerJsdoc.Options = {
           type: 'object',
           properties: {
             count: { type: 'integer' },
-            total: { type: 'integer' },
-            nextCursor: { type: 'string' },
-            prevCursor: { type: 'string' },
-            currentPage: { type: 'integer' },
-            totalPages: { type: 'integer' },
+            limit: { type: 'integer' },
+            total: { type: 'integer', nullable: true },
+            nextCursor: { type: 'string', nullable: true },
+            prevCursor: { type: 'string', nullable: true },
+            currentPage: { type: 'integer', nullable: true },
+            totalPages: { type: 'integer', nullable: true },
             hasNextPage: { type: 'boolean' },
             hasPrevPage: { type: 'boolean' },
+          },
+        },
+        VaultSummary: {
+          type: 'object',
+          properties: {
+            totalAssets: { type: 'number' },
+            totalShares: { type: 'number' },
+            apy: { type: 'number' },
+            timestamp: { type: 'string', format: 'date-time' },
           },
         },
         Error: {

@@ -170,6 +170,16 @@ import {
   automatedReconciliationSummaryHandler,
 } from './reconciliationReport';
 import { diagnosticsBundleHandler } from './diagnosticsBundle';
+import { errorBoundaryMiddleware } from './middleware/errorBoundary';
+import {
+  exportGovernanceSnapshots,
+  listGovernanceSnapshots,
+} from './governanceSnapshotExport';
+import {
+  getIdempotencyRetentionMetrics,
+  pruneStaleIdempotencyRecords,
+  startIdempotencyRetentionScheduler,
+} from './idempotencyRetention';
 
 declare global {
   namespace Express {
@@ -858,6 +868,21 @@ app.get('/api/v1/vault/transactions/export', handleTransactionExport);
 
 // ─── Versioned vault summary/metrics/apy endpoints ───────────────────────
 
+/**
+ * @openapi
+ * /vault/summary:
+ *   get:
+ *     summary: Vault summary
+ *     description: Returns high-level vault metrics including total assets, shares, and APY.
+ *     tags: [Vault]
+ *     responses:
+ *       200:
+ *         description: Vault summary metrics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VaultSummary'
+ */
 /**
  * GET /api/v1/vault/summary – read-only summary; relaxed rate limit.
  */
@@ -3151,6 +3176,61 @@ app.get('/admin/transactions/backfill/:jobId', validateApiKey, async (req: Reque
 });
 
 /**
+ * GET /admin/governance/snapshots - list historical governance snapshots
+ */
+app.get('/admin/governance/snapshots', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseLimited(req.query.limit, 50, 1, 500);
+  const offset = parseLimited(req.query.offset, 0, 0, 10_000);
+  const type = typeof req.query.type === 'string' ? req.query.type : undefined;
+  const start = typeof req.query.start === 'string' ? req.query.start : undefined;
+  const end = typeof req.query.end === 'string' ? req.query.end : undefined;
+
+  const result = await listGovernanceSnapshots({
+    type: type as 'reconciliation' | 'config-change' | 'export-manifest' | undefined,
+    start,
+    end,
+    limit,
+    offset,
+  });
+
+  res.status(200).json({
+    data: result.data,
+    total: result.total,
+    limit,
+    offset,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/governance/snapshots/export - export historical governance snapshots
+ */
+app.post('/admin/governance/snapshots/export', validateApiKey, async (req: Request, res: Response) => {
+  const requester = resolveActingAdminAddress(req);
+  const types = Array.isArray(req.body?.types)
+    ? (req.body.types as string[])
+    : undefined;
+  const start = typeof req.body?.start === 'string' ? req.body.start : undefined;
+  const end = typeof req.body?.end === 'string' ? req.body.end : undefined;
+  const limit = parseLimited(req.body?.limit, 500, 1, 5000);
+
+  const { manifest, rows } = await exportGovernanceSnapshots({
+    requester,
+    types: types as ('reconciliation' | 'config-change' | 'export-manifest')[] | undefined,
+    start,
+    end,
+    limit,
+  });
+
+  res.status(201).json({
+    message: 'Governance snapshot export generated',
+    rowCount: rows.length,
+    manifest,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * POST /admin/reports/exports - generate a report export and immutable manifest record
  */
 app.post('/admin/reports/exports', validateApiKey, async (req: Request, res: Response) => {
@@ -3343,6 +3423,31 @@ app.delete('/admin/idempotency/keys/:key', validateApiKey, (req: Request, res: R
   res.status(200).json({
     message: `Idempotency key '${key}' deleted`,
     metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/idempotency/retention/metrics
+ * Returns idempotency retention policy and sweep metrics.
+ */
+app.get('/admin/idempotency/retention/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: getIdempotencyRetentionMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/idempotency/retention/cleanup
+ * Runs a retention sweep for stale idempotency records.
+ */
+app.post('/admin/idempotency/retention/cleanup', validateApiKey, async (req: Request, res: Response) => {
+  const dryRun = isDryRunRequest(req);
+  const result = await pruneStaleIdempotencyRecords(dryRun);
+  res.status(200).json({
+    ...result,
+    metrics: getIdempotencyRetentionMetrics(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -4163,6 +4268,11 @@ if (process.env.NODE_ENV !== 'test') {
   const stopLedgerReconciliationScheduler = startLedgerReconciliationScheduler();
   shutdownHandler.onShutdown(async () => {
     stopLedgerReconciliationScheduler();
+  });
+
+  const stopIdempotencyRetentionScheduler = startIdempotencyRetentionScheduler();
+  shutdownHandler.onShutdown(async () => {
+    stopIdempotencyRetentionScheduler();
   });
 
   // Register event polling service shutdown

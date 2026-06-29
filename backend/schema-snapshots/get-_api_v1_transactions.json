@@ -1,0 +1,110 @@
+{
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "deposit",
+              "withdrawal"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "failed"
+            ]
+          },
+          "amount": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "transactionHash": {
+            "type": "string"
+          },
+          "walletAddress": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "amount",
+          "asset",
+          "timestamp",
+          "transactionHash",
+          "walletAddress"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "number"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "total": {
+          "type": "number"
+        },
+        "nextCursor": {
+          "type": "string"
+        },
+        "prevCursor": {
+          "type": "string"
+        },
+        "currentPage": {
+          "type": "number"
+        },
+        "totalPages": {
+          "type": "number"
+        },
+        "hasNextPage": {
+          "type": "boolean"
+        },
+        "hasPrevPage": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "count",
+        "limit",
+        "total",
+        "nextCursor",
+        "prevCursor",
+        "currentPage",
+        "totalPages",
+        "hasNextPage",
+        "hasPrevPage"
+      ],
+      "additionalProperties": false
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "data",
+    "pagination",
+    "timestamp"
+  ],
+  "additionalProperties": false
+}
