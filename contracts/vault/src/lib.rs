@@ -53,6 +53,7 @@
 //! See `DEPLOYMENT.md` for step-by-step deployment to Stellar testnet/mainnet.
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod admin;
 pub mod benji_strategy;
 pub mod errors;
 pub use errors::VaultError;
@@ -235,6 +236,8 @@ pub enum DataKey {
     Emergency(EmergencyStorageKey),
     EmergencyProposalNonce,
     EmergencyProposal(u32),
+    AdminProposalNonce,
+    AdminProposal(u32),
 
     Proposal(u32),
     Vote(VoteKey),
@@ -439,6 +442,10 @@ pub enum VaultError {
     /// Treasury claim quota exceeded for the current epoch.
     ClaimQuotaExceeded = 28,
     StrategyHeartbeatExpired = 29,
+    /// Referenced admin or governance proposal does not exist.
+    ProposalNotFound = 30,
+    /// Proposal has already been executed or accepted.
+    ProposalAlreadyExecuted = 31,
     /// Invalid RWA shipment status transition (violates lifecycle rules).
     InvalidShipmentStatusTransition = 30,
 }
@@ -555,43 +562,87 @@ impl YieldVault {
 
     /// Propose a new admin.
     /// Only the current Admin can call this.
-    pub fn propose_admin(env: Env, new_admin: Address) {
+    ///
+    /// Returns a monotonically increasing proposal ID used for replay-safe accept/cancel.
+    pub fn propose_admin(env: Env, new_admin: Address) -> u32 {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
         let previous_pending = get_pending_admin(&env);
-        set_pending_admin(&env, &Some(new_admin));
+        let proposal_id = admin::next_proposal_id(&env);
+        let proposal = admin::AdminProposal {
+            new_admin: new_admin.clone(),
+            proposer: admin.clone(),
+            accepted: false,
+            cancelled: false,
+            created_at: env.ledger().timestamp(),
+        };
+        admin::write_proposal(&env, proposal_id, &proposal);
+        set_pending_admin(&env, &Some(new_admin.clone()));
         env.events().publish(
             (symbol_short!("adminprop"),),
-            (admin, previous_pending, get_pending_admin(&env).unwrap()),
+            (proposal_id, admin, previous_pending, new_admin),
         );
+        proposal_id
     }
 
-    /// Accept the admin role.
+    /// Accept the admin role for a specific proposal.
     /// Only the pending Admin can call this.
-    pub fn accept_admin(env: Env) {
-        let pending_admin = get_pending_admin(&env).expect("No pending admin");
-        pending_admin.require_auth();
+    pub fn accept_admin(env: Env, proposal_id: u32) -> Result<(), VaultError> {
+        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+
+        if proposal.cancelled {
+            return Err(VaultError::ProposalCancelled);
+        }
+        if proposal.accepted {
+            return Err(VaultError::ProposalAlreadyExecuted);
+        }
+
+        proposal.new_admin.require_auth();
 
         let previous_admin = get_admin(&env).expect("Admin not set");
-        set_admin(&env, &pending_admin);
+        proposal.accepted = true;
+        admin::write_proposal(&env, proposal_id, &proposal);
+
+        set_admin(&env, &proposal.new_admin);
         set_pending_admin(&env, &None);
         env.events().publish(
             (symbol_short!("adminxfer"),),
-            (previous_admin, pending_admin),
+            (proposal_id, previous_admin, proposal.new_admin),
         );
+        Ok(())
     }
 
-    /// Cancel an in-flight admin rotation.
+    /// Cancel an in-flight admin rotation proposal.
     /// Only the current Admin can call this.
-    pub fn cancel_admin_rotation(env: Env) {
+    pub fn cancel_admin_rotation(env: Env, proposal_id: u32) -> Result<(), VaultError> {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
+        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+
+        if proposal.accepted {
+            return Err(VaultError::ProposalAlreadyExecuted);
+        }
+        if proposal.cancelled {
+            return Err(VaultError::ProposalCancelled);
+        }
+
+        proposal.cancelled = true;
+        admin::write_proposal(&env, proposal_id, &proposal);
+
         let previous_pending = get_pending_admin(&env);
         set_pending_admin(&env, &None);
-        env.events()
-            .publish((symbol_short!("admincncl"),), (admin, previous_pending));
+        env.events().publish(
+            (symbol_short!("admincncl"),),
+            (proposal_id, admin, previous_pending),
+        );
+        Ok(())
+    }
+
+    /// Returns the stored admin rotation proposal for the given ID.
+    pub fn admin_proposal(env: Env, proposal_id: u32) -> Option<admin::AdminProposal> {
+        admin::read_proposal(&env, proposal_id)
     }
 
     pub fn admin(env: Env) -> Option<Address> {
@@ -3402,6 +3453,23 @@ impl YieldVault {
                     is_paused: false,
                 },
             );
+        }
+
+        if current_version < 3 && target_version >= 3 {
+            if let Some(pending_admin) = get_pending_admin(env) {
+                let proposer = get_admin(env).expect("admin must exist for pending rotation");
+                let proposal = admin::AdminProposal {
+                    new_admin: pending_admin.clone(),
+                    proposer,
+                    accepted: false,
+                    cancelled: false,
+                    created_at: env.ledger().timestamp(),
+                };
+                admin::write_proposal(env, 1, &proposal);
+                env.storage()
+                    .instance()
+                    .set(&DataKey::AdminProposalNonce, &1u32);
+            }
         }
 
         set_storage_version(env, target_version);

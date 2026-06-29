@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
+- Add deterministic admin proposal nonces with replay rejection for admin rotation (#736)
 - Add empty-state deposit and withdraw intent actions across dashboard pages (#734)
 - CORS configuration for cross-origin API access
 - Add canonical `VaultError` namespace module and replace contract panics with stable error codes (#754)
