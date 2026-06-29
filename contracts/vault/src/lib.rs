@@ -149,6 +149,15 @@ pub struct VaultState {
 }
 
 #[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum FlowType {
+    Deposit = 0,
+    Withdraw = 1,
+    Rebalance = 2,
+}
+
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GovernanceConfig {
     pub signers: Vec<Address>,
@@ -1183,14 +1192,14 @@ impl YieldVault {
     pub fn benji_strategy(env: Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::BenjiStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")))
             .unwrap()
     }
 
     pub fn korean_strategy(env: Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::KoreanDebtStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")))
             .unwrap()
     }
 
@@ -1199,7 +1208,7 @@ impl YieldVault {
         admin.require_auth();
         env.storage()
             .instance()
-            .set(&DataKey::KoreanDebtStrategy, &strategy);
+            .set(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")), &strategy);
     }
 
     pub fn accrue_korean_debt_yield(env: Env) -> i128 {
@@ -1209,7 +1218,7 @@ impl YieldVault {
         let strategy: Address = env
             .storage()
             .instance()
-            .get(&DataKey::KoreanDebtStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Korean")))
             .unwrap();
         let strategy_client = KoreanDebtStrategyClient::new(&env, &strategy);
         let harvested = strategy_client.harvest_yield();
@@ -1481,7 +1490,7 @@ impl YieldVault {
 
         env.storage()
             .instance()
-            .set(&DataKey::BenjiStrategy, &proposal.strategy);
+            .set(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")), &proposal.strategy);
         proposal.executed = true;
         env.storage()
             .instance()
@@ -2389,7 +2398,7 @@ impl YieldVault {
             (tail, assets_to_return),
         );
 
-        Err(VaultError::WithdrawalQueued)
+        Ok(0)
     }
 
     /// Returns the number of withdrawals waiting in the liquidity queue.
@@ -2484,6 +2493,15 @@ impl YieldVault {
         strategy_registration::require_active_registration(&env, &strategy_addr)
             .map_err(Self::map_registration_error)?;
         let strategy_client = StrategyClient::new(&env, &strategy_addr);
+
+        let idle_ta = env
+            .storage()
+            .instance()
+            .get::<_, i128>(&DataKey::TotalAssets)
+            .unwrap_or(0);
+        if idle_ta < amount {
+            return Err(VaultError::InsufficientLiquidity);
+        }
 
         // Cap check
         let cap: i128 = env
@@ -3289,7 +3307,7 @@ impl YieldVault {
         let configured: Address = env
             .storage()
             .instance()
-            .get(&DataKey::BenjiStrategy)
+            .get(&DataKey::ConfiguredStrategy(soroban_sdk::symbol_short!("Benji")))
             .unwrap();
         // Enforce that the caller is exactly the configured strategy before any state reads.
         // require_strategy_auth checks both caller identity and Soroban auth in one call,
