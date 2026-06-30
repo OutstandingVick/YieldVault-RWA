@@ -244,7 +244,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const confirmation = useTransactionConfirmation();
 
   const { isOnline } = useNetworkStatus();
-  const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
+  const { feeXlm, isEstimating, isHighFee, lastUpdated: feeLastUpdated } = useFeeEstimate(
     walletAddress,
     "",
     dashboardUrl.state.tab,
@@ -253,6 +253,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();
   const [customSlippage, setCustomSlippage] = useState("");
+  const { isStale: feeIsStale, ageText: feeAgeText } = useStaleIndicator(feeLastUpdated);
 
   // Create validation schema based on transaction type and current state
   const transactionSchema = React.useMemo<ValidationSchema<{ amount: string }>>(() => {
@@ -1127,8 +1128,18 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               </div>
                               <div className="flex justify-between">
                                 <span style={{ color: "var(--text-secondary)" }}>Network Fee</span>
-                                <span style={{ fontWeight: 600, textAlign: "right" }}>
+                                <span style={{ fontWeight: 600, textAlign: "right", display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
                                   {isEstimating ? <Skeleton width="60px" height="1.1rem" /> : `${feeXlm.toFixed(4)} XLM`}
+                                  {!isEstimating && (
+                                    <Badge
+                                      variant="outline"
+                                      color={feeIsStale ? "warning" : "info"}
+                                      size="compact"
+                                      icon={<Clock3 size={10} />}
+                                    >
+                                      Fee quote {feeIsStale ? `stale ${feeAgeText}`.trim() : feeAgeText ? `fresh ${feeAgeText}` : "fresh"}
+                                    </Badge>
+                                  )}
                                 </span>
                               </div>
                               <div style={{ height: "1px", background: "var(--border-glass)" }} />
@@ -1221,7 +1232,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                   size="compact"
                                   icon={<Clock3 size={10} />}
                                 >
-                                  Quote {statsIsStale ? `stale ${statsAgeText}`.trim() : statsAgeText ? `fresh ${statsAgeText}` : "fresh"}
+                                  APY quote {statsIsStale ? `stale ${statsAgeText}`.trim() : statsAgeText ? `fresh ${statsAgeText}` : "fresh"}
                                 </Badge>
                               </div>
                             </div>
