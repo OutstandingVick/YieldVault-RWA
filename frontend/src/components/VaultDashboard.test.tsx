@@ -59,6 +59,7 @@ vi.mock("../hooks/useFeeEstimate", () => ({
     feeUsd: 0.01,
     isEstimating: false,
     isHighFee: false,
+    lastUpdated: new Date("2026-03-25T10:00:00.000Z"),
   }),
 }));
 
@@ -202,6 +203,7 @@ describe("VaultDashboard", () => {
     expect(screen.queryByText(/Wallet Not Connected/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Global RWA Yield Fund/i)).toBeInTheDocument();
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
+    expect(screen.getByText(/APY quote fresh/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
     expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
@@ -254,6 +256,8 @@ describe("VaultDashboard", () => {
     await waitFor(() => {
       expect(mutateAsync).toHaveBeenCalled();
     }, { timeout: 10000 });
+
+    expect(screen.getByText(/Fee quote fresh/i)).toBeInTheDocument();
 
     // Resolve the mocked API call
     resolveSubmit();
