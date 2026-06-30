@@ -15,6 +15,7 @@ This directory contains operational runbooks for disaster recovery and incident 
 | [RPC Failover](./RPC_FAILOVER.md) | 5 min | N/A | Stellar RPC node failure |
 | [Full DR Procedure](./FULL_DR_PROCEDURE.md) | 4 hours | 15 min | Complete infrastructure failure |
 | [Replay & State Recovery](./REPLAY_PROCEDURES.md) | N/A | N/A | Recovering/syncing ledger events or email queue |
+| [Error Code Troubleshooting](./ERROR_CODE_TROUBLESHOOTING.md) | N/A | N/A | Diagnose and fix backend errors |
 | [Postmortem Playbook](../postmortem-playbook.md) | N/A | N/A | Publishing incident postmortems |
 | [Published Postmortems](../incidents/README.md) | N/A | N/A | Archive of finalized incident reports |
 
@@ -289,9 +290,11 @@ Is the backend service down or malfunctioning?
 
 Is the Stellar RPC node failing?
 ├─ YES → Use RPC Failover
-└─ NO → Are ledger events lagging or email queue jobs failing?
-        ├─ YES → Use Replay & State Recovery
-        └─ NO → Check component-specific documentation
+└─ NO → Are you getting a specific error code from the API or contracts?
+        ├─ YES → Use Error Code Troubleshooting
+        └─ NO → Are ledger events lagging or email queue jobs failing?
+                ├─ YES → Use Replay & State Recovery
+                └─ NO → Check component-specific documentation
 ```
 
 ---
@@ -309,6 +312,7 @@ All runbooks must be tested according to this schedule:
 | RPC Failover | Monthly | ⚠️ Never | TBD |
 | Full DR Procedure | Annually | ⚠️ Never | TBD |
 | Replay & State Recovery | Monthly | ⚠️ Never | TBD |
+| Error Code Troubleshooting | Quarterly | ⚠️ Never | TBD |
 
 ### Testing Types
 
