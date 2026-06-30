@@ -15,6 +15,8 @@ export const SNAPSHOT_DIR = path.join(__dirname, '..', 'schema-snapshots');
 export const CRITICAL_ENDPOINTS = [
   'GET /health',
   'GET /ready',
+  'GET /api/v1/vault/summary',
+  'GET /api/v1/transactions',
 ] as const;
 
 export type CriticalEndpoint = (typeof CRITICAL_ENDPOINTS)[number];
@@ -57,9 +59,55 @@ export const ReadyResponseSchema = z
   })
   .strict();
 
+export const VaultSummaryResponseSchema = z
+  .object({
+    totalAssets: z.number(),
+    totalShares: z.number(),
+    apy: z.number(),
+    timestamp: z.string(),
+  })
+  .strict();
+
+export const TransactionItemSchema = z
+  .object({
+    id: z.string(),
+    type: z.enum(['deposit', 'withdrawal']),
+    status: z.enum(['pending', 'completed', 'failed']),
+    amount: z.string(),
+    asset: z.string(),
+    timestamp: z.string(),
+    transactionHash: z.string(),
+    walletAddress: z.string(),
+  })
+  .strict();
+
+export const PaginationMetaSchema = z
+  .object({
+    count: z.number(),
+    limit: z.number(),
+    total: z.number().nullable(),
+    nextCursor: z.string().nullable(),
+    prevCursor: z.string().nullable(),
+    currentPage: z.number().nullable(),
+    totalPages: z.number().nullable(),
+    hasNextPage: z.boolean(),
+    hasPrevPage: z.boolean(),
+  })
+  .strict();
+
+export const TransactionsListResponseSchema = z
+  .object({
+    data: z.array(TransactionItemSchema),
+    pagination: PaginationMetaSchema,
+    timestamp: z.string(),
+  })
+  .strict();
+
 export const ENDPOINT_SCHEMAS: Record<CriticalEndpoint, z.ZodTypeAny> = {
   'GET /health': HealthResponseSchema,
   'GET /ready': ReadyResponseSchema,
+  'GET /api/v1/vault/summary': VaultSummaryResponseSchema,
+  'GET /api/v1/transactions': TransactionsListResponseSchema,
 };
 
 export function endpointToFilename(endpoint: CriticalEndpoint): string {
@@ -125,6 +173,10 @@ export function zodToJsonShape(schema: z.ZodTypeAny): JsonSchemaShape {
     return { type: 'boolean' };
   }
 
+  if (schema instanceof z.ZodArray) {
+    return { type: 'array', items: zodToJsonShape(schema.element as z.ZodTypeAny) };
+  }
+
   return { type: 'unknown' };
 }
 
@@ -185,6 +237,14 @@ export function diffSchemaShapes(
       if (!currentRequired.has(key)) {
         issues.push({ path: at(key), message: 'field is no longer required (may be breaking for strict clients)' });
       }
+    }
+  }
+
+  if (baseline.type === 'array' && current.type === 'array') {
+    if (baseline.items && current.items) {
+      issues.push(...diffSchemaShapes(baseline.items, current.items, `${prefix}[]`));
+    } else if (baseline.items && !current.items) {
+      issues.push({ path: `${prefix}[]`, message: 'array item schema removed' });
     }
   }
 

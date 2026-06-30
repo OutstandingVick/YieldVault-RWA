@@ -24,7 +24,7 @@ describe('#711 API contract schema snapshots', () => {
   });
 
   it('defines snapshots for all critical public endpoints', () => {
-    expect(CRITICAL_ENDPOINTS.length).toBeGreaterThanOrEqual(2);
+    expect(CRITICAL_ENDPOINTS.length).toBeGreaterThanOrEqual(4);
     for (const endpoint of CRITICAL_ENDPOINTS) {
       const snapshot = loadSnapshot(endpoint);
       expect(snapshot).not.toBeNull();
@@ -78,6 +78,46 @@ describe('#711 API contract schema snapshots', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('validates a conforming vault summary payload', () => {
+    const result = validateResponseAgainstSchema('GET /api/v1/vault/summary', {
+      totalAssets: 1000,
+      totalShares: 500,
+      apy: 8.5,
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('validates a conforming transactions list payload', () => {
+    const result = validateResponseAgainstSchema('GET /api/v1/transactions', {
+      data: [{
+        id: 'tx-1',
+        type: 'deposit',
+        status: 'completed',
+        amount: '100',
+        asset: 'USDC',
+        timestamp: new Date().toISOString(),
+        transactionHash: 'abc123',
+        walletAddress: 'GABC123',
+      }],
+      pagination: {
+        count: 1,
+        limit: 20,
+        total: 1,
+        nextCursor: null,
+        prevCursor: null,
+        currentPage: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it('writes snapshot files under schema-snapshots/', () => {

@@ -226,6 +226,26 @@ npm test -- --watch
 npm test -- --coverage
 ```
 
+### API Contract Schema Snapshots (Issue #711)
+
+Committed JSON snapshots under `schema-snapshots/` describe the response shape of critical public endpoints. CI fails when a required field is removed or changes type.
+
+**Guarded endpoints:** `GET /health`, `GET /ready`, `GET /api/v1/vault/summary`, `GET /api/v1/transactions`
+
+```bash
+# Verify snapshots are backward-compatible (CI)
+npm run snapshots:check
+
+# Regenerate after an intentional breaking API change
+npm run snapshots:write
+```
+
+When bumping snapshots intentionally:
+
+1. Update the Zod schema in `src/apiContractSnapshots.ts`
+2. Run `npm run snapshots:write` and commit `schema-snapshots/*.json`
+3. Align OpenAPI annotations and run `npm run generate:openapi`
+
 ## Issues Addressed
 
 ### Issue #145: Rate Limiting

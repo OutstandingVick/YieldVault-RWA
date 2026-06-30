@@ -50,9 +50,11 @@ const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000'
  *   schemas:
  *     Transaction:
  *       type: object
+ *       required: [id, type, status, amount, asset, timestamp, transactionHash, walletAddress]
  *       properties:
  *         id: { type: string }
  *         type: { type: string, enum: [deposit, withdrawal] }
+ *         status: { type: string, enum: [pending, completed, failed] }
  *         amount: { type: string }
  *         asset: { type: string }
  *         timestamp: { type: string, format: "date-time" }
@@ -731,6 +733,9 @@ export function buildVaultHistoryResponse(
  *                     $ref: '#/components/schemas/Transaction'
  *                 pagination:
  *                   $ref: '#/components/schemas/PaginationMeta'
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
  */
 router.get('/transactions', 
   cacheMiddleware({ ttl: CACHE_TTL_MS }),

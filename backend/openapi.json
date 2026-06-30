@@ -35,26 +35,52 @@
           "count": {
             "type": "integer"
           },
-          "total": {
+          "limit": {
             "type": "integer"
+          },
+          "total": {
+            "type": "integer",
+            "nullable": true
           },
           "nextCursor": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "prevCursor": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "currentPage": {
-            "type": "integer"
+            "type": "integer",
+            "nullable": true
           },
           "totalPages": {
-            "type": "integer"
+            "type": "integer",
+            "nullable": true
           },
           "hasNextPage": {
             "type": "boolean"
           },
           "hasPrevPage": {
             "type": "boolean"
+          }
+        }
+      },
+      "VaultSummary": {
+        "type": "object",
+        "properties": {
+          "totalAssets": {
+            "type": "number"
+          },
+          "totalShares": {
+            "type": "number"
+          },
+          "apy": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -74,6 +100,16 @@
       },
       "Transaction": {
         "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "amount",
+          "asset",
+          "timestamp",
+          "transactionHash",
+          "walletAddress"
+        ],
         "properties": {
           "id": {
             "type": "string"
@@ -83,6 +119,14 @@
             "enum": [
               "deposit",
               "withdrawal"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "failed"
             ]
           },
           "amount": {
@@ -341,6 +385,10 @@
                     },
                     "pagination": {
                       "$ref": "#/components/schemas/PaginationMeta"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
                     }
                   }
                 }
@@ -483,6 +531,27 @@
                       "type": "integer"
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vault/summary": {
+      "get": {
+        "summary": "Vault summary",
+        "description": "Returns high-level vault metrics including total assets, shares, and APY.",
+        "tags": [
+          "Vault"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vault summary metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VaultSummary"
                 }
               }
             }
