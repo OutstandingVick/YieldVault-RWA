@@ -5,6 +5,7 @@ import WalletConnect from './WalletConnect';
 import * as freighter from '@stellar/freighter-api';
 import * as walletSession from '../lib/walletSession';
 import { ToastProvider } from '../context/ToastContext';
+import { PreferencesProvider } from '../context/PreferencesContext';
 
 
 // Mock freighter-api
@@ -28,9 +29,11 @@ const mockedFreighter = vi.mocked(freighter);
 const mockedWalletSession = vi.mocked(walletSession);
 
 const WalletConnectWrapper: React.FC<ComponentProps<typeof WalletConnect>> = (props) => (
-    <ToastProvider>
-        <WalletConnect {...props} />
-    </ToastProvider>
+    <PreferencesProvider>
+        <ToastProvider>
+            <WalletConnect {...props} />
+        </ToastProvider>
+    </PreferencesProvider>
 );
 
 describe('WalletConnect', () => {
@@ -81,7 +84,8 @@ describe('WalletConnect', () => {
             // Button should change to error state, toast shown
             // Check for the error icon/state via tooltip or visually
             const btn = screen.getByText(/Connect Freighter/i).closest('button');
-            expect(btn).toHaveClass('btn-error');
+            expect(btn).toHaveClass('btn-danger');
+            expect(btn).toHaveClass('is-error');
         });
     });
 
@@ -212,7 +216,8 @@ describe('WalletConnect', () => {
 
     it('shows the formatted address when connected', () => {
         const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
-        const expectedAddress = 'GABC1...9012';
+        // Default preference masks sensitive identifiers (keepEdges: 4 + 8 bullets).
+        const expectedAddress = 'GABC••••••••9012';
         render(
             <WalletConnectWrapper 
                 walletAddress={fullAddress} 

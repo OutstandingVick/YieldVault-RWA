@@ -64,7 +64,8 @@ describe('Navbar', () => {
 
     it('shows the truncated wallet address when connected', () => {
         const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
-        const expectedAddress = 'GABC1...9012';
+        // Default preference masks sensitive identifiers (keepEdges: 4 + 8 bullets).
+        const expectedAddress = 'GABC••••••••9012';
         render(
             <MemoryRouter>
                 <QueryClientProvider client={queryClient}>

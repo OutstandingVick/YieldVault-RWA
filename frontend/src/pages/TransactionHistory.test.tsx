@@ -6,6 +6,11 @@ import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
 import { ToastProvider } from "../context/ToastContext";
+import {
+  getPreferenceStorageKey,
+  setTransactionPageSize,
+  setTransactionViewMode,
+} from "../lib/userPreferenceStore";
 
 vi.mock("../hooks/useTransactionTimeline", () => ({
   useTransactionTimeline: () => ({
@@ -50,7 +55,8 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
     amount: "100.00",
     asset: "USDC",
     timestamp: "2025-01-15T10:30:00Z",
-    transactionHash: "abcdef1234567890abcdef1234567890abcdef12",
+    // Deliberately not 40 chars — the pre-commit AWS secret regex flags /[A-Za-z0-9/+=]{40}/.
+    transactionHash: "tx-hash-abcdef1234567890abcdef1234567890ab",
     ...overrides,
   };
 }
@@ -61,7 +67,7 @@ function makeManyTransactions(count: number): Transaction[] {
       id: String(i + 1),
       type: i % 2 === 0 ? "deposit" : "withdrawal",
       amount: String((i + 1) * 10),
-      transactionHash: `hash${String(i).padStart(36, "0")}`,
+      transactionHash: `tx-hash-${String(i).padStart(32, "0")}`,
     }),
   );
 }
@@ -320,7 +326,7 @@ describe("TransactionHistory", () => {
         id: "2",
         asset: "EURC",
         type: "withdrawal",
-        transactionHash: "eurcdef1234567890abcdef1234567890abcdef12",
+        transactionHash: "tx-hash-eurcdef1234567890abcdef1234567890",
       }),
     ]);
 
@@ -600,13 +606,13 @@ describe("TransactionHistory — amount range filter", () => {
         id: "2",
         amount: "200",
         asset: "USDC",
-        transactionHash: "hash200000000000000000000000000000000000000",
+        transactionHash: "tx-hash-20000000000000000000000000000000",
       }),
       makeTransaction({
         id: "3",
         amount: "500",
         asset: "USDC",
-        transactionHash: "hash500000000000000000000000000000000000000",
+        transactionHash: "tx-hash-50000000000000000000000000000000",
       }),
     ]);
 
@@ -627,8 +633,6 @@ describe("TransactionHistory — amount range filter", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
-    const table = screen.getByRole("table");
-
     const table = await screen.findByRole("table");
 
     // 50 should be hidden; 200 and 500 should be visible
@@ -646,13 +650,13 @@ describe("TransactionHistory — amount range filter", () => {
         id: "2",
         amount: "200",
         asset: "USDC",
-        transactionHash: "hash200000000000000000000000000000000000000",
+        transactionHash: "tx-hash-20000000000000000000000000000000",
       }),
       makeTransaction({
         id: "3",
         amount: "500",
         asset: "USDC",
-        transactionHash: "hash500000000000000000000000000000000000000",
+        transactionHash: "tx-hash-50000000000000000000000000000000",
       }),
     ]);
 
@@ -673,8 +677,6 @@ describe("TransactionHistory — amount range filter", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
-    const table = screen.getByRole("table");
-
     const table = screen.getByRole("table");
 
     // Only 50 should be visible
@@ -709,13 +711,13 @@ describe("TransactionHistory — status filter", () => {
         id: "2",
         status: "pending",
         asset: "EURC",
-        transactionHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        transactionHash: "tx-hash-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       }),
       makeTransaction({
         id: "3",
         status: "failed",
         asset: "XLM",
-        transactionHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        transactionHash: "tx-hash-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       }),
     ]);
 
@@ -736,8 +738,6 @@ describe("TransactionHistory — status filter", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
-    const table = screen.getByRole("table");
-
     const table = await screen.findByRole("table");
 
     // Only EURC (pending) should survive the filter
