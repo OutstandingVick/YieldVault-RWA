@@ -77,6 +77,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     ...options
   }: ToastOptions) => {
     const dedupeKey = generateDedupeKey({ ...options, variant });
+    // Timestamp is intentionally captured at toast creation time for dedupe windows.
+    // eslint-disable-next-line react-hooks/purity -- event-handler side effect, not render output
     const now = Date.now();
 
     // Check for duplicate within dedupe window

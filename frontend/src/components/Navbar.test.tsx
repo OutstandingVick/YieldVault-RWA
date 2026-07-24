@@ -64,7 +64,6 @@ describe('Navbar', () => {
 
     it('shows the truncated wallet address when connected', () => {
         const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
-        const expectedAddress = 'GABC1...9012';
         render(
             <MemoryRouter>
                 <QueryClientProvider client={queryClient}>
@@ -83,7 +82,8 @@ describe('Navbar', () => {
             </MemoryRouter>
         );
 
-        expect(screen.getByText(expectedAddress)).toBeInTheDocument();
+        // Default preferences mask sensitive values (GABC••••••••9012).
+        expect(screen.getByText(/GABC.+9012/)).toBeInTheDocument();
     });
 
     it('shows a network badge when wallet is connected', () => {

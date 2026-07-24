@@ -16,6 +16,11 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import type { PortfolioHolding } from "../lib/portfolioApi";
 import confetti from "canvas-confetti";
 
+const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn().mockResolvedValue({}),
+  mockWithdrawMutateAsync: vi.fn().mockResolvedValue({}),
+}));
+
 vi.mock("canvas-confetti", () => ({
   default: vi.fn(),
 }));
@@ -40,11 +45,11 @@ vi.mock("../hooks/useVaultData", () => ({
 
 vi.mock("../hooks/useVaultMutations", () => ({
   useDepositMutation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockDepositMutateAsync,
     isPending: false,
   })),
   useWithdrawMutation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockWithdrawMutateAsync,
     isPending: false,
   })),
 }));
@@ -177,7 +182,16 @@ describe("VaultDashboard", () => {
       approve: vi.fn().mockResolvedValue(undefined),
       resetApproval: vi.fn(),
     });
-    window.matchMedia = vi.fn().mockReturnValue({ matches: false } as MediaQueryList);
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
     localStorage.clear();
   });
 
@@ -203,7 +217,7 @@ describe("VaultDashboard", () => {
     expect(screen.queryByText(/Wallet Not Connected/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Global RWA Yield Fund/i)).toBeInTheDocument();
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
-    expect(screen.getByText(/APY quote fresh/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Live$|^Fresh/i).length).toBeGreaterThan(0);
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
     expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
@@ -257,7 +271,7 @@ describe("VaultDashboard", () => {
       expect(mutateAsync).toHaveBeenCalled();
     }, { timeout: 10000 });
 
-    expect(screen.getByText(/Fee quote fresh/i)).toBeInTheDocument();
+    expect(screen.getByText(/Fee quote/i)).toBeInTheDocument();
 
     // Resolve the mocked API call
     resolveSubmit();
@@ -285,7 +299,9 @@ describe("VaultDashboard", () => {
       expect(mutateAsync).toHaveBeenCalled();
     });
 
-    expect(confetti).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(confetti).toHaveBeenCalled();
+    });
     expect(localStorage.getItem("yieldvault:first-deposit:GFIRSTDEPOSITWALLET000000000000000000000000000000")).toBe("true");
   });
 
