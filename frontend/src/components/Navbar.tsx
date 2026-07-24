@@ -5,8 +5,8 @@ import { Layers } from './icons';
 import { useTranslation } from '../i18n';
 
 interface NavbarProps {
-    currentPath: '/' | '/analytics' | '/portfolio';
-    onNavigate: (path: '/' | '/analytics' | '/portfolio') => void;
+    currentPath?: '/' | '/analytics' | '/portfolio';
+    onNavigate?: (path: '/' | '/analytics' | '/portfolio') => void;
     walletAddress: string | null;
     usdcBalance?: number;
     onConnect: (address: string) => void;

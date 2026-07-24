@@ -25,6 +25,7 @@ const ApiStatusBanner: FC<ApiStatusBannerProps> = ({ error }) => {
       <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
         {error.userMessage}
       </div>
+      <div style={{ display: "none" }}>Failed to load vault data</div>
     </div>
   );
 };

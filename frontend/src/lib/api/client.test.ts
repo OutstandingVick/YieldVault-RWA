@@ -101,7 +101,7 @@ describe("ApiClient", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string, init: RequestInit) => {
+      vi.fn().mockImplementation((_url: string, init: RequestInit) => {
         capturedHeaders = init.headers as Headers;
         return Promise.resolve(
           new Response(JSON.stringify({ ok: true }), {
@@ -142,7 +142,7 @@ describe("ApiClient", () => {
       getCorrelationId: () => correlationId,
     });
 
-    const error = await client.get("/missing").catch((e) => e);
+    const error = (await client.get("/missing").catch((e) => e)) as ApiError;
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error.correlationId).toBe(correlationId);
