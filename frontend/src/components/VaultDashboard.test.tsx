@@ -38,13 +38,18 @@ vi.mock("../hooks/useVaultData", () => ({
   useVaultHistory: vi.fn(),
 }));
 
+const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn().mockResolvedValue({}),
+  mockWithdrawMutateAsync: vi.fn().mockResolvedValue({}),
+}));
+
 vi.mock("../hooks/useVaultMutations", () => ({
   useDepositMutation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockDepositMutateAsync,
     isPending: false,
   })),
   useWithdrawMutation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockWithdrawMutateAsync,
     isPending: false,
   })),
 }));

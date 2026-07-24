@@ -5,6 +5,7 @@ import WalletConnect from './WalletConnect';
 import * as freighter from '@stellar/freighter-api';
 import * as walletSession from '../lib/walletSession';
 import { ToastProvider } from '../context/ToastContext';
+import { PreferencesProvider } from '../context/PreferencesContext';
 
 
 // Mock freighter-api
@@ -28,9 +29,11 @@ const mockedFreighter = vi.mocked(freighter);
 const mockedWalletSession = vi.mocked(walletSession);
 
 const WalletConnectWrapper: React.FC<ComponentProps<typeof WalletConnect>> = (props) => (
-    <ToastProvider>
-        <WalletConnect {...props} />
-    </ToastProvider>
+    <PreferencesProvider>
+        <ToastProvider>
+            <WalletConnect {...props} />
+        </ToastProvider>
+    </PreferencesProvider>
 );
 
 describe('WalletConnect', () => {
