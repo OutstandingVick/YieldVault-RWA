@@ -4,6 +4,8 @@ This document defines how issues are triaged, how pull requests are reviewed, an
 
 For the **cross-team triage rotation schedule**, primary/secondary ownership, and escalation timelines, see [docs/TRIAGE_ROTATION_CALENDAR.md](./docs/TRIAGE_ROTATION_CALENDAR.md).
 
+For **backend module-level ownership routing** (which maintainer owns each source file, middleware, and domain), see [docs/BACKEND_MODULE_OWNERSHIP.md](./docs/BACKEND_MODULE_OWNERSHIP.md) — includes a file→domain quick lookup, PR review routing cheat sheet, and issue triage command patterns.
+
 ---
 
 ## Issue Triage Workflow
