@@ -39,7 +39,9 @@ export function useAsyncActionButton({
   const [status, setStatus] = useState<AsyncActionStatus>("idle");
 
   useEffect(() => {
+    // Sync button chrome to external mutation flags; timers clear success/error flash.
     if (isPending) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- maps props into transient UI status
       setStatus("pending");
       return;
     }
