@@ -30,6 +30,40 @@ export const es = {
     rpcCustom: "Personalizado",
     rpcDefault: "Predeterminado",
     disconnectAria: "Desconectar billetera",
+    errors: {
+      retry: "Intentar de nuevo",
+      dismissAria: "Descartar error de conexión de billetera",
+      notInstalled: {
+        title: "Freighter no está instalado",
+        description:
+          "Instala la extensión Freighter, actualiza esta página e intenta conectar de nuevo.",
+      },
+      permissionDenied: {
+        title: "Permiso de billetera requerido",
+        description:
+          "Aprueba YieldVault en Freighter e intenta conectar de nuevo.",
+      },
+      userRejected: {
+        title: "Conexión cancelada",
+        description:
+          "Rechazaste la solicitud de conexión de Freighter. Puedes intentarlo cuando quieras.",
+      },
+      noAddress: {
+        title: "No se obtuvo dirección",
+        description:
+          "Freighter no devolvió una clave pública para esta sesión. Desbloquea Freighter e inténtalo de nuevo.",
+      },
+      disconnectedExternally: {
+        title: "Billetera desconectada",
+        description:
+          "Freighter ya no está conectado a esta sesión. Vuelve a conectar para continuar.",
+      },
+      unknown: {
+        title: "Falló la conexión de la billetera",
+        description:
+          "Asegúrate de que Freighter esté instalado, desbloqueado y aprobado para este sitio.",
+      },
+    },
   },
   toast: {
     walletConnected: {
@@ -52,6 +86,10 @@ export const es = {
       description:
         "Puedes volver a conectar en cualquier momento para seguir gestionando posiciones en la bóveda.",
     },
+    walletDisconnectedExternal: {
+      title: "Billetera desconectada",
+      description: "Freighter ya no está conectado a esta sesión.",
+    },
   },
   apiBanner: {
     title: "Datos no disponibles",
@@ -67,6 +105,7 @@ export const es = {
     title: "Atajos de teclado",
     close: "Cerrar",
     hint: "Presiona Esc para cerrar este diálogo",
+  },
   refresh: {
     live: "En vivo",
     stopped: "Detenido",

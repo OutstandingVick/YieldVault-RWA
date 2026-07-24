@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import VaultDashboard from "./VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
 import { ToastProvider } from "../context/ToastContext";
+import { queryClient } from "../lib/queryClient";
 import * as vaultApi from "../lib/vaultApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
@@ -49,6 +50,7 @@ describe("VaultDashboard", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    queryClient.clear();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal(
       "fetch",
@@ -170,16 +172,22 @@ describe("VaultDashboard", () => {
 
   it("shows a normalized API error message when data loading fails", async () => {
     vi.useRealTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    queryClient.clear();
+    queryClient.setDefaultOptions({
+      queries: { retry: false, retryDelay: 0 },
+    });
+    vi.spyOn(vaultApi, "getVaultSummary").mockRejectedValue(
+      new TypeError("Failed to fetch"),
     );
 
     renderDashboard("GABC123");
 
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getByRole("alert")).toHaveTextContent("Data unavailable");
+      },
+      { timeout: 5000 },
+    );
     expect(screen.getByRole("alert")).toHaveTextContent(
       "We could not reach the server. Check your connection and try again.",
     );

@@ -30,6 +30,40 @@ export const en = {
     rpcCustom: "Custom",
     rpcDefault: "Default",
     disconnectAria: "Disconnect Wallet",
+    errors: {
+      retry: "Try again",
+      dismissAria: "Dismiss wallet connection error",
+      notInstalled: {
+        title: "Freighter not installed",
+        description:
+          "Install the Freighter browser extension, then refresh this page and connect again.",
+      },
+      permissionDenied: {
+        title: "Wallet permission required",
+        description:
+          "Approve YieldVault in Freighter, then try connecting again.",
+      },
+      userRejected: {
+        title: "Connection cancelled",
+        description:
+          "You rejected the Freighter connection request. You can try again when ready.",
+      },
+      noAddress: {
+        title: "No wallet address returned",
+        description:
+          "Freighter did not return a public key for this session. Unlock Freighter and retry.",
+      },
+      disconnectedExternally: {
+        title: "Wallet disconnected",
+        description:
+          "Freighter is no longer connected to this session. Reconnect to continue.",
+      },
+      unknown: {
+        title: "Wallet connection failed",
+        description:
+          "Ensure Freighter is installed, unlocked, and approved for this site.",
+      },
+    },
   },
   toast: {
     walletConnected: {
@@ -52,6 +86,10 @@ export const en = {
       description:
         "You can reconnect any time to continue managing vault positions.",
     },
+    walletDisconnectedExternal: {
+      title: "Wallet disconnected",
+      description: "Freighter is no longer connected to this session.",
+    },
   },
   apiBanner: {
     title: "Data unavailable",
@@ -67,6 +105,7 @@ export const en = {
     title: "Keyboard Shortcuts",
     close: "Close",
     hint: "Press Esc to close this dialog",
+  },
   refresh: {
     live: "Live",
     stopped: "Stopped",

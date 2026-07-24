@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useKeyboardShortcuts, ShortcutDefinition, formatShortcut } from '../hooks/useKeyboardShortcuts';
+import { useKeyboardShortcuts, formatShortcut } from '../hooks/useKeyboardShortcuts';
+import type { ShortcutDefinition } from '../hooks/useKeyboardShortcuts';
 
 interface KeyboardShortcutContextValue {
   shortcuts: ShortcutDefinition[];

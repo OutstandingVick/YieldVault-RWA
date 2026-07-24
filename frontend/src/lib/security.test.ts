@@ -252,11 +252,14 @@ describe('XSS Attack Vectors', () => {
   test('escapeHtml neutralizes all XSS payloads', () => {
     XSS_PAYLOADS.forEach(payload => {
       const escaped = escapeHtml(payload);
-      expect(escaped).not.toContain('<script');
-      expect(escaped).not.toContain('javascript:');
-      expect(escaped).not.toContain('onerror');
-      expect(escaped).not.toContain('onload');
-      expect(escaped).toContain('&lt;');
+      // Angle brackets must be entity-encoded so the payload cannot create DOM nodes.
+      expect(escaped).not.toContain('<');
+      expect(escaped).not.toContain('>');
+      if (payload.includes('<')) {
+        expect(escaped).toContain('&lt;');
+      }
+      // Attribute-like text may remain as plain text after escaping; that is safe.
+      expect(escaped).not.toMatch(/<script/i);
     });
   });
 

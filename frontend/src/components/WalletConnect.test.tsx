@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import WalletConnect from './WalletConnect';
@@ -28,6 +28,7 @@ describe('WalletConnect', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
     });
 
     afterEach(() => {
@@ -35,7 +36,6 @@ describe('WalletConnect', () => {
     });
 
     it('renders the connect button when no wallet is connected', async () => {
-        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: false });
         render(
             <WalletConnectWrapper 
                 walletAddress={null} 
@@ -45,6 +45,8 @@ describe('WalletConnect', () => {
         );
 
         expect(screen.getByText(/Connect Freighter/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Connect Freighter/i }).closest('[data-wallet-status]'))
+            .toHaveAttribute('data-wallet-status', 'disconnected');
     });
 
     it('calls onConnect when manually connected via button', async () => {
@@ -70,6 +72,55 @@ describe('WalletConnect', () => {
         });
     });
 
+    it('shows a clear typed error state when Freighter returns no address', async () => {
+        mockedFreighter.isAllowed.mockResolvedValue({ isAllowed: true });
+        mockedFreighter.setAllowed.mockResolvedValue({ isAllowed: true });
+        mockedFreighter.getAddress.mockResolvedValue({ address: '' });
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        fireEvent.click(screen.getByText(/Connect Freighter/i));
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-error-code="NO_ADDRESS"]')).toBeInTheDocument();
+        });
+        expect(screen.getByText(/No wallet address returned/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Try again/i })).toBeInTheDocument();
+        expect(mockOnConnect).not.toHaveBeenCalled();
+    });
+
+    it('shows NOT_INSTALLED error state when Freighter throws', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mockedFreighter.setAllowed.mockRejectedValue(
+            new Error('Freighter is not installed'),
+        );
+
+        render(
+            <WalletConnectWrapper
+                walletAddress={null}
+                onConnect={mockOnConnect}
+                onDisconnect={mockOnDisconnect}
+            />
+        );
+
+        fireEvent.click(screen.getByText(/Connect Freighter/i));
+
+        await waitFor(() => {
+            expect(
+                document.querySelector('[data-error-code="NOT_INSTALLED"]'),
+            ).toBeInTheDocument();
+        });
+        expect(screen.getAllByText(/Freighter not installed/i).length).toBeGreaterThan(0);
+        // Not installed is not retryable via the same path (no Try again CTA).
+        expect(screen.queryByRole('button', { name: /Try again/i })).not.toBeInTheDocument();
+    });
+
     it('shows the formatted address when connected', () => {
         const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
         const expectedAddress = 'GABC1...9012';
@@ -83,6 +134,8 @@ describe('WalletConnect', () => {
 
         expect(screen.getByText(expectedAddress)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Copy wallet address/i })).toBeInTheDocument();
+        expect(screen.getByText(expectedAddress).closest('[data-wallet-status]'))
+            .toHaveAttribute('data-wallet-status', 'connected');
     });
 
     it('calls onDisconnect when the disconnect button is clicked', () => {
@@ -101,9 +154,6 @@ describe('WalletConnect', () => {
     });
 
     it('handles wallet disconnects gracefully during polling', async () => {
-        // Helper to flush all pending promises
-        const flushPromises = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
-
         vi.useFakeTimers({ shouldAdvanceTime: false });
         mockedFreighter.isAllowed
             .mockResolvedValueOnce({ isAllowed: true })

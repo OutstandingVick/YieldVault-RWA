@@ -1,13 +1,18 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
-import { normalizeApiError, type ApiError } from "../lib/api";
-import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
+import {
+  normalizeApiError,
+  isValidationError,
+  type ApiError,
+  type ValidationError,
+} from "../lib/api";
 import {
   formatAmount,
   formatTimestamp,
+  getTransactions,
   truncateHash,
   type Transaction,
 } from "../lib/transactionApi";
@@ -189,7 +194,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 },
                 {
                   label: isLoading ? "Loading..." : "Up to date",
-                  variant: (isLoading ? "warning" : "success") as const,
+                  variant: isLoading ? ("warning" as const) : ("success" as const),
                 },
               ]
             : undefined

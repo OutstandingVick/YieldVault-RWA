@@ -1,13 +1,17 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import {
   DataTable,
   type DataTableColumn,
 } from "../components/DataTable";
 import PageHeader from "../components/PageHeader";
-import { normalizeApiError, isValidationError, type ApiError, type ValidationError } from "../lib/api";
 import CopyButton from "../components/CopyButton";
-import { normalizeApiError, type ApiError } from "../lib/api";
+import {
+  normalizeApiError,
+  isValidationError,
+  type ApiError,
+  type ValidationError,
+} from "../lib/api";
 import {
   getPortfolioHoldings,
   type PortfolioHolding,
@@ -15,8 +19,7 @@ import {
 import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
-import { usePortfolioHoldings } from "../hooks/usePortfolioData";
-import { normalizeApiError } from "../lib/api";
+import { useToast } from "../context/ToastContext";
 
 interface PortfolioProps {
   walletAddress: string | null;
@@ -244,7 +247,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                 },
                 {
                   label: isLoading ? "Syncing..." : "Live",
-                  variant: (isLoading ? "warning" : "success") as const,
+                  variant: isLoading ? ("warning" as const) : ("success" as const),
                 },
               ]
             : undefined

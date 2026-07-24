@@ -162,30 +162,6 @@ export function DataTable<T>({
         </table>
       </div>
 
-      {pagination && pagination.totalPages > 1 && (
-        <div className="data-table-pagination">
-          <div className="data-table-pagination-summary">
-            {t("dataTable.pageLabel")} {pagination.page}{" "}
-            {t("dataTable.pageOf")} {pagination.totalPages}
-          </div>
-          <div className="data-table-pagination-actions">
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={() => onPageChange?.(pagination.page - 1)}
-              disabled={pagination.page <= 1}
-            >
-              {t("dataTable.previous")}
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={() => onPageChange?.(pagination.page + 1)}
-              disabled={pagination.page >= pagination.totalPages}
-            >
-              {t("dataTable.next")}
-            </button>
-          </div>
       {pagination && (
         <div className="data-table-pagination" style={{ padding: 0 }}>
           <Pagination
