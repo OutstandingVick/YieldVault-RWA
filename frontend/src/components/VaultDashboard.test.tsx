@@ -64,7 +64,7 @@ vi.mock("../hooks/useFeeEstimate", () => ({
     feeUsd: 0.01,
     isEstimating: false,
     isHighFee: false,
-    lastUpdated: new Date("2026-03-25T10:00:00.000Z"),
+    lastUpdated: new Date(),
   }),
 }));
 
@@ -78,6 +78,7 @@ vi.mock("../hooks/useTransactionConfirmation", () => ({
 
 const mockSummary = {
   tvl: 12450800,
+  depositCap: 15000000,
   apy: 8.45,
   participantCount: 1248,
   monthlyGrowthPct: 12.5,
@@ -85,7 +86,7 @@ const mockSummary = {
   assetLabel: "Sovereign Debt",
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
-  updatedAt: "2026-03-25T10:00:00.000Z",
+  updatedAt: new Date().toISOString(),
   contractPaused: false,
   strategy: {
     id: "stellar-benji",
@@ -299,7 +300,9 @@ describe("VaultDashboard", () => {
       expect(mutateAsync).toHaveBeenCalled();
     });
 
-    expect(confetti).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(confetti).toHaveBeenCalled();
+    });
     expect(localStorage.getItem("yieldvault:first-deposit:GFIRSTDEPOSITWALLET000000000000000000000000000000")).toBe("true");
   });
 
