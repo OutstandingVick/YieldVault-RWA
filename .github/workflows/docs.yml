@@ -17,6 +17,4 @@ jobs:
         uses: dtolnay/rust-toolchain@1.84.0
 
       - name: Generate Rust docs
-        run: |
-          cargo doc -p share-price-math --no-deps
-          cargo doc -p mock-strategy --no-deps
+        run: cargo doc -p share-price-math --no-deps
