@@ -18,12 +18,6 @@ import {
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
 const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
-async function confirmInModal(page: Page) {
-  const modal = page.getByRole('dialog');
-  await expect(modal).toBeVisible({ timeout: 15_000 });
-  await modal.getByRole('button', { name: /^Confirm( Anyway)?$/i }).click();
-}
-
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 async function goToConnectedVault(page: Page, path = '/') {
