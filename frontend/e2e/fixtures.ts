@@ -194,6 +194,11 @@ async function fulfillHorizonRoute(route: import('@playwright/test').Route) {
 export async function interceptApiRoutes(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem('hasSeenWalkthrough', 'true');
+    // Privacy mode defaults to masked identifiers; disable for stable E2E address matchers.
+    window.localStorage.setItem(
+      'yieldvault-preferences:guest',
+      JSON.stringify({ maskSensitiveValues: false }),
+    );
     // Match Cypress: skip service-worker registration so Playwright route mocks
     // are not bypassed by cross-origin fetches issued from the SW context.
     (window as Window & { Cypress?: boolean }).Cypress = true;
