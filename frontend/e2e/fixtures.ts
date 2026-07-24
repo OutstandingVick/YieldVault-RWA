@@ -317,6 +317,15 @@ export async function completeVaultReviewStep(
  */
 export async function stubFreighterConnected(page: Page, address: string) {
   await page.addInitScript((addr) => {
+    window.localStorage.setItem(
+      `yieldvault-preferences:${addr}`,
+      JSON.stringify({ maskSensitiveValues: false }),
+    );
+    window.localStorage.setItem(
+      'yieldvault-preferences:guest',
+      JSON.stringify({ maskSensitiveValues: false }),
+    );
+
     const stub = { connected: true };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 
@@ -377,6 +386,15 @@ export async function stubFreighterConnected(page: Page, address: string) {
  */
 export async function stubFreighterManualConnect(page: Page, address: string) {
   await page.addInitScript((addr) => {
+    window.localStorage.setItem(
+      `yieldvault-preferences:${addr}`,
+      JSON.stringify({ maskSensitiveValues: false }),
+    );
+    window.localStorage.setItem(
+      'yieldvault-preferences:guest',
+      JSON.stringify({ maskSensitiveValues: false }),
+    );
+
     const stub = { connected: false };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 
