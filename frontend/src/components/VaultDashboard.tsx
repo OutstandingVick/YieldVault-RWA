@@ -21,9 +21,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
 import { FormField } from "../forms";
 import { isValidationError } from "../lib/api";
 import { useForm } from "../forms/useForm";
-import type { ValidationSchema } from "../forms/validate";
+import { validate, type ValidationSchema } from "../forms/validate";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
 import { useTokenAllowance } from "../hooks/useTokenAllowance";
+import { usePortfolioHoldings } from "../hooks/usePortfolioData";
 import { createDepositFormSchema, MIN_DEPOSIT_AMOUNT } from "../forms/schemas/depositFormSchema";
 import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
 import { mapServerError } from "../lib/errorMappers";
@@ -218,7 +219,16 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   });
   const { isStale: statsIsStale, ageText: statsAgeText } = useStaleIndicator(lastUpdate);
 
-  const availableBalance = walletAddress ? usdcBalance : 0;
+  const { data: portfolioHoldings } = usePortfolioHoldings(walletAddress);
+
+  // Deposit balance comes from the connected wallet's USDC balance; withdraw
+  // balance is the user's current vault position (sum of holdings value).
+  const depositBalance = walletAddress ? usdcBalance : 0;
+  const withdrawBalance = walletAddress
+    ? (portfolioHoldings ?? []).reduce((sum, holding) => sum + holding.valueUsd, 0)
+    : 0;
+  const availableBalance =
+    dashboardUrl.state.tab === "deposit" ? depositBalance : withdrawBalance;
 
   // Wizard state
   const [transactionResult, setTransactionResult] = useState<{
@@ -258,11 +268,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   // Create validation schema based on transaction type and current state
   const transactionSchema = React.useMemo<ValidationSchema<{ amount: string }>>(() => {
     if (dashboardUrl.state.tab === "deposit") {
-      return createDepositFormSchema(availableBalance, isCapReached, xlmBalance, feeXlm);
+      return createDepositFormSchema(depositBalance, isCapReached, xlmBalance, feeXlm);
     } else {
-      return createWithdrawFormSchema(availableBalance);
+      return createWithdrawFormSchema(withdrawBalance, xlmBalance, feeXlm);
     }
-  }, [dashboardUrl.state.tab, availableBalance, isCapReached, xlmBalance, feeXlm]);
+  }, [dashboardUrl.state.tab, depositBalance, withdrawBalance, isCapReached, xlmBalance, feeXlm]);
 
   const {
     values,
@@ -273,7 +283,16 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     setValues,
     setFieldError,
     resetErrors,
+    validateAll,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
+
+  // Validation computed against the full schema regardless of touched state,
+  // so the primary CTA can be disabled proactively (before the user blurs
+  // the field) instead of only reacting to already-surfaced inline errors.
+  const liveValidationErrors = React.useMemo(
+    () => validate(transactionSchema, values),
+    [transactionSchema, values],
+  );
 
   const amount = values.amount;
   const activeTab = dashboardUrl.state.tab;
@@ -385,8 +404,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const isSubmitDisabled =
     !walletAddress ||
     isBusy ||
-    Boolean(activeAmountError) ||
     !amount ||
+    Object.keys(liveValidationErrors).length > 0 ||
     (dashboardUrl.state.tab === "deposit" && isCapReached);
 
   const staleGuard = useStaleSubmissionGuard({
@@ -419,10 +438,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   };
 
   const goToReview = () => {
-    if (Object.keys(errors).length > 0) {
+    if (!validateAll()) {
       toast.warning({
         title: "Please fix validation errors",
-        description: errors.amount || "Please enter a valid amount",
+        description: liveValidationErrors.amount || "Please enter a valid amount",
       });
       formFocus.focusFirstError();
       return;
@@ -959,7 +978,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
             <StepIndicator currentStep={dashboardUrl.state.step} />
 
-            {(["deposit", "withdraw"] as const).map((tab) => (
+            {(["deposit", "withdraw"] as const).map((tab) => {
+              const tabBalance = tab === "deposit" ? depositBalance : withdrawBalance;
+              return (
               <TabsContent key={tab} value={tab}>
                 {(isCapReached || isCapWarning) && tab === "deposit" && (
                   <VaultCapWarning utilization={utilization} isReached={isCapReached} />
@@ -978,7 +999,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
                             </div>
                             <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                              Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
+                              Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{tabBalance.toFixed(2)}</span>
                             </div>
                           </div>
 
@@ -994,7 +1015,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             onBlur={handleBlur}
                             disabled={isBusy || (tab === "deposit" && isCapReached)}
                             error={showInlineError ? activeAmountError ?? undefined : undefined}
-                            helperText={tab === "deposit" ? `Min: ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC` : `Max: ${availableBalance.toFixed(2)} USDC`}
+                            helperText={tab === "deposit" ? `Min: ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC` : `Max: ${tabBalance.toFixed(2)} USDC`}
                           />
 
                           <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
@@ -1038,11 +1059,13 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               id={`vault-${tab}-max`}
                               className="btn-max"
                               onClick={() => {
-                                setValues({ amount: availableBalance.toFixed(2) });
+                                const nextValues = { amount: tabBalance.toFixed(2) };
+                                setValues(nextValues);
+                                validateAll(nextValues);
                               }}
                               disabled={
                                 !walletAddress ||
-                                availableBalance <= 0 ||
+                                tabBalance <= 0 ||
                                 isBusy ||
                                 (tab === "deposit" && isCapReached)
                               }
@@ -1406,7 +1429,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                     )}
                   </div>
               </TabsContent>
-            ))}
+              );
+            })}
           </Tabs>
         </div>
         <div className="mobile-vault-actions">

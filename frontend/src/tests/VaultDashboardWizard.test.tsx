@@ -1,42 +1,11 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
 import { PreferencesProvider } from "../context/PreferencesContext";
+import { ToastProvider } from "../context/ToastContext";
 import VaultDashboard from "../components/VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
-import * as vaultDataHooks from "../hooks/useVaultData";
-import type { UseQueryResult } from "@tanstack/react-query";
-import type { VaultSummary } from "../lib/vaultApi";
-
-vi.mock("../hooks/useVaultData", () => ({
-  useVaultSummary: vi.fn(),
-  useVaultHistory: vi.fn(),
-}));
-
-const mockSummary: VaultSummary = {
-  tvl: 12450800,
-  depositCap: 15000000,
-  apy: 8.45,
-  participantCount: 1248,
-  monthlyGrowthPct: 12.5,
-  strategyStabilityPct: 99.9,
-  assetLabel: "Sovereign Debt",
-  exchangeRate: 1.084,
-  networkFeeEstimate: "~0.00001 XLM",
-  updatedAt: "2026-03-25T10:00:00.000Z",
-  contractPaused: false,
-  strategy: {
-    id: "stellar-benji",
-    name: "Franklin BENJI Connector",
-    issuer: "Franklin Templeton",
-    network: "Stellar",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    status: "active",
-    description: "Connector strategy.",
-  },
-};
-import { ToastProvider } from "../context/ToastContext";
-import { PreferencesProvider } from "../context/PreferencesContext";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as vaultApi from "../lib/vaultApi";
 import * as portfolioHooks from "../hooks/usePortfolioData";
@@ -44,6 +13,7 @@ import * as vaultDataHooks from "../hooks/useVaultData";
 import * as tokenAllowanceHooks from "../hooks/useTokenAllowance";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { VaultSummary } from "../lib/vaultApi";
+import type { PortfolioHolding } from "../lib/portfolioApi";
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
@@ -73,6 +43,15 @@ vi.mock("../hooks/useTransactionConfirmation", () => ({
   }),
 }));
 
+vi.mock("../hooks/usePortfolioData", () => ({
+  usePortfolioHoldings: vi.fn(),
+}));
+
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
+
 vi.mock("../hooks/useTokenAllowance", () => ({
   useTokenAllowance: vi.fn(),
 }));
@@ -83,14 +62,7 @@ vi.mock("../hooks/useFeeEstimate", () => ({
     feeUsd: 0.01,
     isEstimating: false,
     isHighFee: false,
-  }),
-}));
-
-vi.mock("../hooks/useTransactionConfirmation", () => ({
-  useTransactionConfirmation: () => ({
-    requestConfirmation: vi.fn().mockResolvedValue(true),
-    modal: null,
-    isOpen: false,
+    lastUpdated: new Date(),
   }),
 }));
 
@@ -104,7 +76,7 @@ const mockSummary: VaultSummary = {
   assetLabel: "Sovereign Debt",
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
-  updatedAt: "2026-03-25T10:00:00.000Z",
+  updatedAt: new Date().toISOString(),
   contractPaused: false,
   strategy: {
     id: "stellar-benji",
@@ -121,19 +93,19 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <BrowserRouter>
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <PreferencesProvider>
-          <VaultProvider>
-            {children}
-          </VaultProvider>
-        </PreferencesProvider>
-      </ToastProvider>
-    </QueryClientProvider>
-  </BrowserRouter>
-);
+function Wrapper({ children }: { children: ReactNode }) {
+  return (
+    <BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <PreferencesProvider>
+            <VaultProvider>{children}</VaultProvider>
+          </PreferencesProvider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </BrowserRouter>
+  );
+}
 
 describe("VaultDashboard Wizard", () => {
   beforeEach(() => {
@@ -159,6 +131,27 @@ describe("VaultDashboard Wizard", () => {
       error: null,
       refetch: vi.fn(),
     } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
+    vi.mocked(portfolioHooks.usePortfolioHoldings).mockReturnValue({
+      data: [{ id: "1", shares: 10, valueUsd: 10, asset: "USDC", vaultName: "RWA Vault", symbol: "yvUSDC", apy: 5, unrealizedGainUsd: 0, issuer: "G...", status: "active" }],
+      isLoading: false,
+    } as unknown as UseQueryResult<PortfolioHolding[], Error>);
+    vi.mocked(tokenAllowanceHooks.useTokenAllowance).mockReturnValue({
+      allowance: 1_000_000,
+      approvalStatus: "confirmed",
+      needsApproval: vi.fn().mockReturnValue(false),
+      approve: vi.fn().mockResolvedValue(undefined),
+      resetApproval: vi.fn(),
+    });
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
   });
 
   it("navigates through the deposit wizard steps", async () => {
@@ -174,9 +167,12 @@ describe("VaultDashboard Wizard", () => {
 
     fireEvent.click(screen.getByText("Review Transaction"));
 
-    await waitFor(() => {
-      expect(screen.getByText("Confirm Transaction")).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText("Confirm Transaction")).toBeInTheDocument();
+      },
+      { timeout: 10000 },
+    );
     expect(screen.getByText("10.00 USDC")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Back"));
@@ -185,17 +181,18 @@ describe("VaultDashboard Wizard", () => {
     expect(screen.getByDisplayValue("10")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Review Transaction"));
-    
-    // Confirm review step, then modal
+
+    // Confirm review step, then modal (requestConfirmation is already mocked to resolve true).
     const confirmBtn = screen.getByRole("button", { name: /Confirm deposit/i });
     fireEvent.click(confirmBtn);
 
-    fireEvent.click(screen.getByText("Confirm deposit"));
+    await waitFor(
+      () => {
+        expect(screen.getByText("Transaction Successful")).toBeInTheDocument();
+      },
+      { timeout: 10000 },
+    );
 
-    await waitFor(() => {
-      expect(screen.getByText("Transaction Successful")).toBeInTheDocument();
-    });
-    
     const doneBtn = screen.getByText("Done");
     fireEvent.click(doneBtn);
 
