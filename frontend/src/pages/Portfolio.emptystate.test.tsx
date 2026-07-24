@@ -20,6 +20,14 @@ vi.mock("../hooks/useReferral", () => ({
   useReferralLink: vi.fn().mockReturnValue({ referralLink: null, referralCode: null }),
 }));
 
+vi.mock("../hooks/useVaultHealth", () => ({
+  useVaultHealth: vi.fn().mockReturnValue({
+    data: [],
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
 vi.mock("../components/YieldBreakdownChart", () => ({
   default: () => <div data-testid="yield-chart" />,
 }));
@@ -50,6 +58,7 @@ function renderPortfolio(walletAddress: string | null) {
 const mockHolding: PortfolioHolding = {
   id: "pos-1",
   asset: "USDC",
+  vaultId: "vault-1",
   vaultName: "RWA Vault",
   symbol: "yvUSDC",
   issuer: "G...",

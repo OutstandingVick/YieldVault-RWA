@@ -2171,6 +2171,223 @@ button {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+/* ── Portfolio overview + vault health ───────────────────────── */
+.portfolio-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.vault-health-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vault-health-section__header h2 {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.vault-health-section__status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.vault-health-section__status--error {
+  color: var(--text-error);
+}
+
+.vault-health-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.vault-health-card {
+  padding: 16px 18px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-glass);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vault-health-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.vault-health-card__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vault-health-card__name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.vault-health-card__status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+}
+
+.vault-health-card__status--healthy {
+  color: #22c55e;
+}
+
+.vault-health-card__status--degraded {
+  color: #eab308;
+}
+
+.vault-health-card__status--unhealthy {
+  color: #ef4444;
+}
+
+.vault-health-card__message {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.vault-health-card__meta {
+  display: flex;
+  gap: 20px;
+  margin: 0;
+}
+
+.vault-health-card__meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vault-health-card__meta dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+
+.vault-health-card__meta dd {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.vault-health-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.vault-health-indicator__dot {
+  display: inline-block;
+  border-radius: 50%;
+  outline-offset: 3px;
+}
+
+.vault-health-indicator__dot:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+}
+
+.vault-health-indicator__tooltip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 160px;
+  max-width: 240px;
+  background: var(--bg-surface, #1a1a2e);
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  z-index: 1000;
+  pointer-events: none;
+  white-space: normal;
+}
+
+.vault-health-indicator__tooltip--top {
+  bottom: calc(100% + 10px);
+}
+
+.vault-health-indicator__tooltip--bottom {
+  top: calc(100% + 10px);
+}
+
+.vault-health-indicator__tooltip-title {
+  font-weight: 600;
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+
+.vault-health-indicator__tooltip-message {
+  line-height: 1.35;
+}
+
+.asset-cell-with-health {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.asset-cell-with-health__indicator {
+  margin-top: 6px;
+}
+
+@keyframes vaultHealthPulseHard {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes vaultHealthPulseSoft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (max-width: 768px) {
+  .vault-health-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .vault-health-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Analytics metrics grid ──────────────────────────────────── */
 .analytics-metrics-grid {
   display: grid;

@@ -509,6 +509,25 @@ export const en = {
     pendingStatus: "Pending",
     searchPlaceholder: "Search asset, vault, issuer...",
     tableCaption: "Portfolio holdings",
+    overview: {
+      weightedApy: "Weighted Avg APY",
+      weightedApyTooltip:
+        "The portfolio-value-weighted average of all active position APYs.",
+      referralEarnings: "Referral Earnings",
+    },
+    health: {
+      title: "Vault Health",
+      description:
+        "Live operational status for each vault, refreshed every 15 seconds.",
+      healthy: "Healthy",
+      degraded: "Degraded",
+      unhealthy: "Unhealthy",
+      latency: "Latency",
+      uptime: "Uptime",
+      loading: "Loading vault health…",
+      error: "Unable to load vault health",
+      empty: "No vault health data available",
+    },
   },
   networkQuality: {
     fast: "Fast network",

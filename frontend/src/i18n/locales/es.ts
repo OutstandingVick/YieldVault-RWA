@@ -495,6 +495,25 @@ export const es = {
     pendingStatus: "Pendiente",
     searchPlaceholder: "Buscar activo, bóveda, emisor...",
     tableCaption: "Posiciones del portafolio",
+    overview: {
+      weightedApy: "APY promedio ponderado",
+      weightedApyTooltip:
+        "El promedio ponderado por valor de portafolio de todos los APY de posiciones activas.",
+      referralEarnings: "Ganancias por referencias",
+    },
+    health: {
+      title: "Salud de la bóveda",
+      description:
+        "Estado operativo en vivo de cada bóveda, actualizado cada 15 segundos.",
+      healthy: "Saludable",
+      degraded: "Degradado",
+      unhealthy: "No saludable",
+      latency: "Latencia",
+      uptime: "Disponibilidad",
+      loading: "Cargando salud de la bóveda…",
+      error: "No se pudo cargar la salud de la bóveda",
+      empty: "No hay datos de salud de la bóveda disponibles",
+    },
   },
   networkQuality: {
     fast: "Red rápida",

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { Activity, TrendingUp, DollarSign, Percent, Briefcase, Share2 } from "../components/icons";
+import { Briefcase } from "../components/icons";
 import { useTranslation } from "../i18n";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import {
@@ -19,7 +19,6 @@ import {
   type PortfolioHolding,
 } from "../lib/portfolioApi";
 import { useClientDataTable } from "../hooks/useClientDataTable";
-import HelpIcon from "../components/ui/HelpIcon";
 import { useUrlState } from "../hooks/useUrlState";
 import { useServerDataTable } from "../hooks/useServerDataTable";
 import { useToast } from "../context/ToastContext";
@@ -29,65 +28,18 @@ import { useReferralStats, useReferralLink } from "../hooks/useReferral";
 import ShareModal from "../components/ShareModal";
 import EmptyState from "../components/ui/EmptyState";
 import FirstTimePortfolioPanel from "../components/FirstTimePortfolioPanel";
+import PortfolioOverview from "../components/PortfolioOverview";
+import VaultHealthIndicator from "../components/VaultHealthIndicator";
+import { useVaultHealth } from "../hooks/useVaultHealth";
 import { useNavigate } from "react-router-dom";
 import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 import { displayBalance } from "../lib/maskSensitiveValues";
+import type { VaultHealthStatus } from "../lib/vaultHealthApi";
 
 interface PortfolioProps {
   walletAddress: string | null;
 }
-
-const PortfolioSummaryCard: React.FC<{
-  label: React.ReactNode;
-  value: string;
-  icon: React.ReactNode;
-  trend?: string;
-  trendPositive?: boolean;
-  onClick?: () => void;
-  clickable?: boolean;
-}> = ({ label, value, icon, trend, trendPositive, onClick, clickable }) => (
-  <div
-    className="glass-panel"
-    style={{
-      padding: "24px",
-      background: "var(--bg-muted)",
-      position: "relative",
-      overflow: "hidden",
-      border: "1px solid var(--border-glass)",
-      transition: "transform 0.2s ease",
-      cursor: clickable ? "pointer" : "default",
-    }}
-    onMouseEnter={(e) => e.currentTarget.style.transform = clickable ? "translateY(-4px)" : "translateY(-2px)"}
-    onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
-    onClick={onClick}
-  >
-    <div style={{ position: "absolute", top: "-10px", right: "-10px", opacity: 0.05 }}>
-      {React.cloneElement(icon as React.ReactElement<Record<string, unknown>>, { size: 80 })}
-    </div>
-    <div className="flex items-center gap-sm" style={{ color: "var(--text-secondary)", marginBottom: "12px" }}>
-      {icon}
-      <span className="text-body-sm" style={{ fontWeight: 500, letterSpacing: "0.02em" }}>{label}</span>
-    </div>
-    <div style={{ fontSize: "2rem", fontWeight: 700, fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
-      {value}
-    </div>
-    {trend && (
-      <div style={{ 
-        marginTop: "8px", 
-        fontSize: "0.85rem", 
-        color: trendPositive ? "var(--accent-cyan)" : "var(--text-error)",
-        fontWeight: 600,
-        display: "flex",
-        alignItems: "center",
-        gap: "4px"
-      }}>
-        {trendPositive ? <TrendingUp size={14} /> : <Activity size={14} />}
-        {trend}
-      </div>
-    )}
-  </div>
-);
 
 const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const toast = useToast();
@@ -104,6 +56,19 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
   const [showShareModal, setShowShareModal] = useState(false);
   const locale = preferences.locale;
   const currency = preferences.currency;
+
+  const { data: vaultHealth = [] } = useVaultHealth(Boolean(walletAddress));
+  const healthByVaultId = useMemo(() => {
+    const map = new Map<string, { status: VaultHealthStatus; message: string; name: string }>();
+    for (const record of vaultHealth) {
+      map.set(record.vaultId, {
+        status: record.status,
+        message: record.message,
+        name: record.name,
+      });
+    }
+    return map;
+  }, [vaultHealth]);
 
   const formatSensitiveCurrency = useCallback((amount: number, withSign = false) => {
     if (!preferences.showBalances) {
@@ -237,26 +202,41 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
       header: t("portfolio.assetHeader"),
       sortable: true,
       width: "28%",
-      cell: (row) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{row.asset}</div>
-          <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-            {row.vaultName}
+      cell: (row) => {
+        const health = healthByVaultId.get(row.vaultId);
+        return (
+          <div className="asset-cell-with-health">
+            {health && (
+              <div className="asset-cell-with-health__indicator">
+                <VaultHealthIndicator
+                  status={health.status}
+                  message={health.message}
+                  vaultName={health.name}
+                  compact
+                />
+              </div>
+            )}
+            <div>
+              <div style={{ fontWeight: 600 }}>{row.asset}</div>
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                {row.vaultName}
+              </div>
+              <div
+                className="copy-field"
+                style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
+              >
+                <span>Position ID:</span>
+                <span className="copy-field-value copy-field-value-mono">{row.id}</span>
+                <CopyButton
+                  value={row.id}
+                  label="position ID"
+                  successDescription={`Position ID ${row.id} has been copied to your clipboard.`}
+                />
+              </div>
+            </div>
           </div>
-          <div
-            className="copy-field"
-            style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
-          >
-            <span>Position ID:</span>
-            <span className="copy-field-value copy-field-value-mono">{row.id}</span>
-            <CopyButton
-              value={row.id}
-              label="position ID"
-              successDescription={`Position ID ${row.id} has been copied to your clipboard.`}
-            />
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       id: "shares",
@@ -315,32 +295,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
         </span>
       ),
     },
-  ], [formatSensitiveCurrency, t]);
-
-  // Compute trend values
-  const totalNetValueTrend = useMemo(() => {
-    if (totalValue === 0) return "N/A";
-    // Calculate 7-day trend (simplified: using current value as proxy)
-    // In a real app, this would compare with historical data
-    const trendPercent = (totalGain / (totalValue - totalGain)) * 100;
-    return Number.isFinite(trendPercent)
-      ? `${formatPercent(trendPercent, {
-          locale,
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 1,
-        })} gain`
-      : "N/A";
-  }, [locale, totalValue, totalGain]);
-
-  const cumulativeYieldTrend = useMemo(() => {
-    if (totalGain === 0) return "--";
-    return `${formatSensitiveCurrency(totalGain)} realized`;
-  }, [totalGain, formatSensitiveCurrency]);
-
-  const weightedApyTrend = useMemo(() => {
-    if (holdings.length === 0) return "N/A";
-    return `${holdings.length} position${holdings.length !== 1 ? 's' : ''}`;
-  }, [holdings.length]);
+  ], [formatSensitiveCurrency, healthByVaultId, locale, t]);
 
   const hasActiveHoldingsFilters = Boolean(
     urlState.filters.search ||
@@ -410,71 +365,17 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
         <div className="flex flex-col gap-lg">
           {error && <ApiStatusBanner error={error} />}
 
-          <div
-            className="portfolio-summary-grid"
-            style={{ marginBottom: "8px" }}
-          >
-            <PortfolioSummaryCard
-              label={t("portfolio.totalNetValue")}
-              value={formatSensitiveCurrency(totalValue)}
-              icon={<DollarSign size={20} color="var(--accent-cyan)" />}
-              trend={totalNetValueTrend}
-              trendPositive={totalGain >= 0}
-            />
-            <PortfolioSummaryCard
-              label={t("portfolio.cumulativeYield")}
-              value={formatSensitiveCurrency(totalGain, true)}
-              icon={<TrendingUp size={20} color="var(--accent-purple)" />}
-              trend={cumulativeYieldTrend}
-              trendPositive={totalGain >= 0}
-            />
-            <PortfolioSummaryCard
-              label={
-                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Weighted Avg APY
-                  <HelpIcon
-                    variant="tooltip"
-                    content="The portfolio-value-weighted average of all active position APYs."
-                  />
-                </span>
-              }
-              value={formatPercent(weightedApy, {
-                locale,
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-              icon={<Percent size={20} color="var(--accent-cyan)" />}
-              trend={weightedApyTrend}
-              trendPositive={true}
-            />
-            <PortfolioSummaryCard
-              label={t("portfolio.activePositions")}
-              value={holdings.filter(h => h.status === 'active').length.toString()}
-              icon={<Briefcase size={20} color="var(--text-secondary)" />}
-            />
-            <PortfolioSummaryCard
-              label={
-                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Referral Earnings
-                  <HelpIcon
-                    variant="tooltip"
-                    content={t("portfolio.referralTooltip")}
-                  />
-                </span>
-              }
-              value={referralStats ? `$${referralStats.total_reward_earned}` : "$0.00"}
-              icon={<TrendingUp size={20} color="var(--accent-green)" />}
-              trend={referralStats ? `${referralStats.referral_count} referral${referralStats.referral_count !== 1 ? 's' : ''}` : "0 referrals"}
-              trendPositive={true}
-            />
-            <PortfolioSummaryCard
-              label={t("portfolio.shareReferralLink")}
-              value=""
-              icon={<Share2 size={20} color="var(--accent-cyan)" />}
-              onClick={() => setShowShareModal(true)}
-              clickable={true}
-            />
-          </div>
+          <PortfolioOverview
+            totalValue={totalValue}
+            totalGain={totalGain}
+            weightedApy={weightedApy}
+            activePositions={holdings.filter((h) => h.status === "active").length}
+            holdingsCount={holdings.length}
+            locale={locale}
+            formatSensitiveCurrency={formatSensitiveCurrency}
+            referralStats={referralStats}
+            onShareClick={() => setShowShareModal(true)}
+          />
 
           <YieldBreakdownChart totalGain={totalGain} />
 
