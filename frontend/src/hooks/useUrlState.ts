@@ -76,7 +76,6 @@ export function useUrlState<TFilters extends Record<string, string>>(
             next.set("sortBy", updates.sortBy);
           }
           if (updates.sortDirection !== undefined) {
-            next.set("sortDirection", updates.sortDirection);
             next.set("direction", updates.sortDirection);
             next.delete("sortDirection");
           }

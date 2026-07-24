@@ -36,10 +36,12 @@ const mockSummary: VaultSummary = {
 };
 import { ToastProvider } from "../context/ToastContext";
 import { PreferencesProvider } from "../context/PreferencesContext";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as vaultApi from "../lib/vaultApi";
+import * as portfolioHooks from "../hooks/usePortfolioData";
 import * as vaultDataHooks from "../hooks/useVaultData";
+import * as tokenAllowanceHooks from "../hooks/useTokenAllowance";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { VaultSummary } from "../lib/vaultApi";
 

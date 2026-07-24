@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
@@ -64,6 +64,11 @@ function makeManyTransactions(count: number): Transaction[] {
       transactionHash: `hash${String(i).padStart(36, "0")}`,
     }),
   );
+}
+
+function UrlProbe() {
+  const [params] = useSearchParams();
+  return <div data-testid="url-probe">{params.toString()}</div>;
 }
 
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {

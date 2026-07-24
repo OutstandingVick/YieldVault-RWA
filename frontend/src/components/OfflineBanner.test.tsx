@@ -27,6 +27,19 @@ async function flushMicrotasks() {
   });
 }
 
+async function renderOnlineSuccessBanner() {
+  vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false });
+  const view = render(<OfflineBanner />);
+  expect(screen.getByText(/You are offline/i)).toBeInTheDocument();
+
+  vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true });
+  vi.mocked(useRetryState).mockReturnValue({ isRetrying: false, secondsUntilRetry: null });
+  view.rerender(<OfflineBanner />);
+  await flushMicrotasks();
+
+  return view;
+}
+
 describe("OfflineBanner", () => {
   beforeEach(() => {
     vi.useFakeTimers();
