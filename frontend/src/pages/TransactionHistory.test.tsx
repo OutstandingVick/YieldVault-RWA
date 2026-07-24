@@ -6,6 +6,11 @@ import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
 import { ToastProvider } from "../context/ToastContext";
+import {
+  getPreferenceStorageKey,
+  setTransactionPageSize,
+  setTransactionViewMode,
+} from "../lib/userPreferenceStore";
 
 vi.mock("../hooks/useTransactionTimeline", () => ({
   useTransactionTimeline: () => ({

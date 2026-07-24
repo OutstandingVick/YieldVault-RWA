@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PreferencesProvider } from '../context/PreferencesContext';
 import Navbar from './Navbar';
@@ -12,6 +12,13 @@ describe('Navbar', () => {
     const mockOnDisconnect = vi.fn();
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
+    });
+
+    beforeEach(() => {
+        localStorage.setItem(
+            'yieldvault-preferences:guest',
+            JSON.stringify({ maskSensitiveValues: false }),
+        );
     });
 
     it('renders the navbar with navigation links', () => {

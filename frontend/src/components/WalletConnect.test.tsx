@@ -43,6 +43,10 @@ describe('WalletConnect', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        localStorage.setItem(
+            'yieldvault-preferences:guest',
+            JSON.stringify({ maskSensitiveValues: false }),
+        );
         mockedFreighter.isConnected.mockResolvedValue({ isConnected: true });
         mockedWalletSession.getLastWalletProvider.mockReturnValue(null);
         mockedWalletSession.isProviderAvailable.mockResolvedValue(true);
@@ -84,7 +88,7 @@ describe('WalletConnect', () => {
             // Button should change to error state, toast shown
             // Check for the error icon/state via tooltip or visually
             const btn = screen.getByText(/Connect Freighter/i).closest('button');
-            expect(btn).toHaveClass('btn-error');
+            expect(btn).toHaveClass('is-error');
         });
     });
 

@@ -182,7 +182,16 @@ describe("VaultDashboard", () => {
       approve: vi.fn().mockResolvedValue(undefined),
       resetApproval: vi.fn(),
     });
-    window.matchMedia = vi.fn().mockReturnValue({ matches: false } as MediaQueryList);
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as MediaQueryList);
     localStorage.clear();
   });
 
