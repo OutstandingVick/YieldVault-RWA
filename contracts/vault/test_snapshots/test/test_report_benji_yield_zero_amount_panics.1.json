@@ -106,7 +106,7 @@
   "ledger": {
     "protocol_version": 22,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 100,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -298,14 +298,26 @@
                     "storage": [
                       {
                         "key": {
-                          "vec": [
-                            {
-                              "symbol": "Admin"
-                            }
-                          ]
+                          "u32": 0
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 2
+                        },
+                        "val": {
+                          "bool": true
+                        }
+                      },
+                      {
+                        "key": {
+                          "u32": 4
+                        },
+                        "val": {
+                          "u32": 2
                         }
                       },
                       {
@@ -405,6 +417,49 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "State"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "is_paused"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_assets"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 0
+                                }
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_shares"
+                              },
+                              "val": {
+                                "i128": {
+                                  "hi": 0,
+                                  "lo": 0
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "TokenAsset"
                             }
                           ]
@@ -432,18 +487,92 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "TotalShares"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Vote"
                             },
                             {
-                              "u32": 1
-                            },
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                              "map": [
+                                {
+                                  "key": {
+                                    "symbol": "proposal_id"
+                                  },
+                                  "val": {
+                                    "u32": 1
+                                  }
+                                },
+                                {
+                                  "key": {
+                                    "symbol": "voter"
+                                  },
+                                  "val": {
+                                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                                  }
+                                }
+                              ]
                             }
                           ]
                         },
                         "val": {
                           "bool": true
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "WithdrawalQueueMeta"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "admin_last_change_ts"
+                              },
+                              "val": {
+                                "u64": 100
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "admin_min_interval_secs"
+                              },
+                              "val": {
+                                "u64": 3600
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "head"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "tail"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
+                            }
+                          ]
                         }
                       }
                     ]

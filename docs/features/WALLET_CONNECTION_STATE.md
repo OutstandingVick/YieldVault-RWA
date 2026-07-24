@@ -10,7 +10,7 @@ a single source of truth.
 Implementation lives in:
 
 - `frontend/src/lib/walletConnectionState.ts` — pure reducer, error classification, i18n key map
-- `frontend/src/components/WalletConnect.tsx` — UI wired to the machine + Freighter APIs
+- `frontend/src/components/WalletConnect.tsx` — UI wired to the machine + Freighter APIs (reconnect prompt, session heartbeat, polling)
 
 ## Statuses
 
@@ -32,7 +32,7 @@ Implementation lives in:
 | `DISCONNECTED_EXTERNALLY` | Yes | Polling detected Freighter session lost |
 | `UNKNOWN` | Yes | Unclassified thrown error |
 
-User-facing copy for each code is under `wallet.errors.*` in the EN/ES catalogs.
+User-facing copy maps through `walletErrorI18nKeys()` onto `wallet.error.*` / `wallet.status.error`.
 
 ## Events
 

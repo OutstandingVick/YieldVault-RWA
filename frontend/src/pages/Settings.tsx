@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { usePreferencesContext } from '../context/PreferencesContext';
 import type { Theme, Locale, Currency, NotificationPreferences } from '../hooks/usePreferences';
+import { useTranslation } from '../i18n';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 // ─── tiny icon helpers (SVG inline) ───────────────────────────────────────────
 
@@ -283,38 +285,42 @@ const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
 
 const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
   { value: 'USD', label: 'USD — US Dollar ($)' },
-  { value: 'EUR', label: 'EUR — Euro (€)' },
-  { value: 'GBP', label: 'GBP — British Pound (£)' },
-  { value: 'JPY', label: 'JPY — Japanese Yen (¥)' },
+  { value: 'XLM', label: 'XLM — Stellar Lumens' },
 ];
 
-const NOTIF_KEYS: { key: keyof NotificationPreferences; label: string; description: string }[] = [
-  { key: 'depositAlerts',    label: 'Deposit Alerts',     description: 'Get notified when funds are deposited into your vaults.' },
-  { key: 'withdrawalAlerts', label: 'Withdrawal Alerts',  description: 'Get notified when withdrawals are processed.' },
-  { key: 'yieldUpdates',     label: 'Yield Updates',      description: 'Daily updates on yield earned across your positions.' },
-  { key: 'priceAlerts',      label: 'Price Alerts',       description: 'Price movement alerts for tracked RWA assets.' },
-  { key: 'weeklyReport',     label: 'Weekly Report',      description: 'Comprehensive performance summary every Monday.' },
-  { key: 'securityAlerts',   label: 'Security Alerts',    description: 'Critical alerts for logins and security events.' },
-];
+const NOTIF_KEYS = [
+  'depositAlerts',
+  'withdrawalAlerts',
+  'yieldUpdates',
+  'priceAlerts',
+  'weeklyReport',
+  'securityAlerts',
+] as const satisfies readonly (keyof NotificationPreferences)[];
 
 const Settings: React.FC = () => {
   const {
     preferences,
     resolvedTheme,
+    tableDensity,
     setTheme,
     setLocale,
     setCurrency,
     setNotification,
     toggleCompactMode,
     toggleShowBalances,
+    toggleMaskSensitiveValues,
     resetToDefaults,
+    setTableDensity,
+    resetUserPreferenceStore,
   } = usePreferencesContext();
+  const { t } = useTranslation();
 
   const [resetConfirm, setResetConfirm] = useState(false);
 
   const handleReset = () => {
     if (resetConfirm) {
       resetToDefaults();
+      resetUserPreferenceStore();
       setResetConfirm(false);
     } else {
       setResetConfirm(true);
@@ -348,10 +354,10 @@ const Settings: React.FC = () => {
           </div>
           <div>
             <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-              Settings
+              {t("settings.title")}
             </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginTop: '2px' }}>
-              Manage your preferences — they sync across sessions automatically.
+              {t("settings.subtitle")}
             </p>
           </div>
         </div>
@@ -359,8 +365,8 @@ const Settings: React.FC = () => {
 
       {/* ── 1. Appearance ── */}
       <SettingsSection
-        title="Appearance"
-        description="Customize the look and feel of YieldVault."
+        title={t("settings.appearance.title")}
+        description={t("settings.appearance.desc")}
         icon={
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" />
@@ -370,18 +376,48 @@ const Settings: React.FC = () => {
         {/* Theme pills */}
         <div style={{ marginBottom: '24px' }}>
           <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '12px' }}>
-            Color Theme
+            {t("settings.appearance.colorTheme")}
           </label>
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <ThemeCard value="dark"   label="Dark"   icon={<MoonIcon />}    active={preferences.theme === 'dark'}   onClick={() => setTheme('dark')} />
-            <ThemeCard value="light"  label="Light"  icon={<SunIcon />}     active={preferences.theme === 'light'}  onClick={() => setTheme('light')} />
-            <ThemeCard value="system" label="System" icon={<MonitorIcon />} active={preferences.theme === 'system'} onClick={() => setTheme('system')} />
+            <ThemeCard value="dark"   label={t("settings.appearance.dark")}   icon={<MoonIcon />}    active={preferences.theme === 'dark'}   onClick={() => setTheme('dark')} />
+            <ThemeCard value="light"  label={t("settings.appearance.light")}  icon={<SunIcon />}     active={preferences.theme === 'light'}  onClick={() => setTheme('light')} />
+            <ThemeCard value="system" label={t("settings.appearance.system")} icon={<MonitorIcon />} active={preferences.theme === 'system'} onClick={() => setTheme('system')} />
           </div>
           {preferences.theme === 'system' && (
             <p style={{ marginTop: '10px', fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
-              Currently resolving to <strong style={{ color: 'var(--accent-cyan)' }}>{resolvedTheme}</strong> based on your OS preference.
+              {t("settings.appearance.resolvingTo").replace("{{theme}}", resolvedTheme)}
             </p>
           )}
+        </div>
+
+        <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
+
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '12px' }}>
+            Table density
+          </label>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            {(["compact", "comfortable", "spacious"] as const).map((density) => (
+              <button
+                key={density}
+                type="button"
+                onClick={() => setTableDensity(density)}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  border: tableDensity === density ? '1px solid var(--accent-cyan)' : '1px solid var(--border-glass)',
+                  background: tableDensity === density ? 'rgba(0, 212, 255, 0.08)' : 'transparent',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  textTransform: 'capitalize',
+                }}
+              >
+                {density}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
@@ -390,25 +426,32 @@ const Settings: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0', borderBottom: '1px solid var(--border-glass)' }}>
             <div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>Compact Mode</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Reduce spacing to fit more information on screen.</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>{t("settings.appearance.compactMode")}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.compactModeDesc")}</div>
             </div>
             <Toggle id="settings-compact-mode" checked={preferences.compactMode} onChange={toggleCompactMode} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0' }}>
             <div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>Show Balances</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Display wallet and vault balances throughout the app.</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>{t("settings.appearance.showBalances")}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.showBalancesDesc")}</div>
             </div>
             <Toggle id="settings-show-balances" checked={preferences.showBalances} onChange={toggleShowBalances} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', padding: '14px 0' }}>
+            <div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '2px' }}>{t("settings.appearance.maskSensitiveValues")}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t("settings.appearance.maskSensitiveValuesDesc")}</div>
+            </div>
+            <Toggle id="settings-mask-sensitive" checked={preferences.maskSensitiveValues} onChange={toggleMaskSensitiveValues} />
           </div>
         </div>
       </SettingsSection>
 
-      {/* ── 2. Localisation ── */}
+      {/* ── 2. Language & Region ── */}
       <SettingsSection
-        title="Language & Region"
-        description="Set your preferred language and display currency."
+        title={t("settings.language.title")}
+        description={t("settings.language.desc")}
         icon={
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" />
@@ -416,10 +459,17 @@ const Settings: React.FC = () => {
           </svg>
         }
       >
+        {/* App language switcher */}
+        <div style={{ marginBottom: '20px' }}>
+          <LanguageSwitcher />
+        </div>
+
+        <div style={{ height: '1px', background: 'var(--border-glass)', margin: '16px 0' }} />
+
         <div className="settings-locale-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
           <div>
             <label htmlFor="settings-locale" style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>
-              Language
+              {t("settings.language.displayLocale")}
             </label>
             <StyledSelect
               id="settings-locale"
@@ -430,7 +480,7 @@ const Settings: React.FC = () => {
           </div>
           <div>
             <label htmlFor="settings-currency" style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>
-              Display Currency
+              {t("settings.language.currency")}
             </label>
             <StyledSelect
               id="settings-currency"
@@ -441,14 +491,14 @@ const Settings: React.FC = () => {
           </div>
         </div>
         <p style={{ marginTop: '14px', fontSize: '0.8rem', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-          Locale affects date, time, and number formatting. Currency affects how values are displayed (conversion rates not applied).
+          {t("settings.language.hint")}
         </p>
       </SettingsSection>
 
       {/* ── 3. Notifications ── */}
       <SettingsSection
-        title="Notifications"
-        description="Choose which events you want to be notified about."
+        title={t("settings.notifications.title")}
+        description={t("settings.notifications.desc")}
         icon={
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
@@ -456,19 +506,19 @@ const Settings: React.FC = () => {
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {NOTIF_KEYS.map(({ key, label, description }) => (
+          {NOTIF_KEYS.map((key) => (
             <NotifRow
               key={key}
               id={`settings-notif-${key}`}
-              label={label}
-              description={description}
+              label={t(`settings.notifications.${key}`)}
+              description={t(`settings.notifications.${key}Desc`)}
               checked={preferences.notifications[key]}
               onChange={v => setNotification(key, v)}
             />
           ))}
         </div>
         <p style={{ marginTop: '14px', fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
-          In-app notifications only. Email notifications will be configurable once account linking is available.
+          {t("settings.notifications.hint")}
         </p>
       </SettingsSection>
 
@@ -486,7 +536,7 @@ const Settings: React.FC = () => {
           }}
         >
           <ResetIcon />
-          {resetConfirm ? 'Tap again to confirm reset' : 'Reset to Defaults'}
+          {resetConfirm ? t("settings.reset.confirm") : t("settings.reset.label")}
         </button>
       </div>
     </div>

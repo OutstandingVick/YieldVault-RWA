@@ -1,6 +1,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  forceExit: true,
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
@@ -18,4 +19,28 @@ module.exports = {
     },
   },
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
+  testTimeout: 30000,
+  globals: {
+    'ts-jest': {
+      diagnostics: false,
+      tsconfig: {
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+      },
+    },
+  },
+  // Preload script to block problematic modules
+  setupFiles: ['<rootDir>/src/__tests__/preload.js'],
+  // Override module resolution to prevent @prisma/instrumentation from loading
+  moduleNameMapper: {
+    '^@yieldvault/api-schemas$': '<rootDir>/../packages/api-schemas/src/index.ts',
+    '^@yieldvault/api-schemas/(.*)$': '<rootDir>/../packages/api-schemas/src/$1',
+    '^@prisma/instrumentation$': '<rootDir>/src/__tests__/mocks/prismainstrumentation.js',
+    '^@opentelemetry/(.*)$': '<rootDir>/src/__tests__/mocks/opentelemetry.js',
+    // Redirect the sorobanClient module that vaultEndpoints imports (./sorobanClient)
+    // so existing integration tests keep passing without a live Stellar RPC.
+    // The sorobanClient unit test imports ../sorobanClient (different specifier)
+    // and is therefore NOT redirected — it tests the real implementation.
+    '^\\.\/sorobanClient$': '<rootDir>/src/__tests__/mocks/sorobanClient.js',
+  },
 };

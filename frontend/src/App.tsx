@@ -1,133 +1,241 @@
-import { useEffect, useState, lazy, Suspense } from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
-import { ThemeProvider } from "./context/ThemeContext";
-import { VaultProvider } from "./context/VaultContext";
-import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
-import Navbar from "./components/Navbar";
-import ShortcutHelpModal from "./components/ShortcutHelpModal";
-import "./index.css";
-
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as Sentry from "@sentry/react";
-import { fetchUsdcBalance } from "./lib/stellarAccount";
-import { useTranslation } from "./i18n";
+import Navbar from "./components/Navbar";
+import SessionExpiredModal from "./components/SessionExpiredModal";
+import SessionExpiryWarning from "./components/SessionExpiryWarning";
+import WalletDisconnectRecoveryModal from "./components/WalletDisconnectRecoveryModal";
+import type { DisconnectReason } from "./components/WalletConnect";
+import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
+import ShortcutHelpModal from "./components/ShortcutHelpModal";
+import CommandPalette from "./components/CommandPalette";
+import OnboardingWalkthrough from "./components/OnboardingWalkthrough";
+import { FeatureGate } from "./components/FeatureGate";
+import { FeatureFlagProvider } from "./context/FeatureFlagContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { PreferencesProvider } from "./context/PreferencesContext";
+import { useUsdcBalance, useXlmBalance } from "./hooks/useBalanceData";
+import { queryClient } from "./lib/queryClient";
+import { clearWalletSessionState } from "./lib/sessionCleanup";
+import {
+  clearVaultFormDraft,
+  hasMeaningfulDraft,
+  loadVaultFormDraft,
+  type VaultFormDraft,
+} from "./lib/formDraftStorage";
+import ErrorFallback from "./components/ErrorFallback";
+import RouteLoadingFallback from "./components/RouteLoadingFallback";
+import {
+  LazyAnalytics,
+  LazyHome,
+  LazyPortfolio,
+  LazySettings,
+  LazyTransactionHistory,
+  LazyUIPreview,
+  prefetchDashboardRoutes,
+} from "./lib/routePrefetch";
+import NetworkWarningBanner from "./components/NetworkWarningBanner";
+import OfflineBanner from "./components/OfflineBanner";
+import { useVault, VaultProvider } from "./context/VaultContext";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
-const Home = lazy(() => import("./pages/Home"));
-const Portfolio = lazy(() => import("./pages/Portfolio"));
-const Analytics = lazy(() => import("./pages/Analytics"));
+const TransactionReceipt = lazy(() => import("./pages/TransactionReceipt"));
 
-const LoadingPage = () => {
-  const { t } = useTranslation();
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "60vh",
-        color: "var(--accent-cyan)",
-        fontSize: "1.2rem",
-        fontWeight: 500,
-      }}
-    >
-      <div style={{ textAlign: "center" }}>
-        <div
-          className="text-gradient"
-          style={{ fontSize: "2rem", marginBottom: "16px" }}
-        >
-          {t("app.loading.title")}
-        </div>
-        <div style={{ opacity: 0.6 }}>{t("app.loading.subtitle")}</div>
-      </div>
-    </div>
-  );
-};
-
-const AppErrorFallback = () => {
-  const { t } = useTranslation();
-  return <p>{t("app.errorBoundary")}</p>;
-};
+// Removed simple fallback in favor of components/ErrorFallback
 
 function AppContent() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState(0);
-
-  const handleConnect = async (address: string) => {
-    setWalletAddress(address);
-  };
-
-  const handleDisconnect = () => {
-    setWalletAddress(null);
-    setUsdcBalance(0);
-  };
+  const [pendingDraft, setPendingDraft] = useState<VaultFormDraft | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { sessionState, intendedPath, setSessionExpired, clearSessionExpired, dismissSessionWarning } = useAuth();
+  const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
+  const { data: xlmBalance = 0 } = useXlmBalance(walletAddress);
+  const { tvl } = useVault();
 
   useEffect(() => {
-    const loadBalance = async () => {
-      if (!walletAddress) {
-        setUsdcBalance(0);
-        return;
-      }
+    if ((window as Window & { Cypress?: unknown }).Cypress) {
+      return;
+    }
 
-      try {
-        const discoveredBalance = await fetchUsdcBalance(walletAddress);
-        setUsdcBalance(discoveredBalance);
-      } catch {
-        setUsdcBalance(0);
-      }
-    };
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then(() => console.log("[SW] Registered"))
+        .catch((err) => console.error("[SW] Registration failed:", err));
+    }
+  }, []);
 
-    loadBalance();
-  }, [walletAddress]);
+  useEffect(() => {
+    const schedulePrefetch = () => prefetchDashboardRoutes(location.pathname);
+
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(schedulePrefetch, { timeout: 2500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timeoutId = globalThis.setTimeout(schedulePrefetch, 1500);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [location.pathname]);
+
+  const handleConnect = useCallback((address: string) => {
+    clearSessionExpired();
+    setWalletAddress(address);
+    setPendingDraft(null);
+  }, [clearSessionExpired]);
+
+  const handleDisconnect = useCallback((reason: DisconnectReason = "manual") => {
+    if (reason === "session-expired") {
+      setSessionExpired(location.pathname);
+    } else {
+      clearSessionExpired();
+    }
+
+    if (reason === "manual") {
+      clearVaultFormDraft();
+      setPendingDraft(null);
+    } else {
+      const draft = loadVaultFormDraft();
+      if (hasMeaningfulDraft(draft)) {
+        setPendingDraft(draft);
+      } else {
+        clearVaultFormDraft();
+        setPendingDraft(null);
+      }
+    }
+
+    clearWalletSessionState(queryClient);
+    setWalletAddress(null);
+    navigate("/", { replace: true });
+  }, [clearSessionExpired, location.pathname, navigate, setSessionExpired]);
+
+  const handleRestoreDraft = useCallback(() => {
+    if (!pendingDraft) return;
+    const params = new URLSearchParams();
+    params.set("tab", pendingDraft.tab);
+    params.set("step", pendingDraft.step);
+    if (pendingDraft.amount) {
+      params.set("amount", pendingDraft.amount);
+    }
+    navigate(`/?${params.toString()}`, { replace: true });
+    setPendingDraft(null);
+  }, [navigate, pendingDraft]);
+
+  const handleDiscardDraft = useCallback(() => {
+    clearVaultFormDraft();
+    setPendingDraft(null);
+  }, []);
+
+  const handleReconnect = useCallback(() => {
+    clearSessionExpired();
+    window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"));
+  }, [clearSessionExpired]);
+
+  const handleDismissWarning = useCallback(() => {
+    dismissSessionWarning();
+  }, [dismissSessionWarning]);
 
   return (
-    <KeyboardShortcutProvider>
-      <div className="app-container">
-        <Navbar
-          walletAddress={walletAddress}
-          onConnect={handleConnect}
-          onDisconnect={handleDisconnect}
-        />
-        <main
-          className="container"
-          style={{ marginTop: "100px", paddingBottom: "60px" }}
-        >
-          <Suspense fallback={<LoadingPage />}>
-            <SentryRoutes>
-              <Route
-                path="/"
-                element={<Home walletAddress={walletAddress} usdcBalance={usdcBalance} />}
-              />
-              <Route
-                path="/portfolio"
-                element={<Portfolio walletAddress={walletAddress} />}
-              />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </SentryRoutes>
-          </Suspense>
-        </main>
-        <ShortcutHelpModal />
-      </div>
-    </KeyboardShortcutProvider>
+    <PreferencesProvider walletAddress={walletAddress}>
+      <KeyboardShortcutProvider walletAddress={walletAddress}>
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
+        <OfflineBanner lastKnownTvl={tvl} lastKnownBalance={usdcBalance} />
+        <div className="app-container">
+          <NetworkWarningBanner walletAddress={walletAddress} />
+          <Navbar
+            walletAddress={walletAddress}
+            usdcBalance={usdcBalance}
+            onConnect={handleConnect}
+            onDisconnect={handleDisconnect}
+          />
+          <main id="main-content" className="container app-main" style={{ marginTop: "100px", paddingBottom: "60px" }}>
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <SentryRoutes>
+                <Route
+                  path="/"
+                  element={
+                    <LazyHome
+                      walletAddress={walletAddress}
+                      usdcBalance={usdcBalance}
+                      xlmBalance={xlmBalance}
+                    />
+                  }
+                />
+                <Route
+                  path="/portfolio"
+                  element={
+                    <LazyPortfolio
+                      walletAddress={walletAddress}
+                    />
+                  }
+                />
+                <Route
+                  path="/analytics"
+                  element={
+                    <FeatureGate flag="ANALYTICS_PAGE">
+                      <LazyAnalytics />
+                    </FeatureGate>
+                  }
+                />
+                <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
+                <Route path="/settings" element={<LazySettings />} />
+                <Route path="/ui-kit" element={<LazyUIPreview />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </SentryRoutes>
+            </Suspense>
+          </main>
+          <OnboardingWalkthrough />
+          <ShortcutHelpModal />
+          <CommandPalette />
+          {sessionState === "warning" && walletAddress && (
+            <SessionExpiryWarning
+              onReconnect={handleReconnect}
+              onDismiss={handleDismissWarning}
+            />
+          )}
+          {sessionState === "expired" && (
+            <SessionExpiredModal
+              intendedPath={intendedPath}
+              onReconnect={handleReconnect}
+              onDismiss={() => handleDisconnect("manual")}
+            />
+          )}
+          {pendingDraft && !walletAddress && (
+            <WalletDisconnectRecoveryModal
+              draft={pendingDraft}
+              onReconnect={handleReconnect}
+              onRestore={handleRestoreDraft}
+              onDiscard={handleDiscardDraft}
+            />
+          )}
+        </div>
+      </KeyboardShortcutProvider>
+    </PreferencesProvider>
   );
 }
 
 function App() {
   return (
-    <Sentry.ErrorBoundary fallback={<AppErrorFallback />} showDialog>
-      <ThemeProvider>
-        <VaultProvider>
-          <Router>
+    <Sentry.ErrorBoundary
+      fallback={(props) => (
+        <ErrorFallback
+          error={(props.error instanceof Error ? props.error : new Error(String(props.error)))}
+          resetError={props.resetError}
+        />
+      )}
+      showDialog
+    >
+      <AuthProvider>
+        <FeatureFlagProvider>
+          <VaultProvider>
             <AppContent />
-          </Router>
-        </VaultProvider>
-      </ThemeProvider>
+          </VaultProvider>
+        </FeatureFlagProvider>
+      </AuthProvider>
     </Sentry.ErrorBoundary>
   );
 }

@@ -2,12 +2,17 @@ import React, { createContext, useContext, useState, useCallback, useMemo } from
 import { useNavigate } from 'react-router-dom';
 import { useKeyboardShortcuts, formatShortcut } from '../hooks/useKeyboardShortcuts';
 import type { ShortcutDefinition } from '../hooks/useKeyboardShortcuts';
+import { useTranslation } from '../i18n';
+import { prefetchRoute, type PrefetchableRoute } from '../lib/routePrefetch';
 
 interface KeyboardShortcutContextValue {
   shortcuts: ShortcutDefinition[];
   isHelpModalOpen: boolean;
   openHelpModal: () => void;
   closeHelpModal: () => void;
+  isPaletteOpen: boolean;
+  openPalette: () => void;
+  closePalette: () => void;
   formatShortcut: typeof formatShortcut;
 }
 
@@ -15,11 +20,22 @@ const KeyboardShortcutContext = createContext<KeyboardShortcutContextValue | nul
 
 interface KeyboardShortcutProviderProps {
   children: React.ReactNode;
+  walletAddress: string | null;
 }
 
-export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> = ({ children }) => {
+export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> = ({ 
+  children,
+  walletAddress 
+}) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+
+  const navigateWithPrefetch = useCallback((path: PrefetchableRoute) => {
+    prefetchRoute(path);
+    navigate(path);
+  }, [navigate]);
 
   const openHelpModal = useCallback(() => {
     setIsHelpModalOpen(true);
@@ -29,39 +45,104 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
     setIsHelpModalOpen(false);
   }, []);
 
+  const openPalette = useCallback(() => {
+    setIsPaletteOpen(true);
+  }, []);
+
+  const closePalette = useCallback(() => {
+    setIsPaletteOpen(false);
+  }, []);
+
   const shortcuts = useMemo<ShortcutDefinition[]>(() => [
+    // ── Navigation ──
     {
       key: 'g',
-      action: () => navigate('/'),
-      description: 'Go to Vaults',
-      scope: 'Navigation'
+      action: () => navigateWithPrefetch('/'),
+      description: t('commands.goToVaults'),
+      scope: t('commands.scopes.navigation')
     },
     {
       key: 'p',
-      action: () => navigate('/portfolio'),
-      description: 'Go to Portfolio',
-      scope: 'Navigation'
+      action: () => navigateWithPrefetch('/portfolio'),
+      description: t('commands.goToPortfolio'),
+      scope: t('commands.scopes.navigation')
     },
     {
       key: 'a',
-      action: () => navigate('/analytics'),
-      description: 'Go to Analytics',
-      scope: 'Navigation'
+      action: () => navigateWithPrefetch('/analytics'),
+      description: t('commands.goToAnalytics'),
+      scope: t('commands.scopes.navigation')
     },
+    {
+      key: 'h',
+      action: () => navigateWithPrefetch('/transactions'),
+      description: t('commands.goToHistory'),
+      scope: t('commands.scopes.navigation')
+    },
+    // ── Actions ──
+    {
+      key: 'd',
+      action: () => {
+        if (!walletAddress) {
+          window.dispatchEvent(new CustomEvent('TRIGGER_WALLET_CONNECT'));
+          return;
+        }
+        navigate('/');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('TRIGGER_DEPOSIT')), 100);
+      },
+      description: t('commands.deposit'),
+      scope: t('commands.scopes.actions')
+    },
+    {
+      key: 'w',
+      action: () => {
+        if (!walletAddress) {
+          window.dispatchEvent(new CustomEvent('TRIGGER_WALLET_CONNECT'));
+          return;
+        }
+        navigate('/');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('TRIGGER_WITHDRAW')), 100);
+      },
+      description: t('commands.withdraw'),
+      scope: t('commands.scopes.actions')
+    },
+    {
+      key: 'c',
+      action: () => window.dispatchEvent(new CustomEvent('TRIGGER_WALLET_CONNECT')),
+      description: t('commands.connectWallet'),
+      scope: t('commands.scopes.actions')
+    },
+    {
+      key: 's',
+      action: () => navigate('/settings'),
+      description: t('commands.settings'),
+      scope: t('commands.scopes.actions')
+    },
+    // ── General ──
     {
       key: '?',
       shiftKey: true,
       action: openHelpModal,
-      description: 'Show keyboard shortcuts',
-      scope: 'General'
+      description: t('commands.showShortcuts'),
+      scope: t('commands.scopes.general')
+    },
+    {
+      key: 'k',
+      metaKey: true,
+      action: openPalette,
+      description: t('commands.openPalette'),
+      scope: t('commands.scopes.general')
     },
     {
       key: 'Escape',
-      action: closeHelpModal,
-      description: 'Close modal',
-      scope: 'General'
+      action: () => {
+        closePalette();
+        closeHelpModal();
+      },
+      description: t('commands.closeModal'),
+      scope: t('commands.scopes.general')
     }
-  ], [navigate, openHelpModal, closeHelpModal]);
+  ], [navigateWithPrefetch, openHelpModal, closeHelpModal, openPalette, closePalette, walletAddress, t]);
 
   useKeyboardShortcuts(shortcuts, true);
 
@@ -70,8 +151,11 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
     isHelpModalOpen,
     openHelpModal,
     closeHelpModal,
+    isPaletteOpen,
+    openPalette,
+    closePalette,
     formatShortcut
-  }), [shortcuts, isHelpModalOpen, openHelpModal, closeHelpModal]);
+  }), [shortcuts, isHelpModalOpen, openHelpModal, closeHelpModal, isPaletteOpen, openPalette, closePalette]);
 
   return (
     <KeyboardShortcutContext.Provider value={contextValue}>
@@ -80,6 +164,7 @@ export const KeyboardShortcutProvider: React.FC<KeyboardShortcutProviderProps> =
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useKeyboardShortcutContext(): KeyboardShortcutContextValue {
   const context = useContext(KeyboardShortcutContext);
   if (!context) {

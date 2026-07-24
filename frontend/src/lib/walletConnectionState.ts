@@ -54,28 +54,28 @@ const ERROR_I18N_KEYS: Record<
   { title: string; description: string }
 > = {
   NOT_INSTALLED: {
-    title: "wallet.errors.notInstalled.title",
-    description: "wallet.errors.notInstalled.description",
+    title: "wallet.status.error",
+    description: "wallet.error.notInstalled",
   },
   PERMISSION_DENIED: {
-    title: "wallet.errors.permissionDenied.title",
-    description: "wallet.errors.permissionDenied.description",
+    title: "wallet.status.error",
+    description: "wallet.error.notAllowed",
   },
   USER_REJECTED: {
-    title: "wallet.errors.userRejected.title",
-    description: "wallet.errors.userRejected.description",
+    title: "wallet.status.error",
+    description: "wallet.error.generic",
   },
   NO_ADDRESS: {
-    title: "wallet.errors.noAddress.title",
-    description: "wallet.errors.noAddress.description",
+    title: "wallet.status.error",
+    description: "wallet.error.noAddress",
   },
   DISCONNECTED_EXTERNALLY: {
-    title: "wallet.errors.disconnectedExternally.title",
-    description: "wallet.errors.disconnectedExternally.description",
+    title: "toast.walletDisconnected.title",
+    description: "wallet.tooltip.disconnectedStatus",
   },
   UNKNOWN: {
-    title: "wallet.errors.unknown.title",
-    description: "wallet.errors.unknown.description",
+    title: "wallet.status.error",
+    description: "wallet.error.generic",
   },
 };
 

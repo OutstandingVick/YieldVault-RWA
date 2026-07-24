@@ -1,8 +1,10 @@
-import { test as base, type Page } from '@playwright/test';
+/* eslint-disable react-hooks/rules-of-hooks */
+import { test as base, expect, type Page } from '@playwright/test';
 
 // Inline fixture data — avoids JSON import attribute requirements across Node versions
-const vaultSummary = {
+export const vaultSummary = {
   tvl: 12450800,
+  depositCap: 15_000_000,
   apy: 8.45,
   participantCount: 1248,
   monthlyGrowthPct: 12.5,
@@ -22,6 +24,66 @@ const vaultSummary = {
       'Connector strategy that routes vault yield updates from BENJI-issued tokenized money market exposure on Stellar.',
   },
 };
+
+/** TVL at deposit cap — drives `isCapReached` in VaultContext (utilization >= 1). */
+export const vaultSummaryAtCapacity = {
+  ...vaultSummary,
+  tvl: vaultSummary.depositCap,
+};
+
+const HORIZON_USDC_ISSUER =
+  'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQLE2KKWY3NO';
+
+function buildHorizonAccountBody(accountId: string) {
+  return JSON.stringify({
+    id: accountId,
+    account_id: accountId,
+    sequence: '12884901882',
+    subentry_count: 0,
+    balances: [
+      { asset_type: 'native', balance: '5.0000000' },
+      {
+        asset_type: 'credit_alphanum4',
+        asset_code: 'USDC',
+        asset_issuer: HORIZON_USDC_ISSUER,
+        balance: '1250.5000000',
+      },
+    ],
+    _links: {
+      self: { href: `https://horizon-testnet.stellar.org/accounts/${accountId}` },
+      transactions: {
+        href: `https://horizon-testnet.stellar.org/accounts/${accountId}/transactions{?cursor,limit,order}`,
+        templated: true,
+      },
+      operations: {
+        href: `https://horizon-testnet.stellar.org/accounts/${accountId}/operations{?cursor,limit,order}`,
+        templated: true,
+      },
+    },
+  });
+}
+
+function buildHorizonOperationsBody() {
+  return JSON.stringify({
+    _embedded: {
+      records: [
+        {
+          id: '12884905984',
+          type: 'payment',
+          from: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+          to: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+          amount: '100.0000000',
+          asset_type: 'credit_alphanum4',
+          asset_code: 'USDC',
+          asset_issuer: HORIZON_USDC_ISSUER,
+          created_at: '2026-03-25T10:00:00.000Z',
+          transaction_hash:
+            'abc123def4567890abcdef1234567890abcdef1234567890abcdef1234567890',
+        },
+      ],
+    },
+  });
+}
 
 const portfolioHoldings = [
   {
@@ -101,7 +163,57 @@ const portfolioHoldings = [
 /**
  * Intercept mock API routes so tests are fully deterministic.
  */
+async function fulfillHorizonRoute(route: import('@playwright/test').Route) {
+  if (route.request().method() !== 'GET') {
+    await route.continue();
+    return;
+  }
+
+  const url = route.request().url();
+
+  if (url.includes('/operations')) {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: { date: new Date().toUTCString() },
+      body: buildHorizonOperationsBody(),
+    });
+    return;
+  }
+
+  const accountMatch = url.match(/\/accounts\/([^/?]+)/);
+  const accountId = accountMatch?.[1] ?? 'unknown';
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    headers: { date: new Date().toUTCString() },
+    body: buildHorizonAccountBody(accountId),
+  });
+}
+
 export async function interceptApiRoutes(page: Page) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('hasSeenWalkthrough', 'true');
+    // Match Cypress: skip service-worker registration so Playwright route mocks
+    // are not bypassed by cross-origin fetches issued from the SW context.
+    (window as Window & { Cypress?: boolean }).Cypress = true;
+    if ('serviceWorker' in navigator) {
+      void navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          void registration.unregister();
+        });
+      });
+    }
+  });
+
+  await page.route('**/sw.js', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'disabled in e2e',
+    }),
+  );
+
   await page.route('**/mock-api/vault-summary.json', (route) =>
     route.fulfill({
       status: 200,
@@ -116,6 +228,73 @@ export async function interceptApiRoutes(page: Page) {
       body: JSON.stringify(portfolioHoldings),
     }),
   );
+
+  await page.route(/horizon(-testnet)?\.stellar\.org/i, fulfillHorizonRoute);
+}
+
+/** Wait until the connected wallet banner shows the mocked USDC balance. */
+export async function waitForMockUsdcBalance(page: Page) {
+  await expect(page.getByLabel('USDC wallet balance')).toContainText('1250.50', {
+    timeout: 20_000,
+  });
+}
+
+export function vaultActionTab(page: Page, tab: 'Deposit' | 'Withdraw') {
+  return page.getByRole('button', { name: tab, exact: true });
+}
+
+/** Fill a deposit amount and wait for client-side validation to enable review. */
+export async function fillDepositAmount(page: Page, amount: string) {
+  const amountInput = page.getByLabel('Deposit amount');
+  await amountInput.fill(amount);
+  await amountInput.blur();
+  const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+  await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
+  return { amountInput, reviewBtn };
+}
+
+/** Approve USDC on the review step when the allowance gate is shown. */
+export async function approveUsdcIfNeeded(page: Page) {
+  const approveBtn = page.getByRole('button', { name: 'Approve USDC' });
+  if (await approveBtn.isVisible()) {
+    await approveBtn.click();
+    await expect(approveBtn).not.toBeVisible({ timeout: 5_000 });
+  }
+}
+
+/** Confirm the secondary transaction summary modal opened by the vault wizard. */
+export async function confirmInTransactionModal(page: Page) {
+  const dialog = page.getByRole('dialog', { name: /Confirm (deposit|withdraw)/i });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  const confirmAnyway = dialog.getByRole('button', { name: /Confirm Anyway/i });
+  if (await confirmAnyway.isVisible()) {
+    await confirmAnyway.click();
+    return;
+  }
+  await dialog.getByRole('button', { name: /^Confirm$/i }).click();
+}
+
+/** Complete the vault wizard review step for deposits or withdrawals. */
+export async function completeVaultReviewStep(
+  page: Page,
+  action: 'deposit' | 'withdraw',
+) {
+  const reviewBtn = page.getByRole('button', { name: /Review Transaction/i });
+  await expect(reviewBtn).toBeEnabled({ timeout: 15_000 });
+  await reviewBtn.click();
+  await expect(page.getByText('Confirm Transaction')).toBeVisible();
+  if (action === 'deposit') {
+    await approveUsdcIfNeeded(page);
+  }
+  const confirmBtn = page.getByRole('button', {
+    name: action === 'deposit' ? /Confirm deposit/i : /Confirm withdraw/i,
+  });
+  await expect(confirmBtn).toBeEnabled({ timeout: 10_000 });
+  await confirmBtn.click();
+  await confirmInTransactionModal(page);
+  await expect(page.getByText('Transaction Successful')).toBeVisible({
+    timeout: 20_000,
+  });
 }
 
 /**
@@ -133,7 +312,6 @@ export async function interceptApiRoutes(page: Page) {
  */
 export async function stubFreighterConnected(page: Page, address: string) {
   await page.addInitScript((addr) => {
-    // Stateful stub — tests can call window.__freighterStub.disconnect()
     const stub = { connected: true };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 
@@ -150,7 +328,7 @@ export async function stubFreighterConnected(page: Page, address: string) {
 
       let response: Record<string, unknown> = {
         source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
-        messagedId: messageId, // note: the library uses "messagedId" (typo in source)
+        messagedId: messageId,
       };
 
       switch (type) {
@@ -162,6 +340,67 @@ export async function stubFreighterConnected(page: Page, address: string) {
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
         case 'REQUEST_ACCESS':
+          response = { ...response, publicKey: stub.connected ? addr : '' };
+          break;
+        case 'REQUEST_CONNECTION_STATUS':
+          response = { ...response, isConnected: stub.connected };
+          break;
+        case 'REQUEST_NETWORK_DETAILS':
+          response = {
+            ...response,
+            networkDetails: {
+              network: 'TESTNET',
+              networkName: 'Test SDF Network',
+              networkUrl: 'https://horizon-testnet.stellar.org',
+              networkPassphrase: 'Test SDF Network ; September 2015',
+              sorobanRpcUrl: 'https://soroban-testnet.stellar.org',
+            },
+          };
+          break;
+        default:
+          return;
+      }
+
+      window.postMessage(response, window.location.origin);
+    });
+  }, address);
+}
+
+/**
+ * Starts disconnected; flips to connected after SET_ALLOWED_STATUS / REQUEST_ACCESS
+ * so deposit-flow e2e can exercise the real Connect Freighter button.
+ */
+export async function stubFreighterManualConnect(page: Page, address: string) {
+  await page.addInitScript((addr) => {
+    const stub = { connected: false };
+    (window as unknown as Record<string, unknown>).__freighterStub = stub;
+
+    window.addEventListener('message', (event) => {
+      if (
+        event.source !== window ||
+        !event.data ||
+        event.data.source !== 'FREIGHTER_EXTERNAL_MSG_REQUEST'
+      ) {
+        return;
+      }
+
+      const { messageId, type } = event.data as { messageId: number; type: string };
+
+      let response: Record<string, unknown> = {
+        source: 'FREIGHTER_EXTERNAL_MSG_RESPONSE',
+        messagedId: messageId,
+      };
+
+      switch (type) {
+        case 'SET_ALLOWED_STATUS':
+        case 'REQUEST_ACCESS':
+          stub.connected = true;
+          response = { ...response, isAllowed: true, publicKey: addr };
+          break;
+        case 'REQUEST_ALLOWED_STATUS':
+          response = { ...response, isAllowed: stub.connected };
+          break;
+        case 'REQUEST_PUBLIC_KEY':
           response = { ...response, publicKey: stub.connected ? addr : '' };
           break;
         case 'REQUEST_CONNECTION_STATUS':
@@ -250,7 +489,6 @@ type Fixtures = {
 export const test = base.extend<Fixtures>({
   appPage: async ({ page }, use) => {
     await interceptApiRoutes(page);
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

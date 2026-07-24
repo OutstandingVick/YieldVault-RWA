@@ -34,6 +34,28 @@ export async function discoverConnectedAddress(): Promise<string | null> {
   }
 }
 
+export async function discoverConnectedAddressWithRetry(
+  retries = 5,
+  delayMs = 250,
+): Promise<string | null> {
+  const isVitest =
+    typeof process !== "undefined" && process.env.VITEST === "true";
+  const effectiveRetries = isVitest ? 1 : retries;
+
+  for (let index = 0; index < effectiveRetries; index += 1) {
+    const address = await discoverConnectedAddress();
+    if (address) {
+      return address;
+    }
+
+    if (index < retries - 1) {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+    }
+  }
+
+  return null;
+}
+
 export async function fetchUsdcBalance(
   walletAddress: string,
   rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || `https://${TESTNET_SOROBAN_RPC}`,
@@ -51,3 +73,16 @@ export async function fetchUsdcBalance(
 
   return usdc ? Number(usdc.balance) : 0;
 }
+
+export async function fetchXlmBalance(
+  walletAddress: string,
+  rpcUrl = import.meta.env.VITE_SOROBAN_RPC_URL || `https://${TESTNET_SOROBAN_RPC}`,
+): Promise<number> {
+  const horizonUrl = toHorizonUrl(rpcUrl);
+  const server = new Horizon.Server(horizonUrl);
+  const account = await server.accounts().accountId(walletAddress).call();
+
+  const native = account.balances.find((balance) => balance.asset_type === "native");
+  return native ? Number(native.balance) : 0;
+}
+

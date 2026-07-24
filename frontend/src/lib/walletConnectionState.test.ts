@@ -208,8 +208,8 @@ describe("classifyWalletConnectionError", () => {
 describe("walletErrorI18nKeys", () => {
   it("returns stable i18n paths for each error code", () => {
     expect(walletErrorI18nKeys("NO_ADDRESS")).toEqual({
-      title: "wallet.errors.noAddress.title",
-      description: "wallet.errors.noAddress.description",
+      title: "wallet.status.error",
+      description: "wallet.error.noAddress",
     });
   });
 });

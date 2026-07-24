@@ -1,0 +1,14 @@
+.chart-widget-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-glass);
+}
+
+.chart-widget-placeholder-content {
+  width: 100%;
+  max-width: 360px;
+}

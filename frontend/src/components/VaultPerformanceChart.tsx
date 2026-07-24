@@ -1,116 +1,281 @@
-import {
-  Area,
+import React, { useState, useMemo } from "react";
+import { 
   AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+  Area,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
 } from "recharts";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
+import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent";
 import { TrendingUp } from "./icons";
 import { useVaultHistory } from "../hooks/useVaultData";
+import { ChartSkeleton } from "./Skeleton";
+import { type TimeRange, getNow, getCutoffDate } from "../lib/dateUtils";
+import { usePreferencesContext } from "../context/PreferencesContext";
+import { formatDate } from "../lib/formatters";
+import { formatChartNumber, createChartNumberTickFormatter } from "../lib/chartFormatters";
+import RefreshControl from "./RefreshControl";
+import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPolling";
+import { useStaleIndicator } from "../hooks/useStaleIndicator";
+import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
+import { ChartModeToggle } from "./ChartModeToggle";
 
-function formatTick(iso: string) {
-  const d = new Date(iso.includes("T") ? iso : `${iso}T12:00:00`);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(d);
+const VaultPerformanceTooltip = ({
+  active,
+  payload,
+  label,
+  locale,
+}: TooltipContentProps<ValueType, NameType> & { locale: string }) => {
+  if (active && payload && payload.length) {
+    const raw = payload[0]?.value;
+    const value = typeof raw === "number" ? raw : undefined;
+    if (value === undefined) return null;
+    return (
+      <div
+        className="glass-panel"
+        style={{
+          padding: "12px",
+          background: "rgba(13, 14, 18, 0.95)",
+          border: "1px solid var(--border-glass)",
+          fontSize: "0.85rem",
+        }}
+      >
+        <div style={{ color: "var(--text-secondary)", marginBottom: "4px" }}>
+          {label ? formatDate(label, { month: "short", day: "numeric", year: "numeric" }, locale) : ""}
+        </div>
+        <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>
+          Index: {formatChartNumber(value, locale, { maxDecimals: 2 })}
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
-const chartMargin = { top: 8, right: 12, left: 4, bottom: 8 };
-
 const VaultPerformanceChart: React.FC = () => {
-  const { data = [] } = useVaultHistory();
+  const historyQuery = useVaultHistory();
+  const { query, polling, lastUpdated } = useQueryWithPolling(historyQuery, {
+    interval: POLLING_INTERVALS.slow,
+  });
+  const { data: rawData = [], isLoading, isFetching, error, refetch } = query;
+  const { isStale, ageText } = useStaleIndicator(lastUpdated);
+  const { preferences, chartModes, setChartMode } = usePreferencesContext();
+  const [timeRange, setTimeRange] = useState<TimeRange>("ALL");
+  const chartMode = chartModes.vaultPerformance;
+  const isTest = process.env.NODE_ENV === 'test';
+  const locale = preferences.locale;
+
+  const filteredData = useMemo(() => {
+    if (!rawData.length) return [];
+    
+    if (timeRange === "ALL") return rawData;
+
+    const cutoff = getCutoffDate(timeRange, getNow());
+    return rawData.filter(point => new Date(point.date) >= cutoff);
+  }, [rawData, timeRange]);
+
+  const chartMargin = { top: 10, right: 10, left: -20, bottom: 0 };
+
+  const renderChartBody = () => (
+    <>
+      {chartMode === "area" && (
+        <defs>
+          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="var(--accent-cyan)" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="var(--accent-cyan)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+      )}
+      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+      <XAxis
+        dataKey="date"
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+        tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
+        minTickGap={30}
+      />
+      <YAxis
+        domain={["auto", "auto"]}
+        axisLine={false}
+        tickLine={false}
+        tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+        tickFormatter={createChartNumberTickFormatter(locale, true)}
+      />
+      <Tooltip
+        content={(props: TooltipContentProps<ValueType, NameType>) => (
+          <VaultPerformanceTooltip {...props} locale={locale} />
+        )}
+      />
+      {chartMode === "line" && (
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke="var(--accent-cyan)"
+          strokeWidth={2}
+          dot={false}
+          animationDuration={1200}
+        />
+      )}
+      {chartMode === "bar" && (
+        <Bar dataKey="value" fill="var(--accent-cyan)" radius={[4, 4, 0, 0]} animationDuration={1200} />
+      )}
+      {chartMode === "area" && (
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke="var(--accent-cyan)"
+          strokeWidth={2}
+          fillOpacity={1}
+          fill="url(#colorValue)"
+          animationDuration={1200}
+        />
+      )}
+    </>
+  );
+
+  const renderPerformanceChart = (width?: number, height?: number) => {
+    const sizeProps = width && height ? { width, height } : {};
+    if (chartMode === "line") {
+      return (
+        <LineChart data={filteredData} margin={chartMargin} {...sizeProps}>
+          {renderChartBody()}
+        </LineChart>
+      );
+    }
+    if (chartMode === "bar") {
+      return (
+        <BarChart data={filteredData} margin={chartMargin} {...sizeProps}>
+          {renderChartBody()}
+        </BarChart>
+      );
+    }
+    return (
+      <AreaChart data={filteredData} margin={chartMargin} {...sizeProps}>
+        {renderChartBody()}
+      </AreaChart>
+    );
+  };
 
   return (
-    <div style={{ width: "100%" }}>
-      <h3
-        style={{
-          fontSize: "1.1rem",
-          marginBottom: "16px",
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-        }}
-      >
-        <TrendingUp size={18} color="var(--accent-cyan)" />
-        Historical performance
-      </h3>
-      <p
-        style={{
-          color: "var(--text-secondary)",
-          fontSize: "0.82rem",
-          marginBottom: "16px",
-        }}
-      >
-        yvUSDC share price index (100 = baseline)
-      </p>
-      <div className="vault-chart-canvas">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={chartMargin}>
-            <defs>
-              <linearGradient id="vaultPerfArea" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="0%"
-                  stopColor="var(--accent-cyan)"
-                  stopOpacity={0.35}
-                />
-                <stop
-                  offset="100%"
-                  stopColor="var(--accent-cyan)"
-                  stopOpacity={0}
-                />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="var(--border-glass)"
-              vertical={false}
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
+      {isLoading ? (
+        <ChartSkeleton />
+      ) : (
+        <>
+          <div className="flex justify-between items-start" style={{ marginBottom: "16px" }}>
+            <div>
+              <h3
+                style={{
+                  fontSize: "1.1rem",
+                  marginBottom: "8px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <TrendingUp size={18} color="var(--accent-cyan)" />
+                Vault Performance
+              </h3>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                yvUSDC share price index (100 = baseline)
+              </p>
+            </div>
+
+            <div className="flex gap-sm" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
+            <ChartModeToggle
+              value={chartMode}
+              onChange={(mode) => setChartMode("vaultPerformance", mode)}
+              aria-label="Vault performance chart mode"
             />
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatTick}
-              tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
-              axisLine={{ stroke: "var(--border-glass)" }}
-              tickLine={false}
-              minTickGap={24}
+            <div className="flex gap-xs" style={{ background: "rgba(255,255,255,0.03)", padding: "4px", borderRadius: "8px", border: "1px solid var(--border-glass)" }}>
+              {(["7D", "1M", "3M", "ALL"] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "6px",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                    background: timeRange === range ? "var(--accent-cyan)" : "transparent",
+                    color: timeRange === range ? "black" : "var(--text-secondary)",
+                    border: "none",
+                  }}
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+            </div>
+          </div>
+
+          {/* Per-widget refresh control + stale indicator */}
+          <div style={{ marginBottom: "16px" }}>
+            <RefreshControl
+              isPolling={polling.isPolling}
+              isPaused={polling.isPaused}
+              pauseReason={polling.pauseReason}
+              onPause={polling.pause}
+              onResume={polling.resume}
+              onRefresh={polling.forceRefresh}
+              isRefetching={isFetching}
+              lastUpdated={lastUpdated ?? undefined}
             />
-            <YAxis
-              domain={["auto", "auto"]}
-              tick={{ fill: "var(--text-tertiary)", fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              width={44}
-              tickFormatter={(v: unknown) => (typeof v === "number" ? v.toFixed(1) : String(v))}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border-glass)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-primary)",
-                fontSize: "0.85rem",
-              }}
-              labelFormatter={(label: unknown) =>
-                typeof label === "string" ? formatTick(label) : String(label)
-              }
-              formatter={(value: unknown) => [
-                typeof value === "number" ? value.toFixed(3) : String(value),
-                "Index",
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke="var(--accent-cyan)"
-              strokeWidth={2}
-              fill="url(#vaultPerfArea)"
-              isAnimationActive={data.length > 0}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+            {isStale && ageText && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  marginTop: "6px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  fontSize: "0.75rem",
+                  color: "var(--text-warning, #f59e0b)",
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-warning, #f59e0b)", flexShrink: 0 }} />
+                Data may be stale · {ageText}
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: 1, minHeight: "260px", position: "relative" }}>
+            {error ? (
+              <ChartWidgetPlaceholder
+                variant="error"
+                title="Unable to load performance data"
+                description="We could not fetch vault performance history. Please try again."
+                height={260}
+                onRetry={() => void refetch()}
+              />
+            ) : filteredData.length === 0 ? (
+              <ChartWidgetPlaceholder
+                variant="empty"
+                title="No performance data yet"
+                description="Vault performance history will appear after the first data points are recorded."
+                height={260}
+              />
+            ) : isTest ? (
+              renderPerformanceChart(400, 260)
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                {renderPerformanceChart()}
+              </ResponsiveContainer>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 };

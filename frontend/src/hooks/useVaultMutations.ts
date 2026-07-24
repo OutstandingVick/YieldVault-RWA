@@ -1,21 +1,136 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryClient";
+import type { PortfolioHolding } from "../lib/portfolioApi";
+import type { VaultSummary } from "../lib/vaultApi";
+import { submitDeposit, submitWithdrawal } from "../lib/vaultApi";
+import type { Transaction } from "../lib/transactionApi";
+
+interface MutationParams {
+  walletAddress: string;
+  amount: number;
+  referralCode?: string;
+  idempotencyKey?: string;
+}
+
+interface OptimisticSnapshot {
+  balance?: number;
+  holdings?: PortfolioHolding[];
+  summary?: VaultSummary;
+  transactions?: Transaction[];
+}
+
+function buildPendingTransaction(
+  action: "deposit" | "withdrawal",
+  amount: number,
+): Transaction {
+  return {
+    id: `optimistic-${action}-${Date.now()}`,
+    type: action,
+    status: "pending",
+    amount: amount.toFixed(2),
+    asset: "USDC",
+    timestamp: new Date().toISOString(),
+    transactionHash: "pending-" + Date.now(),
+  };
+}
+
+function updateHoldings(
+  current: PortfolioHolding[] | undefined,
+  deltaUsd: number,
+): PortfolioHolding[] | undefined {
+  if (!current?.length) {
+    return current;
+  }
+
+  return current.map((holding, index) =>
+    index === 0
+      ? {
+          ...holding,
+          valueUsd: Math.max(holding.valueUsd + deltaUsd, 0),
+          status: "pending",
+        }
+      : holding,
+  );
+}
 
 /**
- * Simulated deposit mutation with cache invalidation.
- * In production, this would call the actual contract interaction.
+ * Deposit mutation with optimistic UI cache updates.
  */
 export function useDepositMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { walletAddress: string; amount: number }) => {
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      return { success: true, ...params };
+    mutationFn: async ({ walletAddress, amount, referralCode, idempotencyKey }: MutationParams) => {
+      await submitDeposit(
+        {
+          walletAddress,
+          amount: amount.toString(),
+          asset: "USDC",
+          referralCode,
+        },
+        { idempotencyKey },
+      );
+      return { walletAddress, amount, referralCode, idempotencyKey };
+    },
+    onMutate: async ({ walletAddress, amount }) => {
+      const balanceKey = queryKeys.balance.usdc(walletAddress);
+      const holdingsKey = queryKeys.portfolio.holdings(walletAddress);
+      const summaryKey = queryKeys.vault.summary();
+      const txKey = queryKeys.transactions.list(walletAddress);
+
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: balanceKey }),
+        queryClient.cancelQueries({ queryKey: holdingsKey }),
+        queryClient.cancelQueries({ queryKey: summaryKey }),
+        queryClient.cancelQueries({ queryKey: txKey }),
+      ]);
+
+      const snapshot: OptimisticSnapshot = {
+        balance: queryClient.getQueryData<number>(balanceKey),
+        holdings: queryClient.getQueryData<PortfolioHolding[]>(holdingsKey),
+        summary: queryClient.getQueryData<VaultSummary>(summaryKey),
+        transactions: queryClient.getQueryData<Transaction[]>(txKey),
+      };
+
+      queryClient.setQueryData<number>(balanceKey, (current = 0) =>
+        Math.max(current - amount, 0),
+      );
+      queryClient.setQueryData<PortfolioHolding[] | undefined>(
+        holdingsKey,
+        (current) => updateHoldings(current, amount),
+      );
+      queryClient.setQueryData<VaultSummary | undefined>(summaryKey, (current) =>
+        current
+          ? {
+              ...current,
+              tvl: current.tvl + amount,
+              updatedAt: new Date().toISOString(),
+            }
+          : current,
+      );
+      queryClient.setQueryData<Transaction[] | undefined>(txKey, (current) => [
+        buildPendingTransaction("deposit", amount),
+        ...(current ?? []),
+      ]);
+
+      return snapshot;
+    },
+    onError: (_error, variables, snapshot) => {
+      queryClient.setQueryData(
+        queryKeys.balance.usdc(variables.walletAddress),
+        snapshot?.balance,
+      );
+      queryClient.setQueryData(
+        queryKeys.portfolio.holdings(variables.walletAddress),
+        snapshot?.holdings,
+      );
+      queryClient.setQueryData(queryKeys.vault.summary(), snapshot?.summary);
+      queryClient.setQueryData(
+        queryKeys.transactions.list(variables.walletAddress),
+        snapshot?.transactions,
+      );
     },
     onSuccess: (_, variables) => {
-      // Invalidate related queries to trigger refetch
       queryClient.invalidateQueries({
         queryKey: queryKeys.balance.usdc(variables.walletAddress),
       });
@@ -33,20 +148,82 @@ export function useDepositMutation() {
 }
 
 /**
- * Simulated withdrawal mutation with cache invalidation.
- * In production, this would call the actual contract interaction.
+ * Withdrawal mutation with optimistic UI cache updates.
  */
 export function useWithdrawMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { walletAddress: string; amount: number }) => {
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      return { success: true, ...params };
+    mutationFn: async ({ walletAddress, amount, idempotencyKey }: MutationParams) => {
+      await submitWithdrawal(
+        {
+          walletAddress,
+          amount: amount.toString(),
+          asset: "USDC",
+        },
+        { idempotencyKey },
+      );
+      return { walletAddress, amount, idempotencyKey };
+    },
+    onMutate: async ({ walletAddress, amount }) => {
+      const balanceKey = queryKeys.balance.usdc(walletAddress);
+      const holdingsKey = queryKeys.portfolio.holdings(walletAddress);
+      const summaryKey = queryKeys.vault.summary();
+      const txKey = queryKeys.transactions.list(walletAddress);
+
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: balanceKey }),
+        queryClient.cancelQueries({ queryKey: holdingsKey }),
+        queryClient.cancelQueries({ queryKey: summaryKey }),
+        queryClient.cancelQueries({ queryKey: txKey }),
+      ]);
+
+      const snapshot: OptimisticSnapshot = {
+        balance: queryClient.getQueryData<number>(balanceKey),
+        holdings: queryClient.getQueryData<PortfolioHolding[]>(holdingsKey),
+        summary: queryClient.getQueryData<VaultSummary>(summaryKey),
+        transactions: queryClient.getQueryData<Transaction[]>(txKey),
+      };
+
+      queryClient.setQueryData<number>(balanceKey, (current = 0) =>
+        Math.max(current - amount, 0),
+      );
+      queryClient.setQueryData<PortfolioHolding[] | undefined>(
+        holdingsKey,
+        (current) => updateHoldings(current, -amount),
+      );
+      queryClient.setQueryData<VaultSummary | undefined>(summaryKey, (current) =>
+        current
+          ? {
+              ...current,
+              tvl: Math.max(current.tvl - amount, 0),
+              updatedAt: new Date().toISOString(),
+            }
+          : current,
+      );
+      queryClient.setQueryData<Transaction[] | undefined>(txKey, (current) => [
+        buildPendingTransaction("withdrawal", amount),
+        ...(current ?? []),
+      ]);
+
+      return snapshot;
+    },
+    onError: (_error, variables, snapshot) => {
+      queryClient.setQueryData(
+        queryKeys.balance.usdc(variables.walletAddress),
+        snapshot?.balance,
+      );
+      queryClient.setQueryData(
+        queryKeys.portfolio.holdings(variables.walletAddress),
+        snapshot?.holdings,
+      );
+      queryClient.setQueryData(queryKeys.vault.summary(), snapshot?.summary);
+      queryClient.setQueryData(
+        queryKeys.transactions.list(variables.walletAddress),
+        snapshot?.transactions,
+      );
     },
     onSuccess: (_, variables) => {
-      // Invalidate related queries to trigger refetch
       queryClient.invalidateQueries({
         queryKey: queryKeys.balance.usdc(variables.walletAddress),
       });

@@ -53,6 +53,11 @@ export function useForm<T extends object>(
     }));
   };
 
+  const resetErrors = () => {
+    setErrors({});
+    setTouched({});
+  };
+
   const handleSubmit =
     (onSubmit: (formValues: T) => Promise<void>) =>
     async (event: FormEvent) => {
@@ -94,5 +99,7 @@ export function useForm<T extends object>(
     handleBlur,
     handleSubmit,
     setFieldError,
+    setValues,
+    resetErrors,
   };
 }

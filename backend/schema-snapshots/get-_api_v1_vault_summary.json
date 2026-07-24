@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "totalAssets": {
+      "type": "number"
+    },
+    "totalShares": {
+      "type": "number"
+    },
+    "apy": {
+      "type": "number"
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "totalAssets",
+    "totalShares",
+    "apy",
+    "timestamp"
+  ],
+  "additionalProperties": false
+}

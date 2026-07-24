@@ -2,9 +2,13 @@ name: E2E Tests
 
 on:
   pull_request:
+    paths:
+      - 'frontend/**'
   push:
     branches:
       - main
+    paths:
+      - 'frontend/**'
 
 jobs:
   e2e:
@@ -31,13 +35,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
-      - name: Build app
-        run: npm run build
-
       - name: Run E2E tests
         run: npm run test:e2e
         env:
           CI: true
+          VITE_E2E_STUB_BALANCES: "true"
 
       # Upload the HTML report so it's browsable in the Actions UI
       - name: Upload Playwright report

@@ -1,0 +1,35 @@
+name: Slither Static Analysis
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  slither:
+    name: Solidity / Slither scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Skip when no Solidity contracts are present
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git ls-files '*.sol' | grep -q .; then
+            echo "Solidity files detected; Slither scanning is not configured for this repository layout."
+            echo "Add Solidity contracts (or update this workflow) before enabling Slither."
+            exit 1
+          fi
+
+          echo "No Solidity (.sol) files tracked in this repo — skipping Slither."

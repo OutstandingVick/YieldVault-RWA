@@ -3,7 +3,7 @@
  */
 import { test, expect, interceptApiRoutes, stubFreighterConnected } from './fixtures';
 
-const MOCK_ADDRESS = 'GABC1TEST2STELLAR3ADDRESS4FAKE5XYZ6ABCDEFGHIJKLMNOPQRSTU';
+const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 test.describe('Portfolio page  unauthenticated', () => {
@@ -11,7 +11,8 @@ test.describe('Portfolio page  unauthenticated', () => {
     await interceptApiRoutes(page);
     await page.goto('/portfolio');
     await expect(page.getByRole('heading', { name: 'Your Portfolio' })).toBeVisible();
-    await expect(page.getByText('Please connect your wallet to view your portfolio.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Getting started guide' })).toBeVisible();
+    await expect(page.getByText('Connect Your Wallet')).toBeVisible();
     await expect(page.getByRole('table')).not.toBeVisible();
   });
 });
@@ -25,7 +26,7 @@ test.describe('Portfolio page  authenticated', () => {
   test('loads and displays portfolio holdings after wallet connects', async ({ page }) => {
     await page.goto('/portfolio');
     await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Total Assets')).toBeVisible();
+    await expect(page.getByText('Total Net Value')).toBeVisible();
     await expect(page.getByRole('table', { name: 'Portfolio holdings' })).toBeVisible();
     // Highest value holding from mock data (sorted by valueUsd desc)
     await expect(page.getByText('Tokenized T-Bills')).toBeVisible();
@@ -48,7 +49,7 @@ test.describe('Portfolio page  authenticated', () => {
 
     await expect(page.getByText('USDC Treasury Pool')).toBeVisible();
     await expect(page.getByText('Tokenized T-Bills')).not.toBeVisible();
-    await expect(page.getByText('1 holdings found')).toBeVisible();
+    await expect(page.getByText('1 positions found')).toBeVisible();
   });
 
   test('clearing search restores all holdings', async ({ page }) => {
@@ -58,9 +59,9 @@ test.describe('Portfolio page  authenticated', () => {
 
     const searchInput = page.getByPlaceholder('Search asset, vault, issuer...');
     await searchInput.fill('Franklin');
-    await expect(page.getByText('1 holdings found')).toBeVisible();
+    await expect(page.getByText('1 positions found')).toBeVisible();
     await searchInput.clear();
-    await expect(page.getByText('6 holdings found')).toBeVisible();
+    await expect(page.getByText('6 positions found')).toBeVisible();
   });
 
   test('rows-per-page selector changes visible row count', async ({ page }) => {

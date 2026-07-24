@@ -20,7 +20,8 @@ export function useUrlState<TFilters extends Record<string, string>>(
     const pageRaw = searchParams.get("page");
     const pageSizeRaw = searchParams.get("pageSize");
     // Support both "direction" and "sortDirection" as URL param names
-    const sortDirectionRaw = searchParams.get("direction") ?? searchParams.get("sortDirection");
+    const sortDirectionRaw =
+      searchParams.get("direction") ?? searchParams.get("sortDirection");
 
     const pageNum = Number(pageRaw);
     const page =
@@ -77,6 +78,7 @@ export function useUrlState<TFilters extends Record<string, string>>(
           if (updates.sortDirection !== undefined) {
             next.set("sortDirection", updates.sortDirection);
             next.set("direction", updates.sortDirection);
+            next.delete("sortDirection");
           }
 
           if (updates.filters !== undefined) {
@@ -142,6 +144,7 @@ export function useUrlState<TFilters extends Record<string, string>>(
       next.delete("pageSize");
       next.delete("sortBy");
       next.delete("sortDirection");
+      next.delete("direction");
 
       if (config.defaultFilters) {
         Object.keys(config.defaultFilters).forEach((key) => {

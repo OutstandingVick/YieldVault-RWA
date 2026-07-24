@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Public portfolio for Junirezz - blockchain, DeFi, and full-stack product work." />
+    <title>Junirezz | Portfolio</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07111f;
+        --bg-soft: #0d1b2d;
+        --card: rgba(10, 21, 36, 0.82);
+        --card-border: rgba(151, 187, 255, 0.18);
+        --text: #edf4ff;
+        --muted: #a8b8d6;
+        --accent: #7de2ff;
+        --accent-2: #8bffb8;
+        --accent-3: #ffd27d;
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(125, 226, 255, 0.12), transparent 30%),
+          radial-gradient(circle at top right, rgba(139, 255, 184, 0.12), transparent 28%),
+          linear-gradient(180deg, #06101d 0%, #091425 45%, #050b14 100%);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .page {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 56px;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 28px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border: 1px solid var(--card-border);
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 999px;
+        backdrop-filter: blur(18px);
+      }
+
+      .badge-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        box-shadow: 0 0 18px rgba(125, 226, 255, 0.55);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.9fr);
+        gap: 24px;
+        align-items: stretch;
+      }
+
+      .panel {
+        border: 1px solid var(--card-border);
+        background: linear-gradient(180deg, rgba(13, 27, 45, 0.92), rgba(8, 16, 28, 0.96));
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .hero-copy {
+        padding: 38px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero-copy::after {
+        content: "";
+        position: absolute;
+        inset: auto -20% -30% auto;
+        width: 320px;
+        height: 320px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(125, 226, 255, 0.18), transparent 65%);
+        pointer-events: none;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 0.82rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.6rem, 5vw, 5rem);
+        line-height: 0.98;
+        letter-spacing: -0.05em;
+      }
+
+      .lead {
+        margin: 20px 0 0;
+        max-width: 60ch;
+        color: var(--muted);
+        font-size: 1.08rem;
+        line-height: 1.7;
+      }
+
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 28px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 14px;
+        border: 1px solid var(--card-border);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        font-weight: 600;
+        transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(125, 226, 255, 0.46);
+        background: rgba(125, 226, 255, 0.08);
+      }
+
+      .button.primary {
+        border-color: rgba(125, 226, 255, 0.6);
+        background: linear-gradient(135deg, rgba(125, 226, 255, 0.18), rgba(139, 255, 184, 0.16));
+      }
+
+      .hero-side {
+        display: grid;
+        gap: 16px;
+      }
+
+      .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .stat {
+        padding: 22px;
+      }
+
+      .stat-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0 0 8px;
+      }
+
+      .stat-label {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .highlight {
+        padding: 24px;
+      }
+
+      .highlight h2,
+      .section h2 {
+        margin: 0 0 12px;
+        font-size: 1.1rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-2);
+      }
+
+      .highlight p,
+      .section p,
+      .section li {
+        color: var(--muted);
+        line-height: 1.7;
+        margin: 0;
+      }
+
+      .sections {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 24px;
+        margin-top: 24px;
+      }
+
+      .section {
+        padding: 28px;
+      }
+
+      .section ul {
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 12px;
+      }
+
+      .section li {
+        padding: 14px 16px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(151, 187, 255, 0.12);
+      }
+
+      .project {
+        display: grid;
+        gap: 10px;
+        padding: 18px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(151, 187, 255, 0.12);
+      }
+
+      .project + .project {
+        margin-top: 14px;
+      }
+
+      .project-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        margin: 0;
+      }
+
+      .project-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(125, 226, 255, 0.1);
+        color: var(--text);
+        font-size: 0.82rem;
+        border: 1px solid rgba(125, 226, 255, 0.18);
+      }
+
+      .footer {
+        margin-top: 24px;
+        padding: 18px 4px 0;
+        color: var(--muted);
+        text-align: center;
+        font-size: 0.92rem;
+      }
+
+      .safe-note {
+        margin-top: 14px;
+        color: #cfe6ff;
+        font-size: 0.93rem;
+      }
+
+      @media (max-width: 920px) {
+        .hero,
+        .sections {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          width: min(100% - 20px, 1120px);
+          padding-top: 12px;
+        }
+
+        .hero-copy,
+        .stat,
+        .highlight,
+        .section {
+          padding: 22px;
+        }
+
+        .topbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        h1 {
+          font-size: clamp(2.3rem, 12vw, 4rem);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="topbar">
+        <div class="badge"><span class="badge-dot"></span> Public, read-only portfolio</div>
+        <div>Secure sharing link: no wallet access, no admin actions</div>
+      </div>
+
+      <section class="hero">
+        <div class="panel hero-copy">
+          <div class="eyebrow">Portfolio / Junirezz</div>
+          <h1>Blockchain builder focused on secure DeFi and clean product delivery.</h1>
+          <p class="lead">
+            I build user-facing products and smart-contract-driven systems with a focus on clarity,
+            trust, and practical utility. My work around YieldVault RWA combines DeFi logic,
+            public-facing UX, and secure engineering patterns designed for real users.
+          </p>
+          <div class="cta-row">
+            <a class="button primary" href="#projects">View selected work</a>
+            <a class="button" href="#skills">See skills</a>
+            <a class="button" href="#contact">Contact</a>
+          </div>
+        </div>
+
+        <div class="hero-side">
+          <div class="panel stat-grid">
+            <div class="stat">
+              <p class="stat-value">Public</p>
+              <p class="stat-label">This page is read-only and does not expose private app functions.</p>
+            </div>
+            <div class="stat">
+              <p class="stat-value">Secure</p>
+              <p class="stat-label">No wallet connect, dashboard access, or admin controls are included here.</p>
+            </div>
+          </div>
+          <div class="panel highlight">
+            <h2>Focus</h2>
+            <p>
+              Stellar / Soroban, DeFi vault systems, front-end product UX, and dependable web app
+              architecture.
+            </p>
+            <p class="safe-note">
+              Share this page with confidence: it presents portfolio information only.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sections">
+        <article class="panel section" id="projects">
+          <h2>Selected Work</h2>
+          <div class="project">
+            <p class="project-title">YieldVault RWA</p>
+            <p>
+              A real-world-asset yield platform centered on vault mechanics, tokenized value flow,
+              and a polished product experience.
+            </p>
+            <div class="project-meta">
+              <span class="pill">Soroban</span>
+              <span class="pill">Stellar</span>
+              <span class="pill">DeFi</span>
+              <span class="pill">RWA</span>
+            </div>
+          </div>
+          <div class="project">
+            <p class="project-title">Public Portfolio Experience</p>
+            <p>
+              A simple, shareable showcase page designed to keep access limited to read-only content
+              while still presenting work professionally.
+            </p>
+            <div class="project-meta">
+              <span class="pill">Public-only</span>
+              <span class="pill">No auth</span>
+              <span class="pill">No secrets</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel section" id="skills">
+          <h2>Skills</h2>
+          <ul>
+            <li>Blockchain and Web3 development</li>
+            <li>Stellar and Soroban smart contracts</li>
+            <li>DeFi vault logic and yield mechanics</li>
+            <li>React and TypeScript interfaces</li>
+            <li>Secure product design</li>
+            <li>Public-facing portfolio and landing pages</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="panel section" id="contact" style="margin-top: 24px;">
+        <h2>Contact</h2>
+        <p>
+          Replace this section with your email, LinkedIn, GitHub, or a booking link before sharing.
+          Keep the page public and leave private tools out of the deployed version.
+        </p>
+        <div class="cta-row" style="margin-top: 18px;">
+          <a class="button primary" href="mailto:your@email.com">Email me</a>
+          <a class="button" href="https://www.linkedin.com/" target="_blank" rel="noreferrer noopener">LinkedIn</a>
+          <a class="button" href="https://github.com/" target="_blank" rel="noreferrer noopener">GitHub</a>
+        </div>
+      </section>
+
+      <div class="footer">
+        Public portfolio preview. Publish this folder to GitHub Pages, Vercel, or Netlify to get a shareable URL.
+      </div>
+    </main>
+  </body>
+</html>

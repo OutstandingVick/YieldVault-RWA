@@ -1,12 +1,21 @@
 import React from "react";
 import { RefreshCw, Home, AlertOctagon } from "lucide-react";
+import { goHome, reloadPage } from "./errorNavigation";
+import { useTranslation } from "../i18n";
 
 interface ErrorFallbackProps {
   error: Error;
   resetError: () => void;
+  onReload?: () => void;
+  onGoHome?: () => void;
 }
 
-const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error }) => {
+const ErrorFallback: React.FC<ErrorFallbackProps> = ({
+  error,
+  onReload = reloadPage,
+  onGoHome = goHome,
+}) => {
+  const { t } = useTranslation();
   return (
     <div
       style={{
@@ -50,7 +59,7 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error }) => {
             className="text-gradient"
             style={{ fontSize: "2rem", marginBottom: "8px" }}
           >
-            Something went wrong
+            {t("errorFallback.title")}
           </h1>
           <p
             style={{
@@ -60,8 +69,7 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error }) => {
               lineHeight: "1.5",
             }}
           >
-            We've encountered an unexpected issue. Our team has been notified and
-            is working on it.
+            {t("errorFallback.message")}
           </p>
           {error?.message && (
             <div
@@ -95,20 +103,20 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error }) => {
         >
           <button
             className="btn btn-primary"
-            onClick={() => window.location.reload()}
+            onClick={onReload}
             style={{ width: "100%", padding: "14px" }}
           >
             <RefreshCw size={18} />
-            Reload Page
+            {t("errorFallback.reload")}
           </button>
 
           <button
             className="btn btn-outline"
-            onClick={() => (window.location.href = "/")}
+            onClick={onGoHome}
             style={{ width: "100%", padding: "14px" }}
           >
             <Home size={18} />
-            Go Home
+            {t("errorFallback.goHome")}
           </button>
         </div>
       </div>

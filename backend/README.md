@@ -8,6 +8,10 @@ Express.js backend server for YieldVault Stellar RWA platform with rate limiting
 - **Readiness Endpoint** (`/ready`) - Dependency status for deployment orchestration
 - **Rate Limiting** - Per-IP and per-API-key rate limiting to prevent abuse
 - **Dependency Monitoring** - Checks for cache and Stellar RPC availability
+- **Admin Audit Logs** - Tracks privileged admin actions via `/admin/audit-logs`
+- **Event Replay System** - Recovers from polling gaps by replaying missed on-chain events
+- **Background Job Dashboard** - Monitoring views at `/admin/jobs/dashboard` and `/admin/jobs/dashboard/view`
+- **Prisma Runtime Tuning** - Configurable pooling and query timeouts
 - **Error Handling** - Consistent JSON error responses
 - **TypeScript** - Full type safety with TypeScript
 
@@ -55,6 +59,15 @@ Rate limiting and other settings are configurable via environment variables:
 | `API_RATE_LIMIT_WINDOW_MS` | 60000 | API rate limit window (1 min) |
 | `API_RATE_LIMIT_MAX_REQUESTS` | 30 | API requests per window |
 | `STELLAR_RPC_URL` | https://soroban-testnet.stellar.org | Stellar RPC endpoint |
+| `DATABASE_URL` | local PostgreSQL URL | Primary PostgreSQL connection string (required in production) |
+| `DATABASE_REPLICA_URL` | primary database | Optional read-replica connection string |
+| `DATABASE_POOL_SIZE` | 10 | Maximum connections per PostgreSQL pool |
+| `PRISMA_POOL_MAX` | 10 | Prisma connection pool max size |
+| `PRISMA_POOL_TIMEOUT_MS` | 10000 | Prisma pool wait timeout in ms |
+| `PRISMA_QUERY_TIMEOUT_MS` | 5000 | Max Prisma query time in ms |
+| `ADMIN_AUDIT_LOG_STORAGE` | hybrid | Audit log storage mode (`memory`, `prisma`, `hybrid`) |
+| `EVENT_POLL_INTERVAL_MS` | 10000 | Event polling interval (10 seconds) |
+| `EVENT_REPLAY_BATCH_SIZE` | 100 | Batch size for event replay (ledgers per batch) |
 
 ## API Endpoints
 
@@ -100,6 +113,56 @@ Returns service readiness state. Checks all critical dependencies before reporti
   }
 }
 ```
+
+### Admin Audit Logs
+
+```
+GET /admin/audit-logs
+Authorization: ApiKey <admin-key>
+```
+
+Returns recent admin activities with optional filters: `action`, `actor`, `statusCode`, and `limit`.
+
+### Signed wallet actions (nonce + replay protection)
+
+Protected routes (`POST /api/v1/auth/login`, vault deposits/withdrawals) accept single-use server nonces:
+
+1. `POST /api/v1/auth/nonce` with `{ walletAddress, action }` → `{ nonce, message, expiresAt, expiresIn }`
+2. Sign `message` with the wallet (Ed25519 in production, HMAC in dev/test)
+3. Submit the action with `{ walletAddress, nonce, signature, ... }`
+
+| Error | HTTP | `code` |
+|-------|------|--------|
+| Missing nonce/signature | 400 | `SIGNED_ACTION_REQUIRED` |
+| Unknown/mismatched nonce | 401 | `NONCE_NOT_FOUND` / `NONCE_ACTION_MISMATCH` |
+| Expired nonce | 401 | `NONCE_EXPIRED` |
+| Reused nonce | 401 | `NONCE_REPLAY` |
+| Bad signature | 401 | `SIGNATURE_INVALID` |
+
+Configure via `WALLET_NONCE_ENFORCEMENT` (strict in production) and `WALLET_SIGNATURE_MODE` (`stellar` \| `hmac`).
+
+### Admin API Key RBAC
+
+All `/admin/*` routes require `Authorization: ApiKey <key>`. Keys are assigned one of four roles (least → most privileged):
+
+| Role | Capabilities |
+|------|----------------|
+| `viewer` | Read-only admin endpoints (metrics, audit logs, config snapshots) |
+| `operator` | Viewer + operational writes (maintenance, cache, allowlist, webhooks, jobs, exports) |
+| `admin` | Operator + privileged webhook `url`/`secret` updates and API key lifecycle |
+| `super-admin` | Admin + impersonation, global idempotency flush, minting super-admin keys |
+
+Forbidden requests return `403` with `requiredPermission` in the JSON body. Maintenance and webhook PATCH bodies are validated so privileged parameters (`enabled`, `url`, `secret`, etc.) require the matching permission tier.
+
+### Background Job Dashboard
+
+```
+GET /admin/jobs/dashboard
+GET /admin/jobs/dashboard/view
+Authorization: ApiKey <admin-key>
+```
+
+Exposes dead-letter metrics, recurring failures, job runtime telemetry, and health status.
 
 **Response (503 Unavailable - Not Ready):**
 ```json
@@ -147,6 +210,12 @@ Stricter limits for API endpoints (e.g., `/api/vault/summary`):
 ## Testing
 
 ```bash
+# Apply native PostgreSQL migrations
+npm run db:migrate
+
+# Verify applied migration checksums and required tables
+npm run db:check-drift
+
 # Run all tests
 npm test
 
@@ -156,6 +225,26 @@ npm test -- --watch
 # Run with coverage
 npm test -- --coverage
 ```
+
+### API Contract Schema Snapshots (Issue #711)
+
+Committed JSON snapshots under `schema-snapshots/` describe the response shape of critical public endpoints. CI fails when a required field is removed or changes type.
+
+**Guarded endpoints:** `GET /health`, `GET /ready`, `GET /api/v1/vault/summary`, `GET /api/v1/transactions`
+
+```bash
+# Verify snapshots are backward-compatible (CI)
+npm run snapshots:check
+
+# Regenerate after an intentional breaking API change
+npm run snapshots:write
+```
+
+When bumping snapshots intentionally:
+
+1. Update the Zod schema in `src/apiContractSnapshots.ts`
+2. Run `npm run snapshots:write` and commit `schema-snapshots/*.json`
+3. Align OpenAPI annotations and run `npm run generate:openapi`
 
 ## Issues Addressed
 

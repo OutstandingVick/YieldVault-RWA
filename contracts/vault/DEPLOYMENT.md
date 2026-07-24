@@ -30,3 +30,32 @@ soroban contract invoke \
   initialize \
   --admin <ADMIN_ADDRESS> \
   --token <TOKEN_ADDRESS>
+```
+
+---
+
+## 🆙 Upgrade Procedures
+
+To upgrade the contract code:
+
+1. **Build and Optimize** the new WASM as described in the checklist.
+2. **Install** the new WASM on the network to obtain its hash:
+   ```bash
+   soroban contract install --wasm <NEW_WASM> --network testnet
+   ```
+3. **Pause the Vault** (Critical Safety Check):
+   ```bash
+   soroban contract invoke --id <CONTRACT_ID> --source admin --network testnet -- set_pause --paused true
+   ```
+4. **Execute Upgrade**:
+   ```bash
+   soroban contract invoke --id <CONTRACT_ID> --source admin --network testnet -- upgrade --new_wasm_hash <WASM_HASH>
+   ```
+5. **Verify Version**:
+   ```bash
+   soroban contract invoke --id <CONTRACT_ID> --network testnet -- version
+   ```
+6. **Resume Operations**:
+   ```bash
+   soroban contract invoke --id <CONTRACT_ID> --source admin --network testnet -- set_pause --paused false
+   ```

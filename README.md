@@ -7,10 +7,27 @@ YieldVault is a decentralized vault platform built specifically for the **Stella
 This project is structured as a monorepo containing both the Stellar Soroban smart contracts and the frontend web application.
 
 - `/contracts/vault/`: Contains the Rust Soroban smart contract for handling the vault logic, fractional share minting (`yvUSDC`), scaling withdrawals, and simulated yield accrual.
+- `/contracts/mock-strategy/`: Contains test mock contracts for the Korean sovereign debt strategy and price oracle.
 - `/frontend/`: Contains the React + Vite frontend application, integrating `@stellar/freighter-api` for seamless user wallet connections and a premium UI to interact with the protocol.
-- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, and tracked GitHub issues.
+- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, [Domain Glossary](./docs/GLOSSARY.md), and tracked GitHub issues. See also the [Deposit & Withdrawal Lifecycle](./docs/DEPOSIT_WITHDRAWAL_LIFECYCLE.md) for sequence diagrams and the [Vault UX Pattern Library](./docs/VAULT_UX_PATTERN_LIBRARY.md) for approved frontend interaction rules.
+
+## Architecture
+
+For a comprehensive overview of the smart contract architecture, module responsibilities, and interaction boundaries, see **[Contracts Architecture](./docs/CONTRACTS_ARCHITECTURE.md)**.
+
+### Contract Modules
+
+| Module                          | Purpose                                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **YieldVault**                  | Main vault contract: deposit/withdraw, yield accrual, strategy management, DAO governance, RWA shipment tracking |
+| **StrategyTrait**               | Interface for pluggable strategy connectors                                                                      |
+| **BenjiStrategy**               | Test connector for BENJI fund token strategy                                                                     |
+| **MockKoreanSovereignStrategy** | Test mock for Korean debt strategy with stepped yield curve                                                      |
+| **OracleValidator**             | Standalone oracle price validation library (heartbeat, deviation, decimals)                                      |
+| **MockPriceOracle**             | Test mock oracle with configurable failure modes                                                                 |
 
 ## Technology Stack
+
 - **Network**: Stellar (Testnet/Mainnet)
 - **Smart Contracts**: Soroban (Rust, WebAssembly)
 - **Frontend**: Vite, React, TypeScript, Vanilla CSS
@@ -18,40 +35,62 @@ This project is structured as a monorepo containing both the Stellar Soroban sma
 
 ## Getting Started
 
-### 1. Smart Contracts
-Ensure you have Rust and the `wasm32-unknown-unknown` target installed.
+**For complete local development setup with service dependencies, startup order, and troubleshooting, see:**
+
+- **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)** – Complete setup guide with step-by-step instructions
+- **[Service Dependency Matrix](./docs/SERVICE_DEPENDENCY_MATRIX.md)** – Visual dependency graph and service specifications
+- **[Stellar Testnet & Mainnet Deployment Runbook](./docs/DEPLOYMENT.md)** – Pinned toolchain alignment, optimizations, and upgrade guide
+
+### Quick Start (5 minutes)
+
+1. **Start infrastructure** (PostgreSQL + Redis):
+
+   ```bash
+   docker-compose up -d postgres redis
+   ```
+
+2. **Start backend API** (in one terminal):
+
+   ```bash
+   cd backend && npm install && npx prisma migrate dev && npm run dev
+   ```
+
+3. **Start frontend** (in another terminal):
+
+   ```bash
+   cd frontend && npm install && npm run dev
+   ```
+
+4. **Configure frontend contract env** (required before on-chain features work):
+
+   ```bash
+   cp frontend/.env.local.example frontend/.env.local
+   # Set VITE_VAULT_CONTRACT_ID from deployment.json after a contract deploy
+   npm run validate:frontend-env -- --env-file frontend/.env.local --strict --check-rpc
+   ```
+
+5. **Open browser**: http://localhost:5173
+
+### Fund a Stellar testnet account
+
+After installing backend dependencies, fund a contributor wallet with Friendbot:
+
 ```bash
-cd contracts/vault
-cargo test
-cargo build --target wasm32-unknown-unknown --release
+read -rsp "Testnet secret key: " TESTNET_SECRET_KEY && echo
+export TESTNET_SECRET_KEY
+node scripts/fund-testnet-account.js
+unset TESTNET_SECRET_KEY
 ```
 
-### 2. Frontend Application
-Ensure you have Node.js installed.
-```bash
-cd frontend
-npm install
-npm run dev
-```
+To create a classic test-USDC trustline, set `TESTNET_USDC_ISSUER`. For a
+locally controlled test issuer, also set `TESTNET_USDC_ISSUER_SECRET`; the
+script will send `TESTNET_USDC_AMOUNT` (default `1000`) to the contributor
+wallet. Secrets are read only from environment variables and are never
+committed or printed.
 
-Navigate to `http://localhost:5173` to interact with the local UI.
+For detailed setup instructions, prerequisites, and troubleshooting, see **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)**.
 
-### 3. Custom Soroban RPC Configuration
-
-Create a frontend environment file from the example:
-
-```bash
-cd frontend
-cp .env.example .env
-```
-
-Set:
-
-- `VITE_SOROBAN_RPC_URL` (custom RPC endpoint, optional)
-- `VITE_STELLAR_NETWORK_PASSPHRASE` (network passphrase)
-- `VITE_VAULT_CONTRACT_ID` (deployed vault contract ID)
-
-If `VITE_SOROBAN_RPC_URL` is not set, the app defaults to Stellar testnet RPC.
+For a complete environment variable reference with defaults, required flags, and production recommendations, see **[Environment Variable Matrix](./docs/ENV_VARIABLE_MATRIX.md)**.
 
 ## API Documentation
 
@@ -64,10 +103,87 @@ npm install
 npm run docs:api
 ```
 
-See `docs/api/README.md` for output locations.
+See `docs/api/README.md` for output locations. Integrators should also read
+[`docs/api/ERROR_CODE_CATALOG.md`](docs/api/ERROR_CODE_CATALOG.md) for error codes
+and remediation guidance, and [`docs/api/PAGINATION.md`](docs/api/PAGINATION.md) for
+deterministic cursor paging examples.
+
+**Pagination consumer examples:**
+
+- [TypeScript](./docs/examples/api_pagination_consumer.ts)
+- [Python](./docs/examples/api_pagination_consumer.py)
+
+## Webhook Integration
+
+YieldVault emits cryptographically-signed events for all critical vault operations. Off-chain services can consume these events to track deposits, withdrawals, fee changes, and other protocol activity.
+
+For a complete guide on consuming YieldVault events, see **[Webhook Integration Guide](./docs/WEBHOOK_INTEGRATION.md)**.
+
+### Quick Start
+
+**Listen for vault events (TypeScript):**
+
+```typescript
+import { Server } from "@stellar/stellar-sdk";
+
+const server = new Server("https://soroban-testnet.stellar.org");
+const contractId = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+
+const response = await server.getEvents({
+  filters: [{ type: "contract", contractIds: [contractId] }],
+  startLedger: 0,
+  limit: 100,
+});
+
+for (const event of response.events) {
+  console.log(`Event: ${event.topic[1]}`, event.value);
+}
+```
+
+**Events emitted:**
+
+- `deposit` — User deposits USDC and receives shares
+- `pndwdraw` — Large withdrawal initiated (24-hour timelock)
+- `withdraw` — Withdrawal completes
+- `feechg` — Protocol fee updated
+- `mindepchg` — Minimum deposit threshold updated
+
+**Complete examples:**
+
+- [TypeScript Consumer](./docs/examples/webhook_consumer.ts)
+- [Python Consumer](./docs/examples/webhook_consumer.py)
+
+## Disaster Recovery
+
+YieldVault has comprehensive disaster recovery procedures to ensure system resilience:
+
+- **RTO (Recovery Time Objective):** 1 hour for critical systems
+- **RPO (Recovery Point Objective):** 15 minutes maximum data loss
+- **Runbooks:** Step-by-step recovery procedures for all failure scenarios. Key runbooks include:
+  - [Disaster Recovery Runbooks Overview](./docs/runbooks/README.md)
+  - [Replay and State Recovery Procedures](./docs/runbooks/REPLAY_PROCEDURES.md)
+
+## Incident Postmortems
+
+YieldVault documents significant incidents with blameless postmortems and tracked action items:
+
+- **Templates:** [Post-mortem](./docs/runbooks/templates/post-mortem.md), [Incident Report](./docs/runbooks/templates/incident-report.md)
+- **Publication workflow:** [Postmortem Playbook](./docs/postmortem-playbook.md)
+- **Published reports:** [docs/incidents/](./docs/incidents/README.md)
+
+Postmortem drafts are due within 48 hours of incident resolution; publication within 5 business days.
 
 ## Roadmap (Phases)
+
 - **Phase 1**: Planning, Documentation, and Frontend UI Baseline (Completed)
 - **Phase 2**: Soroban Smart Contract Implementation in Rust (Completed)
 - **Phase 3**: Stellar Testnet Deployment and Frontend Integration (Up next)
 - **Phase 4**: Security Audit and Mainnet Launch
+
+## 🤝 Contributing
+
+Fork the repository and clone it to your local machine
+Create a new branch for your changes
+Make and test your updates following the project guidelines
+Commit and push your changes to your fork
+Open a Pull Request with a clear description
