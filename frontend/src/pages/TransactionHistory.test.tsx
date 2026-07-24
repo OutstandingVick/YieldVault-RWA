@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
@@ -50,7 +50,7 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
     amount: "100.00",
     asset: "USDC",
     timestamp: "2025-01-15T10:30:00Z",
-    transactionHash: "abcdef1234567890abcdef1234567890abcdef12",
+    transactionHash: "fixture-transaction-default",
     ...overrides,
   };
 }
@@ -64,11 +64,6 @@ function makeManyTransactions(count: number): Transaction[] {
       transactionHash: `hash${String(i).padStart(36, "0")}`,
     }),
   );
-}
-
-function UrlProbe() {
-  const [params] = useSearchParams();
-  return <div data-testid="url-probe">{params.toString()}</div>;
 }
 
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
@@ -709,13 +704,13 @@ describe("TransactionHistory — status filter", () => {
         id: "2",
         status: "pending",
         asset: "EURC",
-        transactionHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        transactionHash: "fixture-transaction-pending",
       }),
       makeTransaction({
         id: "3",
         status: "failed",
         asset: "XLM",
-        transactionHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        transactionHash: "fixture-transaction-failed",
       }),
     ]);
 

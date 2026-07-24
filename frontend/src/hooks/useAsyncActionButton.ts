@@ -40,6 +40,7 @@ export function useAsyncActionButton({
 
   useEffect(() => {
     if (isPending) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- maps external async flags into button chrome
       setStatus("pending");
       return;
     }

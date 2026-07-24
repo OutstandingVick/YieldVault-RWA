@@ -77,6 +77,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     ...options
   }: ToastOptions) => {
     const dedupeKey = generateDedupeKey({ ...options, variant });
+    // eslint-disable-next-line react-hooks/purity -- showToast runs on user/system events
     const now = Date.now();
 
     // Check for duplicate within dedupe window
