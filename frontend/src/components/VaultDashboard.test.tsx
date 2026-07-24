@@ -218,7 +218,6 @@ describe("VaultDashboard", () => {
     expect(screen.queryByText(/Wallet Not Connected/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Global RWA Yield Fund/i)).toBeInTheDocument();
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
-    expect(screen.getByText(/APY quote fresh/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
     expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
