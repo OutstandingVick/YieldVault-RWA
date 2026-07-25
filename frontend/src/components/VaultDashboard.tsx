@@ -59,8 +59,6 @@ import {
   type TransactionConflictResolution,
 } from "../lib/transactionConflict";
 import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
-import Badge from "./Badge";
-import { useNavigate } from "react-router-dom";
 
 const FIRST_DEPOSIT_PREFIX = "yieldvault:first-deposit:";
 
@@ -301,7 +299,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     refresh,
   } = useVault();
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const toast = useToast();
   const delayedLoading = useDelayedLoading(isLoading);
 
