@@ -13,7 +13,7 @@ test.describe('Transaction history — unauthenticated', () => {
     await interceptApiRoutes(page);
     await page.goto('/transactions');
 
-    await expect(page.getByText('Connect your wallet')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Connect wallet/i })).toBeVisible();
   });
 });
