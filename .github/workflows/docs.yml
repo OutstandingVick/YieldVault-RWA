@@ -14,9 +14,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.85.0
 
       - name: Generate Rust docs
         run: |
           cargo doc -p share-price-math --no-deps
           cargo doc -p mock-strategy --no-deps
+        continue-on-error: false
