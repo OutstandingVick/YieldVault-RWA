@@ -30,7 +30,6 @@ jobs:
               - 'packages/api-schemas/**'
             backend:
               - 'backend/**'
-              - 'packages/api-schemas/**'
             contracts:
               - 'contracts/**'
               - 'Cargo.toml'
