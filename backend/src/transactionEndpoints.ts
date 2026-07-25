@@ -12,6 +12,13 @@ import {
   createPaginationEnvelope,
 } from './pagination';
 import { DateRangeParseError, parseUtcDateRange, type ParsedUtcDateRange } from './dateRange';
+import {
+  resolveTransactionSort,
+  buildTransactionOrderBy,
+  buildTransactionCursorFilter,
+  parseTypeFilter,
+  parseStatusFilter,
+} from './transactionQuery';
 import { buildTransactionsResponse } from './listEndpoints';
 import { cacheMiddleware } from './middleware/cache';
 import { tenantGuard } from './middleware/tenantGuard';
@@ -29,10 +36,10 @@ const CACHE_TTL_MS = parseInt(process.env.CACHE_LIST_ENDPOINTS_TTL_MS || '30000'
  * - limit: Items per page (1-100, default 20)
  * - cursor: Opaque cursor for pagination (from previous response's nextCursor)
  * - type: Filter by transaction type ('deposit' or 'withdrawal', or both if omitted)
- * - status: Filter by transaction status
+ * - status: Filter by transaction status ('pending', 'completed' or 'failed')
  * - from: Start date (ISO 8601 or YYYY-MM-DD format)
  * - to: End date (ISO 8601 or YYYY-MM-DD format)
- * - sortBy: Field to sort by (default: 'timestamp')
+ * - sortBy: Field to sort by — one of 'timestamp', 'type', 'status' (default: 'timestamp')
  * - sortOrder: Sort direction 'asc' or 'desc' (default: 'desc')
  * 
  * Response: Paginated list of transactions with total count and no duplicate results across pages
@@ -84,22 +91,21 @@ router.get('/',
       }
 
       // Validate type filter if provided
-      const validTypes = ['deposit', 'withdrawal'];
-      let typeFilter: string[] = [];
-      if (type) {
-        const typeStr = typeof type === 'string' ? type : '';
-        const types = typeStr.split(',').map((t) => t.trim());
-        for (const t of types) {
-          if (!validTypes.includes(t)) {
-            res.status(400).json({
-              error: 'Bad Request',
-              status: 400,
-              message: `Invalid type filter. Allowed values: ${validTypes.join(', ')}`,
-            });
-            return;
-          }
-        }
-        typeFilter = types;
+      const { types: typeFilter, error: typeError } = parseTypeFilter(
+        typeof type === 'string' ? type : undefined,
+      );
+      if (typeError) {
+        res.status(400).json({ error: 'Bad Request', status: 400, message: typeError });
+        return;
+      }
+
+      // Validate status filter if provided
+      const { status: statusFilter, error: statusError } = parseStatusFilter(
+        typeof status === 'string' ? status : undefined,
+      );
+      if (statusError) {
+        res.status(400).json({ error: 'Bad Request', status: 400, message: statusError });
+        return;
       }
 
       // Parse pagination parameters
@@ -108,6 +114,17 @@ router.get('/',
         defaultSortBy: 'timestamp',
         defaultSortOrder: 'desc',
       });
+
+      // Resolve and validate the requested sort field against the allowlist.
+      const sort = resolveTransactionSort(paginationQuery.sortBy, paginationQuery.sortOrder);
+      if (!sort.valid) {
+        res.status(400).json({
+          error: 'Bad Request',
+          status: 400,
+          message: `Invalid sortBy value '${sort.requested}'. Allowed values: timestamp, type, status`,
+        });
+        return;
+      }
 
       // Parse and validate date range
       let dateRange: ParsedUtcDateRange = {};
@@ -127,9 +144,11 @@ router.get('/',
 
       span.setAttributes({
         'transaction.typeFilter': typeFilter.length > 0 ? typeFilter.join(',') : 'all',
-        'transaction.statusFilter': status ? String(status) : 'all',
+        'transaction.statusFilter': statusFilter ?? 'all',
         'transaction.walletFilter': walletAddress ? normalizeWalletAddress(String(walletAddress)) : 'all',
         'transaction.hasDateRange': !!(dateRange.start || dateRange.end),
+        'transaction.sortBy': sort.field,
+        'transaction.sortOrder': sort.order,
         'pagination.limit': paginationQuery.limit,
         'pagination.hasCursor': !!paginationQuery.cursor,
       });
@@ -143,8 +162,8 @@ router.get('/',
         whereClause.type = { in: typeFilter };
       }
 
-      if (status) {
-        whereClause.status = String(status);
+      if (statusFilter) {
+        whereClause.status = statusFilter;
       }
 
       if (walletAddress) {
@@ -164,10 +183,9 @@ router.get('/',
       // Fetch total count for response metadata
       const total = await prisma.transaction.count({ where: whereClause });
 
-      // Determine sort direction
-      const sortOrder = paginationQuery.sortOrder === 'asc' ? 'asc' : 'desc';
-
-      // Fetch transactions with cursor-based pagination
+      // Fetch transactions with cursor-based pagination. The skip count is
+      // derived from the resolved sort field so pagination stays correct for
+      // any sortable column, not just timestamp.
       let skip = 0;
       if (paginationQuery.cursor) {
         try {
@@ -186,13 +204,11 @@ router.get('/',
             return;
           }
 
-          // Count items before the cursor to determine skip value
+          // Count items before the cursor (under the active sort) to skip.
           skip = await prisma.transaction.count({
             where: {
               ...whereClause,
-              ...(sortOrder === 'desc'
-                ? { timestamp: { gt: cursorTx.timestamp } }
-                : { timestamp: { lt: cursorTx.timestamp } }),
+              ...buildTransactionCursorFilter(sort, cursorTx as Record<string, unknown> & { id: string }),
             },
           });
         } catch (err) {
@@ -213,9 +229,7 @@ router.get('/',
       const limit = paginationQuery.limit || DEFAULT_PAGINATION_CONFIG.defaultLimit;
       const transactions = await prisma.transaction.findMany({
         where: whereClause,
-        orderBy: {
-          timestamp: sortOrder,
-        },
+        orderBy: buildTransactionOrderBy(sort),
         skip,
         take: limit + 1,
       });

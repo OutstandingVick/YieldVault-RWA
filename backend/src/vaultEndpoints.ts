@@ -24,6 +24,7 @@ import crypto from 'crypto';
 // crypto is still used below for generateFingerprint and body.id generation.
 import { tryAcquireWalletLock } from './walletLock';
 import { normalizeWalletAddress } from './walletUtils';
+import { recordVaultLifecycleEvent } from './vaultAuditLog';
 import Decimal from 'decimal.js';
 
 const router = Router();
@@ -142,6 +143,7 @@ async function handleVaultOperation(
 
   const { amount, asset, walletAddress, email, referralCode } = req.body;
   const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const correlationId = req.header('x-correlation-id') || undefined;
   const walletLock = tryAcquireWalletLock(normalizedWallet);
 
   if (!walletLock.acquired) {
@@ -153,6 +155,18 @@ async function handleVaultOperation(
       walletAddress: normalizedWallet,
     });
   }
+
+  // Audit: the vault operation has been accepted and is about to be attempted.
+  recordVaultLifecycleEvent({
+    operation: type,
+    phase: 'initiated',
+    actor: normalizedWallet,
+    amount: String(amount),
+    asset: String(asset),
+    correlationId,
+    traceId: getCurrentTraceId(),
+    metadata: { idempotent: !!idempotencyKey },
+  });
 
   const operation = async () => {
     return withSpan(`vault.${type}`, async (span) => {
@@ -173,6 +187,18 @@ async function handleVaultOperation(
         throw err;
       }
 
+      // Audit: the transaction was accepted by the Soroban RPC.
+      recordVaultLifecycleEvent({
+        operation: type,
+        phase: 'submitted',
+        actor: normalizedWallet,
+        amount: String(amount),
+        asset: String(asset),
+        txHash,
+        correlationId,
+        traceId: getCurrentTraceId(),
+      });
+
       // Persist transaction to DB
       const prisma = getPrismaClient();
       await prisma.transaction.create({
@@ -186,6 +212,18 @@ async function handleVaultOperation(
       });
 
       await updateVaultStateAndSnapshot(type, String(amount), new Date());
+
+      // Audit: transaction durably recorded and vault state updated.
+      recordVaultLifecycleEvent({
+        operation: type,
+        phase: 'confirmed',
+        actor: normalizedWallet,
+        amount: String(amount),
+        asset: String(asset),
+        txHash,
+        correlationId,
+        traceId: getCurrentTraceId(),
+      });
 
       // Handle referral recording on deposit
       if (type === 'deposit') {
@@ -297,6 +335,29 @@ async function handleVaultOperation(
     });
     return res.status(result.statusCode).json(result.body);
   } catch (err) {
+    // Audit: the operation failed. Idempotency conflicts are replays of an
+    // in-flight/complete request rather than a lifecycle failure, so they are
+    // classified with a distinct error code but still recorded.
+    const errorCode =
+      err instanceof CircuitOpenError
+        ? 'SOROBAN_CIRCUIT_OPEN'
+        : err instanceof SorobanSimulationError
+          ? err.code || 'SOROBAN_SIMULATION_ERROR'
+          : err instanceof IdempotencyConflictError
+            ? 'IDEMPOTENCY_CONFLICT'
+            : 'VAULT_OPERATION_ERROR';
+    recordVaultLifecycleEvent({
+      operation: type,
+      phase: 'failed',
+      actor: normalizedWallet,
+      amount: String(amount),
+      asset: String(asset),
+      correlationId,
+      traceId: getCurrentTraceId(),
+      errorCode,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+
     if (err instanceof IdempotencyConflictError) {
       return res.status(409).json({
         error: 'Conflict',
