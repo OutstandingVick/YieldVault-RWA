@@ -182,6 +182,7 @@ export const en = {
   errorFallback: {
     title: "Something went wrong",
     message: "We've encountered an unexpected issue. Our team has been notified and is working on it.",
+    tryAgain: "Try Again",
     reload: "Reload Page",
     goHome: "Go Home",
   },

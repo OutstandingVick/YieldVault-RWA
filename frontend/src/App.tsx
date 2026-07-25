@@ -23,6 +23,7 @@ import {
   loadVaultFormDraft,
   type VaultFormDraft,
 } from "./lib/formDraftStorage";
+import ErrorBoundary from "./components/ErrorBoundary";
 import ErrorFallback from "./components/ErrorFallback";
 import RouteLoadingFallback from "./components/RouteLoadingFallback";
 import {
@@ -227,15 +228,17 @@ function App() {
           resetError={props.resetError}
         />
       )}
-      showDialog
+      showDialog={false}
     >
-      <AuthProvider>
-        <FeatureFlagProvider>
-          <VaultProvider>
-            <AppContent />
-          </VaultProvider>
-        </FeatureFlagProvider>
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <FeatureFlagProvider>
+            <VaultProvider>
+              <AppContent />
+            </VaultProvider>
+          </FeatureFlagProvider>
+        </AuthProvider>
+      </ErrorBoundary>
     </Sentry.ErrorBoundary>
   );
 }
