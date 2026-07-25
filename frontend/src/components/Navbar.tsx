@@ -112,7 +112,6 @@ const Navbar: FC<NavbarProps> = ({
             <NavLink to="/portfolio" className="nav-link" {...getRoutePrefetchHandlers("/portfolio")}>
               {t("nav.portfolio")}
             </NavLink>
-            <NavLink to="/analytics" className="nav-link" {...getRoutePrefetchHandlers("/analytics")}>
             <NavLink to="/compare" className="nav-link">
               {t("nav.compare")}
             </NavLink>
@@ -201,7 +200,6 @@ const Navbar: FC<NavbarProps> = ({
           <NavLink to="/portfolio" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/portfolio")}>
             {t("nav.portfolio")}
           </NavLink>
-          <NavLink to="/analytics" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/analytics")}>
           <NavLink to="/compare" onClick={() => setIsMobileMenuOpen(false)}>
             {t("nav.compare")}
           </NavLink>
@@ -233,7 +231,6 @@ const Navbar: FC<NavbarProps> = ({
           <NavLink to="/portfolio" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/portfolio")}>
             {t("nav.portfolio")}
           </NavLink>
-          <NavLink to="/analytics" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/analytics")}>
           <NavLink to="/compare" role="menuitem" onClick={() => setMenuOpen(false)}>
             {t("nav.compare")}
           </NavLink>

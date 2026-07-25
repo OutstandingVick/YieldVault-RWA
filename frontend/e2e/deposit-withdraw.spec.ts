@@ -24,35 +24,12 @@ async function confirmInModal(page: Page) {
   await modal.getByRole('button', { name: /^Confirm( Anyway)?$/i }).click();
 }
 
-async function confirmDeposit(page: Page) {
-  const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
-  await expect(confirmBtn).toBeEnabled();
-  await confirmBtn.click();
-  await confirmInModal(page);
-}
-
-async function confirmWithdrawal(page: Page) {
-  const confirmBtn = page.getByRole('button', { name: /Confirm withdraw/i });
-  await expect(confirmBtn).toBeEnabled();
-  await confirmBtn.click();
-  await confirmInModal(page);
-}
-
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 async function goToConnectedVault(page: Page, path = '/') {
   await page.goto(path);
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
   await waitForMockUsdcBalance(page);
-}
-
-/** Switch vault tabs via URL deep link (tab button clicks do not sync search params in preview builds). */
-async function switchVaultTab(page: Page, tab: 'deposit' | 'withdraw') {
-  await page.goto(`/?tab=${tab}`);
-  await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 10_000 });
-  await expect(
-    page.getByText(tab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'),
-  ).toBeVisible({ timeout: 10_000 });
 }
 
 // Tests that verify unauthenticated UI  no Freighter stub injected
