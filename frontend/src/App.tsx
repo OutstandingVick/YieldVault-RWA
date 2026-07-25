@@ -41,6 +41,7 @@ import { useVault, VaultProvider } from "./context/VaultContext";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
+const VaultComparison = lazy(() => import("./pages/VaultComparison"));
 const TransactionReceipt = lazy(() => import("./pages/TransactionReceipt"));
 
 // Removed simple fallback in favor of components/ErrorFallback
@@ -181,6 +182,8 @@ function AppContent() {
                     </FeatureGate>
                   }
                 />
+                <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/compare" element={<VaultComparison />} />
                 <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
                 <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
                 <Route path="/settings" element={<LazySettings />} />

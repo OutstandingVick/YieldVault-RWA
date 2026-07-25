@@ -17,6 +17,7 @@ export const es = {
     },
     vaults: "Bóvedas",
     portfolio: "Portafolio",
+    compare: "Comparar",
     analytics: "Analica",
     transactions: "Transacciones",
   },
