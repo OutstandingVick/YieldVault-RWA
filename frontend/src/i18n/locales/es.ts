@@ -182,6 +182,7 @@ export const es = {
   errorFallback: {
     title: "Algo salió mal",
     message: "Encontramos un problema inesperado. Nuestro equipo ha sido notificado y está trabajando en ello.",
+    tryAgain: "Intentar de nuevo",
     reload: "Recargar página",
     goHome: "Ir al inicio",
   },
