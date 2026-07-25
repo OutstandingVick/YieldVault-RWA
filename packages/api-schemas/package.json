@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepare": "node -e \"try{require.resolve('zod')}catch{process.exit(0)}\" && npm run build",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.vitest.json",
     "test": "vitest run",
     "test:run": "vitest run"
