@@ -97,6 +97,14 @@ const ADMIN_ROUTE_RULES: RouteRule[] = [
   { methods: ['POST'], pattern: /^\/admin\/api-keys\/rotate$/, permission: Permission.API_KEYS_WRITE },
   { methods: ['POST'], pattern: /^\/admin\/api-keys\/revoke$/, permission: Permission.API_KEYS_WRITE },
 
+  // Scoped admin tokens (Issue #858)
+  { methods: ['POST'],   pattern: /^\/admin\/scoped-tokens$/, permission: Permission.API_KEYS_SUPER },
+  { methods: ['POST'],   pattern: /^\/admin\/scoped-tokens\/[^/]+\/rotate$/, permission: Permission.API_KEYS_SUPER },
+  { methods: ['POST'],   pattern: /^\/admin\/scoped-tokens\/[^/]+\/revoke$/, permission: Permission.API_KEYS_SUPER },
+  { methods: ['GET'],    pattern: /^\/admin\/scoped-tokens$/, permission: Permission.ADMIN_READ },
+  { methods: ['GET'],    pattern: /^\/admin\/scoped-tokens\/[^/]+$/, permission: Permission.ADMIN_READ },
+  { methods: ['GET'],    pattern: /^\/admin\/scoped-tokens\/[^/]+\/rotations$/, permission: Permission.ADMIN_READ },
+
   // Webhooks
   { methods: ['POST'], pattern: /^\/admin\/webhooks$/, permission: Permission.WEBHOOKS_WRITE },
   { methods: ['PATCH'], pattern: /^\/admin\/webhooks\/[^/]+$/, permission: Permission.WEBHOOKS_WRITE },
