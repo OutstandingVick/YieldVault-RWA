@@ -43,6 +43,7 @@ import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/stru
 import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
+import { getRedisCacheHealth, redisCacheClient } from './redisCache';
 import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
 import { tieredJsonBodyParser } from './middleware/payloadLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
@@ -214,6 +215,50 @@ function buildVaultSummaryResponse() {
     apy: 0,
     timestamp: new Date().toISOString(),
   };
+}
+
+/**
+ * Reads the vault summary from the VaultState table and the most recent
+ * SharePriceSnapshot for the share price. Falls back to zeroed values when
+ * the database is unavailable (e.g., during startup or in tests).
+ */
+async function buildVaultSummaryResponseFromDb(): Promise<{
+  totalAssets: string;
+  totalShares: string;
+  sharePrice: string;
+  apy: number;
+  timestamp: string;
+}> {
+  try {
+    const prismaClient = getPrismaClient();
+    const [vaultState, latestSnapshot] = await Promise.all([
+      prismaClient.vaultState.findUnique({ where: { id: 1 } }),
+      prismaClient.sharePriceSnapshot
+        .findFirst({ orderBy: { recordedAt: 'desc' } })
+        .catch(() => null),
+    ]);
+
+    const totalAssets = vaultState?.totalAssets ?? '0';
+    const totalShares = vaultState?.totalShares ?? '0';
+    const sharePrice = latestSnapshot?.sharePrice ?? '1.000000';
+
+    return {
+      totalAssets,
+      totalShares,
+      sharePrice,
+      apy: 0, // APY is computed by the nightly snapshot job; placeholder until first run
+      timestamp: new Date().toISOString(),
+    };
+  } catch {
+    // Fail-open: return safe zero values so the endpoint never 500s
+    return {
+      totalAssets: '0',
+      totalShares: '0',
+      sharePrice: '1.000000',
+      apy: 0,
+      timestamp: new Date().toISOString(),
+    };
+  }
 }
 
 function resolveActingAdminAddress(req: Request): string {
@@ -649,8 +694,11 @@ app.get('/health', async (_req: Request, res: Response) => {
     sorobanCircuitBreaker: circuitSnapshot,
   };
 
-  // Check if all dependencies are healthy
-  const allHealthy = Object.values(health.checks).every((check) => check === 'up');
+  // 'degraded' is acceptable for cache (in-memory fallback active); only 'down' is unhealthy
+  const allHealthy = Object.entries(health.checks).every(([key, check]) => {
+    if (key === 'cache') return check === 'up' || check === 'degraded';
+    return check === 'up';
+  });
 
   res.status(allHealthy ? 200 : 503).json(health);
 });
@@ -885,7 +933,9 @@ app.get('/api/v1/vault/transactions/export', handleTransactionExport);
  *               $ref: '#/components/schemas/VaultSummary'
  */
 /**
- * GET /api/v1/vault/summary â€“ read-only summary; relaxed rate limit.
+ * GET /api/v1/vault/summary – read-only summary; relaxed rate limit.
+ * Data is sourced from VaultState + SharePriceSnapshot (DB) and cached via
+ * the Redis-backed response cache.
  */
 app.get(
   '/api/v1/vault/summary',
@@ -901,12 +951,19 @@ app.get(
       code: 'VAULT_SUMMARY_TIMEOUT',
       message: 'Vault summary is temporarily unavailable. Please refresh in a moment.',
       stale: true,
-      data: buildVaultSummaryResponse(),
+      data: {
+        totalAssets: '0',
+        totalShares: '0',
+        sharePrice: '1.000000',
+        apy: 0,
+        timestamp: new Date().toISOString(),
+      },
       timestamp: new Date().toISOString(),
     }),
   }),
-  (_req: Request, res: Response) => {
-    res.json(buildVaultSummaryResponse());
+  async (_req: Request, res: Response) => {
+    const summary = await buildVaultSummaryResponseFromDb();
+    res.json(summary);
   },
 );
 
@@ -1409,7 +1466,7 @@ app.delete('/admin/feature-flags/overrides/:id', validateApiKey, async (req: Req
 });
 
 /**
- * GET /admin/cache/stats - Get cache statistics including hit rate (R8)
+ * GET /admin/cache/stats - Get cache statistics including hit rate (R8) and Redis status
  * Requires API key authentication
  */
 app.get('/admin/cache/stats', validateApiKey, async (_req: Request, res: Response) => {
@@ -1445,10 +1502,35 @@ app.get('/admin/cache/stats', validateApiKey, async (_req: Request, res: Respons
     hitRate = null;
   }
 
+  const redisHealth = await getRedisCacheHealth();
+
   res.json({
     entryCount: stats.size,
     entries: stats.entries,
     hitRate,
+    redis: {
+      configured: redisCacheClient.isConfigured,
+      ready: redisCacheClient.isReady,
+      health: redisHealth,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/cache/redis-status - Detailed Redis cache connection and health status
+ * Requires API key authentication
+ */
+app.get('/admin/cache/redis-status', validateApiKey, async (_req: Request, res: Response) => {
+  const redisHealth = await getRedisCacheHealth();
+  const pingResponse = await redisCacheClient.ping();
+
+  res.json({
+    configured: redisCacheClient.isConfigured,
+    ready: redisCacheClient.isReady,
+    health: redisHealth,
+    ping: pingResponse,
+    fallbackActive: redisCacheClient.isConfigured && !redisCacheClient.isReady,
     timestamp: new Date().toISOString(),
   });
 });
@@ -3829,20 +3911,32 @@ if (process.env.NODE_ENV !== 'test' && process.env.VAULT_CONTRACT_ID) {
 // â”€â”€â”€ Dependency Health Checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
- * Check cache health
+ * Check cache health.
+ * Tests the in-memory NodeCache first; also probes Redis when configured.
+ * Returns 'up' when the primary store is healthy (Redis or memory).
  */
 function getCacheHealth(): string {
   try {
     cache.set('health-check', true);
     const value = cache.get('health-check');
-    return value ? 'up' : 'down';
+    if (!value) return 'down';
+
+    // If Redis is configured, surface its connection status as well
+    if (redisCacheClient.isConfigured && !redisCacheClient.isReady) {
+      // Redis configured but not yet connected → degraded, memory cache still up
+      return 'degraded';
+    }
+
+    return 'up';
   } catch {
     return 'down';
   }
 }
 
 function checkCacheDependency(): boolean {
-  return getCacheHealth() === 'up';
+  const health = getCacheHealth();
+  // 'degraded' means memory fallback is active — service is still operational
+  return health === 'up' || health === 'degraded';
 }
 
 /**

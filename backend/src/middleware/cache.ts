@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { cacheHitCount, cacheMissCount, cacheEvictionCount } from '../metrics';
 import { latencyMonitoringService } from '../latencyMonitoring';
+import { getFromCache, setInCache, redisCacheClient } from '../redisCache';
 
 interface CacheEntry {
   data: unknown;
@@ -158,6 +159,83 @@ export function cacheMiddleware(options: CacheOptions) {
 
     const route = (req.route?.path as string | undefined) ?? req.path;
     const cacheKey = buildCacheKey(req);
+
+    // ── Redis-aware async path ───────────────────────────────────────────────
+    // When Redis is configured we use the async Redis+LRU path; otherwise we
+    // fall through to the synchronous in-memory-only path for zero overhead.
+    if (redisCacheClient.isConfigured) {
+      const hitStart = Date.now();
+
+      getFromCache(cacheKey)
+        .then((cached) => {
+          if (cached && cached.expiresAt > Date.now()) {
+            // Cache HIT (Redis or LRU fallback)
+            cacheHitCount.inc({ method: req.method, route });
+
+            const remainingMs = cached.expiresAt - Date.now();
+            const remainingSec = Math.ceil(remainingMs / 1000);
+
+            res.setHeader('X-Cache-Hit', 'true');
+            res.setHeader('X-Cache-Backend', redisCacheClient.isReady ? 'redis' : 'memory');
+            res.setHeader('Cache-Control', `public, max-age=${Math.max(remainingSec, 0)}`);
+
+            for (const [name, value] of Object.entries(cached.headers)) {
+              if (name !== 'Cache-Control' && name !== 'X-Cache-Hit' && name !== 'X-Cache-Backend') {
+                res.setHeader(name, value);
+              }
+            }
+
+            res.status(cached.statusCode).json(cached.data);
+            latencyMonitoringService.recordLatency(route, Date.now() - hitStart, true);
+            return;
+          }
+
+          // Cache MISS — intercept response to store it
+          const missStart = Date.now();
+          cacheMissCount.inc({ method: req.method, route });
+
+          const originalJson = res.json.bind(res);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          res.json = function (data: any) {
+            const status = res.statusCode ?? 200;
+
+            if (status >= 200 && status < 300) {
+              const maxAgeSec = Math.ceil(options.ttl / 1000);
+              res.setHeader('X-Cache-Hit', 'false');
+              res.setHeader('X-Cache-Backend', redisCacheClient.isReady ? 'redis' : 'memory');
+              res.setHeader('Cache-Control', `public, max-age=${maxAgeSec}`);
+
+              const entry = {
+                data,
+                statusCode: status,
+                headers: {},
+                expiresAt: Date.now() + options.ttl,
+                ttl: options.ttl,
+                lastUsed: Date.now(),
+              };
+
+              // Fire-and-forget: write to Redis + LRU asynchronously
+              void setInCache(cacheKey, entry, options.ttl).catch(() => {
+                // Errors are already logged inside setInCache; do not crash the response
+              });
+            }
+
+            const result = originalJson(data);
+            latencyMonitoringService.recordLatency(route, Date.now() - missStart, false);
+            return result;
+          } as typeof res.json;
+
+          next();
+        })
+        .catch(() => {
+          // Redis lookup failed entirely — fall through to handler without caching
+          next();
+        });
+
+      return;
+    }
+
+    // ── Synchronous in-memory-only path (Redis not configured) ───────────────
     const cached = responseCache.get(cacheKey);
 
     if (cached && cached.expiresAt > Date.now()) {
@@ -169,11 +247,12 @@ export function cacheMiddleware(options: CacheOptions) {
       const remainingSec = Math.ceil(remainingMs / 1000);
 
       res.setHeader('X-Cache-Hit', 'true');
+      res.setHeader('X-Cache-Backend', 'memory');
       res.setHeader('Cache-Control', `public, max-age=${Math.max(remainingSec, 0)}`);
 
       // Restore any other cached response headers
       for (const [name, value] of Object.entries(cached.headers)) {
-        if (name !== 'Cache-Control' && name !== 'X-Cache-Hit') {
+        if (name !== 'Cache-Control' && name !== 'X-Cache-Hit' && name !== 'X-Cache-Backend') {
           res.setHeader(name, value);
         }
       }
@@ -199,6 +278,7 @@ export function cacheMiddleware(options: CacheOptions) {
       if (status >= 200 && status < 300) {
         const maxAgeSec = Math.ceil(options.ttl / 1000);
         res.setHeader('X-Cache-Hit', 'false');
+        res.setHeader('X-Cache-Backend', 'memory');
         res.setHeader('Cache-Control', `public, max-age=${maxAgeSec}`);
 
         responseCache.set(cacheKey, {
@@ -272,6 +352,8 @@ export function invalidateCache(pattern?: string): number {
   if (!pattern) {
     const count = responseCache.size;
     responseCache.clear();
+    // Also flush matching Redis keys asynchronously (best-effort)
+    void redisCacheClient.invalidatePattern('*').catch(() => {});
     return count;
   }
 
@@ -283,6 +365,10 @@ export function invalidateCache(pattern?: string): number {
       removed++;
     }
   }
+
+  // Asynchronously invalidate matching Redis keys (fail-safe; does not block the caller)
+  void redisCacheClient.invalidatePattern(pattern).catch(() => {});
+
   return removed;
 }
 
