@@ -1286,11 +1286,10 @@ impl YieldVault {
         state.total_assets = new_total_assets;
         env.storage().instance().set(&DataKey::State, &state);
 
-        Ok(harvested)
         env.events()
             .publish((symbol_short!("k_yield"),), (harvested, new_total_assets));
 
-        harvested
+        Ok(harvested)
     }
 
     pub fn set_dao_threshold(env: Env, threshold: i128) -> Result<(), VaultError> {
@@ -1496,11 +1495,6 @@ impl YieldVault {
             .has(&DataKey::Vote(VoteKey { proposal_id, voter: voter.clone() }))
         {
             return Err(VaultError::DuplicateVote);
-        if env.storage().instance().has(&DataKey::Vote(VoteKey {
-            proposal_id,
-            voter: voter.clone(),
-        })) {
-            panic!("duplicate vote");
         }
 
         let mut proposal: StrategyProposal = env
@@ -2994,8 +2988,6 @@ impl YieldVault {
     }
 
     fn check_and_update_claim_quota(env: &Env, amount: i128) -> Result<(), VaultError> {
-        if let Some(quota) = env.storage().instance().get::<_, i128>(&DataKeyExt::TreasuryClaimQuota) {
-    fn check_and_update_claim_quota(env: &Env, amount: i128) {
         if let Some(quota) = env
             .storage()
             .instance()
@@ -3327,17 +3319,11 @@ impl YieldVault {
             return Err(VaultError::StrategyNotWhitelisted);
         }
         let now = env.ledger().timestamp();
-        env.storage().instance().set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
-        env.events().publish((symbol_short!("strathb"),), (strategy, now));
-        Ok(())
-            panic!("strategy not whitelisted");
-        }
-        let now = env.ledger().timestamp();
         env.storage()
             .instance()
             .set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
-        env.events()
-            .publish((symbol_short!("strathb"),), (strategy, now));
+        env.events().publish((symbol_short!("strathb"),), (strategy, now));
+        Ok(())
     }
     pub fn strategy_last_heartbeat(env: Env, strategy: Address) -> Option<u64> {
         env.storage()

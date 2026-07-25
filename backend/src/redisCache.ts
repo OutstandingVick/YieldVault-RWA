@@ -53,7 +53,7 @@ const COMMAND_TIMEOUT_MS = resolveEnvInt(
 
 // ─── Prometheus Metrics ───────────────────────────────────────────────────────
 
-function createOrGet<T extends { name: string }>(
+function createOrGet<T>(
   factory: () => T,
   name: string,
 ): T {

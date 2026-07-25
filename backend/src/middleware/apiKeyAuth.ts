@@ -111,11 +111,11 @@ export function rotateApiKey(oldHash: string, newKey: string, options: { role?: 
   API_KEYS.delete(oldHash);
 
   const newHash = hashApiKey(newKey);
+  const resolvedRole = normalizeApiKeyRole(options.role ?? metadata.role) ?? metadata.role;
   API_KEYS.set(newHash, {
-    role: metadata.role,
+    role: resolvedRole,
     createdAt: metadata.createdAt,
     rotatedAt: new Date(),
-    role: normalizeApiKeyRole(options.role ?? metadata.role),
   });
 
   return newHash;

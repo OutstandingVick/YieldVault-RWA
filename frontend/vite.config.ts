@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@yieldvault/api-schemas": path.resolve(__dirname, "../packages/api-schemas/src/index.ts"),
+        "zod": path.resolve(__dirname, "node_modules/zod/index.js"),
         "es-toolkit/compat/sortBy": path.resolve(__dirname, "src/shims/esToolkitSortBy.ts"),
       },
     },
