@@ -13,6 +13,8 @@ This directory contains operational runbooks for disaster recovery and incident 
 | [Backend Redeploy](./BACKEND_REDEPLOY.md) | 30 min | N/A | Backend service issues |
 | [Contract Upgrade & Migration](./CONTRACT_UPGRADE_PLAYBOOK.md) | N/A | N/A | Smart contract upgrade deployment and rollback |
 | [RPC Failover](./RPC_FAILOVER.md) | 5 min | N/A | Stellar RPC node failure |
+| [RPC Provider Failover Strategy](../RPC_PROVIDER_FAILOVER_STRATEGY.md) | N/A | N/A | Provider ordering, timeout/retry & switch configuration |
+| [Failed Withdrawal Incident Playbook](./FAILED_WITHDRAWAL_INCIDENT_PLAYBOOK.md) | 30 min | N/A | Withdrawals failing / stuck / debited-not-received |
 | [Full DR Procedure](./FULL_DR_PROCEDURE.md) | 4 hours | 15 min | Complete infrastructure failure |
 | [Replay & State Recovery](./REPLAY_PROCEDURES.md) | N/A | N/A | Recovering/syncing ledger events or email queue |
 | [Error Code Troubleshooting](./ERROR_CODE_TROUBLESHOOTING.md) | N/A | N/A | Diagnose and fix backend errors |
