@@ -29,6 +29,7 @@ import { useReferralStats, useReferralLink } from "../hooks/useReferral";
 import ShareModal from "../components/ShareModal";
 import EmptyState from "../components/ui/EmptyState";
 import FirstTimePortfolioPanel from "../components/FirstTimePortfolioPanel";
+import { PortfolioCardSkeleton } from "../components/Skeleton";
 import { useNavigate } from "react-router-dom";
 import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
@@ -413,67 +414,81 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
           <div
             className="portfolio-summary-grid"
             style={{ marginBottom: "8px" }}
+            aria-busy={isLoading || undefined}
           >
-            <PortfolioSummaryCard
-              label={t("portfolio.totalNetValue")}
-              value={formatSensitiveCurrency(totalValue)}
-              icon={<DollarSign size={20} color="var(--accent-cyan)" />}
-              trend={totalNetValueTrend}
-              trendPositive={totalGain >= 0}
-            />
-            <PortfolioSummaryCard
-              label={t("portfolio.cumulativeYield")}
-              value={formatSensitiveCurrency(totalGain, true)}
-              icon={<TrendingUp size={20} color="var(--accent-purple)" />}
-              trend={cumulativeYieldTrend}
-              trendPositive={totalGain >= 0}
-            />
-            <PortfolioSummaryCard
-              label={
-                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Weighted Avg APY
-                  <HelpIcon
-                    variant="tooltip"
-                    content="The portfolio-value-weighted average of all active position APYs."
-                  />
-                </span>
-              }
-              value={formatPercent(weightedApy, {
-                locale,
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-              icon={<Percent size={20} color="var(--accent-cyan)" />}
-              trend={weightedApyTrend}
-              trendPositive={true}
-            />
-            <PortfolioSummaryCard
-              label={t("portfolio.activePositions")}
-              value={holdings.filter(h => h.status === 'active').length.toString()}
-              icon={<Briefcase size={20} color="var(--text-secondary)" />}
-            />
-            <PortfolioSummaryCard
-              label={
-                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Referral Earnings
-                  <HelpIcon
-                    variant="tooltip"
-                    content={t("portfolio.referralTooltip")}
-                  />
-                </span>
-              }
-              value={referralStats ? `$${referralStats.total_reward_earned}` : "$0.00"}
-              icon={<TrendingUp size={20} color="var(--accent-green)" />}
-              trend={referralStats ? `${referralStats.referral_count} referral${referralStats.referral_count !== 1 ? 's' : ''}` : "0 referrals"}
-              trendPositive={true}
-            />
-            <PortfolioSummaryCard
-              label={t("portfolio.shareReferralLink")}
-              value=""
-              icon={<Share2 size={20} color="var(--accent-cyan)" />}
-              onClick={() => setShowShareModal(true)}
-              clickable={true}
-            />
+            {isLoading ? (
+              <>
+                <PortfolioCardSkeleton />
+                <PortfolioCardSkeleton />
+                <PortfolioCardSkeleton />
+                <PortfolioCardSkeleton />
+                <PortfolioCardSkeleton />
+                <PortfolioCardSkeleton />
+              </>
+            ) : (
+              <>
+                <PortfolioSummaryCard
+                  label={t("portfolio.totalNetValue")}
+                  value={formatSensitiveCurrency(totalValue)}
+                  icon={<DollarSign size={20} color="var(--accent-cyan)" />}
+                  trend={totalNetValueTrend}
+                  trendPositive={totalGain >= 0}
+                />
+                <PortfolioSummaryCard
+                  label={t("portfolio.cumulativeYield")}
+                  value={formatSensitiveCurrency(totalGain, true)}
+                  icon={<TrendingUp size={20} color="var(--accent-purple)" />}
+                  trend={cumulativeYieldTrend}
+                  trendPositive={totalGain >= 0}
+                />
+                <PortfolioSummaryCard
+                  label={
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      Weighted Avg APY
+                      <HelpIcon
+                        variant="tooltip"
+                        content="The portfolio-value-weighted average of all active position APYs."
+                      />
+                    </span>
+                  }
+                  value={formatPercent(weightedApy, {
+                    locale,
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                  icon={<Percent size={20} color="var(--accent-cyan)" />}
+                  trend={weightedApyTrend}
+                  trendPositive={true}
+                />
+                <PortfolioSummaryCard
+                  label={t("portfolio.activePositions")}
+                  value={holdings.filter(h => h.status === 'active').length.toString()}
+                  icon={<Briefcase size={20} color="var(--text-secondary)" />}
+                />
+                <PortfolioSummaryCard
+                  label={
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      Referral Earnings
+                      <HelpIcon
+                        variant="tooltip"
+                        content={t("portfolio.referralTooltip")}
+                      />
+                    </span>
+                  }
+                  value={referralStats ? `$${referralStats.total_reward_earned}` : "$0.00"}
+                  icon={<TrendingUp size={20} color="var(--accent-green)" />}
+                  trend={referralStats ? `${referralStats.referral_count} referral${referralStats.referral_count !== 1 ? 's' : ''}` : "0 referrals"}
+                  trendPositive={true}
+                />
+                <PortfolioSummaryCard
+                  label={t("portfolio.shareReferralLink")}
+                  value=""
+                  icon={<Share2 size={20} color="var(--accent-cyan)" />}
+                  onClick={() => setShowShareModal(true)}
+                  clickable={true}
+                />
+              </>
+            )}
           </div>
 
           <YieldBreakdownChart totalGain={totalGain} />
