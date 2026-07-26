@@ -27,7 +27,7 @@ fn setup_formal_vault(e: &Env) -> (YieldVaultClient<'_>, token::StellarAssetClie
 
     let vault_id = e.register(YieldVault, ());
     let vault = YieldVaultClient::new(e, &vault_id);
-    vault.initialize(&admin, &usdc.address).unwrap();
+    vault.initialize(&admin, &usdc.address);
     vault.set_admin_param_change_interval(&0);
 
     (vault, usdc_sa, admin)
