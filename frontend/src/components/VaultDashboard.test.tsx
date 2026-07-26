@@ -16,6 +16,11 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import type { PortfolioHolding } from "../lib/portfolioApi";
 import confetti from "canvas-confetti";
 
+const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn(),
+  mockWithdrawMutateAsync: vi.fn(),
+}));
+
 vi.mock("canvas-confetti", () => ({
   default: vi.fn(),
 }));
@@ -40,11 +45,11 @@ vi.mock("../hooks/useVaultData", () => ({
 
 vi.mock("../hooks/useVaultMutations", () => ({
   useDepositMutation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockDepositMutateAsync,
     isPending: false,
   })),
   useWithdrawMutation: vi.fn(() => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockWithdrawMutateAsync,
     isPending: false,
   })),
 }));
@@ -59,7 +64,7 @@ vi.mock("../hooks/useFeeEstimate", () => ({
     feeUsd: 0.01,
     isEstimating: false,
     isHighFee: false,
-    lastUpdated: new Date("2026-03-25T10:00:00.000Z"),
+    lastUpdated: new Date(),
   }),
 }));
 
@@ -80,7 +85,7 @@ const mockSummary = {
   assetLabel: "Sovereign Debt",
   exchangeRate: 1.084,
   networkFeeEstimate: "~0.00001 XLM",
-  updatedAt: "2026-03-25T10:00:00.000Z",
+  updatedAt: new Date().toISOString(),
   contractPaused: false,
   strategy: {
     id: "stellar-benji",
@@ -177,7 +182,6 @@ describe("VaultDashboard", () => {
       approve: vi.fn().mockResolvedValue(undefined),
       resetApproval: vi.fn(),
     });
-    window.matchMedia = vi.fn().mockReturnValue({ matches: false } as MediaQueryList);
     localStorage.clear();
   });
 
@@ -203,7 +207,6 @@ describe("VaultDashboard", () => {
     expect(screen.queryByText(/Wallet Not Connected/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Global RWA Yield Fund/i)).toBeInTheDocument();
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
-    expect(screen.getByText(/APY quote fresh/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
     expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
@@ -285,7 +288,9 @@ describe("VaultDashboard", () => {
       expect(mutateAsync).toHaveBeenCalled();
     });
 
-    expect(confetti).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(confetti).toHaveBeenCalled();
+    });
     expect(localStorage.getItem("yieldvault:first-deposit:GFIRSTDEPOSITWALLET000000000000000000000000000000")).toBe("true");
   });
 

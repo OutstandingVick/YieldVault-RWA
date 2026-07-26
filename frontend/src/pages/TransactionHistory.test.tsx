@@ -6,6 +6,11 @@ import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
 import { ToastProvider } from "../context/ToastContext";
+import {
+  getPreferenceStorageKey,
+  setTransactionPageSize,
+  setTransactionViewMode,
+} from "../lib/userPreferenceStore";
 
 vi.mock("../hooks/useTransactionTimeline", () => ({
   useTransactionTimeline: () => ({
@@ -624,8 +629,6 @@ describe("TransactionHistory — amount range filter", () => {
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
 
-    const table = await screen.findByRole("table");
-
     // 50 should be hidden; 200 and 500 should be visible
     await waitFor(() =>
       expect(within(table).queryAllByText(/50 USDC/).length).toBe(0),
@@ -668,8 +671,6 @@ describe("TransactionHistory — amount range filter", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
-    const table = screen.getByRole("table");
-
     const table = screen.getByRole("table");
 
     // Only 50 should be visible
@@ -732,8 +733,6 @@ describe("TransactionHistory — status filter", () => {
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
-
-    const table = await screen.findByRole("table");
 
     // Only EURC (pending) should survive the filter
     await waitFor(() =>
@@ -914,7 +913,7 @@ describe("TransactionHistory — detail drawer", () => {
     renderPage(WALLET);
 
     const table = await screen.findByRole("table");
-    const row = within(table).getByRole("button", {
+    const row = await within(table).findByRole("button", {
       name: /View row details/i,
     });
     fireEvent.click(row);
