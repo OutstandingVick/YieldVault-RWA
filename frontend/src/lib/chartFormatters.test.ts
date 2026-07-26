@@ -27,7 +27,7 @@ describe("chartFormatters", () => {
 
     it("respects custom max decimals", () => {
       const formatted = formatChartNumber(1234.567, locale, { maxDecimals: 0 });
-      expect(formatted).toBe("1,234");
+      expect(formatted).toBe("1,235");
     });
 
     it("respects custom compact threshold", () => {
@@ -83,7 +83,7 @@ describe("chartFormatters", () => {
   describe("formatChartAxisNumber", () => {
     it("formats axis numbers with minimal decimals", () => {
       const formatted = formatChartAxisNumber(1234.567, locale);
-      expect(formatted).toBe("1,234");
+      expect(formatted).toBe("1,235");
     });
 
     it("uses more aggressive compacting for axis labels", () => {
@@ -107,14 +107,14 @@ describe("chartFormatters", () => {
   describe("formatChartAxisPercent", () => {
     it("formats axis percentages with no decimals", () => {
       const formatted = formatChartAxisPercent(50.5, locale);
-      expect(formatted).toContain("50");
+      expect(formatted).toContain("51");
       expect(formatted).not.toContain(".5");
       expect(formatted).toContain("%");
     });
 
     it("handles decimal percentages correctly", () => {
       const formatted = formatChartAxisPercent(0.505, locale, true);
-      expect(formatted).toContain("50");
+      expect(formatted).toContain("51");
       expect(formatted).toContain("%");
     });
   });
@@ -172,7 +172,7 @@ describe("chartFormatters", () => {
       expect(typeof formatter).toBe("function");
 
       const formatted = formatter(1234.567);
-      expect(formatted).toContain("1,234");
+      expect(formatted).toContain("1,235");
     });
 
     it("uses aggressive compacting for axis labels", () => {

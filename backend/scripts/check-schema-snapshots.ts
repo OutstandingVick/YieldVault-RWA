@@ -2,9 +2,18 @@
 /**
  * Verify API contract schema snapshots remain backward-compatible (Issue #711).
  *
+ * Snapshots guard high-traffic public endpoints (health, readiness, vault summary,
+ * and transaction list) against silent response-shape regressions.
+ *
  * Usage:
  *   tsx scripts/check-schema-snapshots.ts          # fail on breaking changes
  *   tsx scripts/check-schema-snapshots.ts --write  # regenerate snapshot files
+ *
+ * Intentional breaking changes:
+ *   1. Update the Zod schema in src/apiContractSnapshots.ts
+ *   2. Run: npm run snapshots:write
+ *   3. Commit the updated files under schema-snapshots/
+ *   4. Align OpenAPI annotations and run: npm run generate:openapi
  */
 
 import {

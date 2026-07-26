@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from './prisma';
+import { createExportManifest } from './exportManifest';
 
 export type BulkExportStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 export type ExportFormat = 'csv' | 'json';
@@ -205,6 +206,15 @@ export async function processBulkExportJob(jobId: string): Promise<void> {
 
     const artifact = buildBulkExportArtifact(job.format, allRows);
     storeBulkExportArtifact(artifact.id, artifact);
+
+    await createExportManifest({
+      requester: job.generatedBy,
+      reportType: 'bulk-transactions',
+      filters: job.filters,
+      rows: allRows,
+      bulkExportJobId: jobId,
+      artifactId: artifact.id,
+    });
 
     await updateBulkExportProgress(jobId, {
       status: 'completed',

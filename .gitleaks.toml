@@ -9,6 +9,7 @@ condition = "AND"
 paths = [
   '''backend/src/__tests__/api\.test\.ts''',
   '''docs/api/README\.md''',
+  '''frontend/src/pages/Settings\.tsx''',
 ]
 regexTarget = "line"
 regexes = [

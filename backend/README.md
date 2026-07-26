@@ -59,6 +59,9 @@ Rate limiting and other settings are configurable via environment variables:
 | `API_RATE_LIMIT_WINDOW_MS` | 60000 | API rate limit window (1 min) |
 | `API_RATE_LIMIT_MAX_REQUESTS` | 30 | API requests per window |
 | `STELLAR_RPC_URL` | https://soroban-testnet.stellar.org | Stellar RPC endpoint |
+| `DATABASE_URL` | local PostgreSQL URL | Primary PostgreSQL connection string (required in production) |
+| `DATABASE_REPLICA_URL` | primary database | Optional read-replica connection string |
+| `DATABASE_POOL_SIZE` | 10 | Maximum connections per PostgreSQL pool |
 | `PRISMA_POOL_MAX` | 10 | Prisma connection pool max size |
 | `PRISMA_POOL_TIMEOUT_MS` | 10000 | Prisma pool wait timeout in ms |
 | `PRISMA_QUERY_TIMEOUT_MS` | 5000 | Max Prisma query time in ms |
@@ -207,6 +210,12 @@ Stricter limits for API endpoints (e.g., `/api/vault/summary`):
 ## Testing
 
 ```bash
+# Apply native PostgreSQL migrations
+npm run db:migrate
+
+# Verify applied migration checksums and required tables
+npm run db:check-drift
+
 # Run all tests
 npm test
 
@@ -216,6 +225,26 @@ npm test -- --watch
 # Run with coverage
 npm test -- --coverage
 ```
+
+### API Contract Schema Snapshots (Issue #711)
+
+Committed JSON snapshots under `schema-snapshots/` describe the response shape of critical public endpoints. CI fails when a required field is removed or changes type.
+
+**Guarded endpoints:** `GET /health`, `GET /ready`, `GET /api/v1/vault/summary`, `GET /api/v1/transactions`
+
+```bash
+# Verify snapshots are backward-compatible (CI)
+npm run snapshots:check
+
+# Regenerate after an intentional breaking API change
+npm run snapshots:write
+```
+
+When bumping snapshots intentionally:
+
+1. Update the Zod schema in `src/apiContractSnapshots.ts`
+2. Run `npm run snapshots:write` and commit `schema-snapshots/*.json`
+3. Align OpenAPI annotations and run `npm run generate:openapi`
 
 ## Issues Addressed
 

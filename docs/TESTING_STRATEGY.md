@@ -99,3 +99,18 @@ Use E2E tests only for user journeys that must prove the app works in a real bro
 - Cross-layer behavior has at least one deterministic integration test.
 - Browser-only flows have at least one Playwright test.
 - New feature work adds coverage in the layer that owns the behavior, not just in the widest suite.
+
+## Core Playwright User Flows
+
+Canonical browser journeys live under `frontend/e2e/` and run with `cd frontend && npm run test:e2e` (CI: `.github/workflows/e2e.yml`).
+
+| Flow | Spec | What it proves |
+| --- | --- | --- |
+| Dashboard load | `dashboard-load.spec.ts` | Home vault stats, nav, unknown-route redirect |
+| Deposit / withdraw | `deposit-withdraw.spec.ts` | Wallet-gated panel, deposit/withdraw wizard with Freighter stubs |
+| Deposit journey | `deposit-flow.spec.ts` | Manual connect → deposit happy path |
+| Portfolio | `portfolio.spec.ts` | Connect prompt, holdings table, search filters |
+| Transaction history | `transaction-history.spec.ts` | Connect prompt, Horizon history, nav deep link |
+| Settings | `settings.spec.ts` | Preference surface and theme toggle |
+
+Shared stubs and Freighter mocking belong in `frontend/e2e/fixtures.ts` so every core flow stays deterministic without a live backend.

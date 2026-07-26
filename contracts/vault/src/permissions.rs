@@ -59,10 +59,10 @@ impl MultiSignerValidator {
         if threshold == 0 {
             return Err("threshold must be > 0");
         }
-        if threshold as usize > signers.len() {
+        if threshold > signers.len() {
             return Err("threshold exceeds signer set size");
         }
-        if approvals.len() < threshold as usize {
+        if approvals.len() < threshold {
             return Err("insufficient approvals");
         }
 
@@ -92,6 +92,7 @@ impl MultiSignerValidator {
 mod tests {
 
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_permission_matrix_documentation_exists() {

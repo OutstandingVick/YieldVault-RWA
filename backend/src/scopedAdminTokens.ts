@@ -1,5 +1,28 @@
+/**
+ * @file scopedAdminTokens.ts
+ * Permission-scoped admin tokens with rotation support (Issue #723 / #858).
+ *
+ * Storage:
+ *   Tokens are persisted in the `ScopedAdminToken` Prisma table.
+ *   Every successful rotation appends an immutable row to the
+ *   `ScopedAdminTokenRotationEvent` table – keyId + actor, no old secret.
+ *
+ * Secret handling:
+ *   • Secrets are generated with crypto.randomBytes(32) → 64-char hex string.
+ *   • Only the SHA-256 hash is stored; plaintext values are never written to the DB.
+ *   • Authentication uses crypto.timingSafeEqual to prevent timing attacks.
+ *
+ * Cluster safety:
+ *   Because state lives in Postgres/SQLite via Prisma every backend replica
+ *   reads the same revocation and rotation state on each request, satisfying
+ *   the durability and cluster-wide propagation acceptance criteria.
+ */
+
 import crypto from 'crypto';
 import { logger } from './middleware/structuredLogging';
+import { prisma } from './prisma';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type AdminPermission =
   | 'read:audit'
@@ -24,6 +47,8 @@ export interface ScopedAdminToken {
   rotatedAt: string | null;
   expiresAt: string | null;
   revoked: boolean;
+  revokedBy: string | null;
+  revokedAt: string | null;
   label: string;
   createdBy: string;
 }
@@ -41,6 +66,16 @@ export interface ScopedTokenRotateResult {
   rotatedAt: string;
 }
 
+export interface ScopedAdminTokenRotationEvent {
+  id: string;
+  keyId: string;
+  keyFingerprint: string;
+  rotatedBy: string;
+  rotatedAt: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const VALID_PERMISSIONS: ReadonlySet<string> = new Set<AdminPermission>([
   'read:audit',
   'write:config',
@@ -57,51 +92,110 @@ const VALID_PERMISSIONS: ReadonlySet<string> = new Set<AdminPermission>([
   'admin:*',
 ]);
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function generateKeyId(): string {
+  return `yv_${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function generateSecret(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function hashSecret(secret: string): string {
+  return crypto.createHash('sha256').update(secret).digest('hex');
+}
+
+/**
+ * Returns a short, non-reversible fingerprint suitable for audit logs.
+ * Format: `sha256:<first 16 hex chars of the hash>`.
+ */
+export function getScopedTokenFingerprint(hashedSecret: string): string {
+  return `sha256:${hashedSecret.slice(0, 16)}`;
+}
+
+function mapRow(row: {
+  keyId: string;
+  hashedSecret: string;
+  permissions: string;
+  label: string;
+  createdBy: string;
+  revoked: boolean;
+  revokedBy: string | null;
+  revokedAt: Date | null;
+  expiresAt: Date | null;
+  createdAt: Date;
+  rotatedAt: Date | null;
+}): ScopedAdminToken {
+  return {
+    keyId: row.keyId,
+    hashedSecret: row.hashedSecret,
+    permissions: JSON.parse(row.permissions) as AdminPermission[],
+    createdAt: row.createdAt.toISOString(),
+    rotatedAt: row.rotatedAt ? row.rotatedAt.toISOString() : null,
+    expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    revoked: row.revoked,
+    revokedBy: row.revokedBy,
+    revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
+    label: row.label,
+    createdBy: row.createdBy,
+  };
+}
+
+// ─── Repository ───────────────────────────────────────────────────────────────
+
+/**
+ * Prisma-backed scoped admin token repository.
+ *
+ * All operations are async and durable. The `clear()` method is intentionally
+ * restricted to test environments to prevent accidental data loss.
+ */
 class ScopedAdminTokenStore {
-  private tokens = new Map<string, ScopedAdminToken>();
+  // ── Validation ──────────────────────────────────────────────────────────────
 
-  generateKeyId(): string {
-    return `yv_${crypto.randomBytes(8).toString('hex')}`;
-  }
-
-  generateSecret(): string {
-    return crypto.randomBytes(32).toString('hex');
-  }
-
-  private hashSecret(secret: string): string {
-    return crypto.createHash('sha256').update(secret).digest('hex');
-  }
-
-  create(input: ScopedTokenCreateInput): { token: ScopedAdminToken; secret: string } {
-    for (const perm of input.permissions) {
+  private validatePermissions(permissions: AdminPermission[]): void {
+    if (permissions.length === 0) {
+      throw new Error('At least one permission is required');
+    }
+    for (const perm of permissions) {
       if (!VALID_PERMISSIONS.has(perm)) {
         throw new Error(`Invalid permission: ${perm}`);
       }
     }
+  }
 
-    if (input.permissions.length === 0) {
-      throw new Error('At least one permission is required');
-    }
+  // ── CRUD ────────────────────────────────────────────────────────────────────
 
-    const keyId = this.generateKeyId();
-    const secret = this.generateSecret();
-    const now = new Date().toISOString();
+  /**
+   * Creates a new scoped admin token and persists it to the database.
+   * Returns the token record and the **plaintext** secret (shown once, never stored).
+   */
+  async create(
+    input: ScopedTokenCreateInput,
+  ): Promise<{ token: ScopedAdminToken; secret: string }> {
+    this.validatePermissions(input.permissions);
 
-    const token: ScopedAdminToken = {
-      keyId,
-      hashedSecret: this.hashSecret(secret),
-      permissions: [...input.permissions],
-      createdAt: now,
-      rotatedAt: null,
-      expiresAt: input.expiresInSeconds
-        ? new Date(Date.now() + input.expiresInSeconds * 1000).toISOString()
-        : null,
-      revoked: false,
-      label: input.label,
-      createdBy: input.createdBy,
-    };
+    const keyId = generateKeyId();
+    const secret = generateSecret();
+    const hashed = hashSecret(secret);
+    const now = new Date();
+    const expiresAt = input.expiresInSeconds
+      ? new Date(now.getTime() + input.expiresInSeconds * 1000)
+      : null;
 
-    this.tokens.set(keyId, token);
+    const row = await prisma.scopedAdminToken.create({
+      data: {
+        keyId,
+        hashedSecret: hashed,
+        permissions: JSON.stringify(input.permissions),
+        label: input.label,
+        createdBy: input.createdBy,
+        expiresAt,
+        createdAt: now,
+      },
+    });
+
+    const token = mapRow(row as any);
 
     logger.log('info', 'Scoped admin token created', {
       keyId,
@@ -113,81 +207,156 @@ class ScopedAdminTokenStore {
     return { token, secret };
   }
 
-  authenticate(keyId: string, secret: string): ScopedAdminToken | null {
-    const token = this.tokens.get(keyId);
-    if (!token) return null;
-    if (token.revoked) return null;
+  /**
+   * Authenticates a keyId + secret pair.
+   * Returns the token record on success, `null` on any failure (not found,
+   * revoked, expired, or wrong secret).
+   */
+  async authenticate(keyId: string, secret: string): Promise<ScopedAdminToken | null> {
+    const row = await prisma.scopedAdminToken.findUnique({ where: { keyId } });
+    if (!row) return null;
+    if (row.revoked) return null;
 
-    if (token.expiresAt && new Date(token.expiresAt) <= new Date()) {
+    if (row.expiresAt && row.expiresAt <= new Date()) {
       return null;
     }
 
-    const hashedInput = this.hashSecret(secret);
-    if (!crypto.timingSafeEqual(Buffer.from(hashedInput), Buffer.from(token.hashedSecret))) {
-      return null;
-    }
+    const hashedInput = hashSecret(secret);
+    const isMatch = crypto.timingSafeEqual(
+      Buffer.from(hashedInput, 'hex'),
+      Buffer.from(row.hashedSecret, 'hex'),
+    );
+    if (!isMatch) return null;
 
-    return token;
+    return mapRow(row as any);
   }
 
+  /** Checks whether a token has the given permission. */
   hasPermission(token: ScopedAdminToken, required: AdminPermission): boolean {
     if (token.permissions.includes('admin:*')) return true;
     return token.permissions.includes(required);
   }
 
+  /** Returns `true` if the token has at least one of the supplied permissions. */
   hasAnyPermission(token: ScopedAdminToken, required: AdminPermission[]): boolean {
     return required.some((perm) => this.hasPermission(token, perm));
   }
 
-  rotate(keyId: string): ScopedTokenRotateResult | null {
-    const token = this.tokens.get(keyId);
-    if (!token || token.revoked) return null;
+  /**
+   * Rotates the secret for an existing, active token.
+   * Writes an immutable `ScopedAdminTokenRotationEvent` row for the audit trail.
+   * Returns the new plaintext secret (shown once).
+   */
+  async rotate(
+    keyId: string,
+    opts: { rotatedBy?: string } = {},
+  ): Promise<ScopedTokenRotateResult | null> {
+    const row = await prisma.scopedAdminToken.findUnique({ where: { keyId } });
+    if (!row || row.revoked) return null;
 
-    const newSecret = this.generateSecret();
-    const now = new Date().toISOString();
+    const newSecret = generateSecret();
+    const newHash = hashSecret(newSecret);
+    const now = new Date();
+    const rotatedBy = opts.rotatedBy ?? 'system';
+    const fingerprint = getScopedTokenFingerprint(row.hashedSecret);
 
-    token.hashedSecret = this.hashSecret(newSecret);
-    token.rotatedAt = now;
+    await prisma.$transaction([
+      prisma.scopedAdminToken.update({
+        where: { keyId },
+        data: { hashedSecret: newHash, rotatedAt: now },
+      }),
+      prisma.scopedAdminTokenRotationEvent.create({
+        data: {
+          keyId,
+          keyFingerprint: fingerprint,
+          rotatedBy,
+        },
+      }),
+    ]);
 
     logger.log('info', 'Scoped admin token rotated', {
       keyId,
-      label: token.label,
-      rotatedAt: now,
+      label: row.label,
+      rotatedBy,
+      rotatedAt: now.toISOString(),
     });
 
-    return { keyId, newSecret, rotatedAt: now };
+    return { keyId, newSecret, rotatedAt: now.toISOString() };
   }
 
-  revoke(keyId: string): boolean {
-    const token = this.tokens.get(keyId);
-    if (!token || token.revoked) return false;
+  /**
+   * Revokes a token, preventing further authentication.
+   * Returns `false` if the token was already revoked or not found.
+   */
+  async revoke(keyId: string, opts: { revokedBy?: string } = {}): Promise<boolean> {
+    const row = await prisma.scopedAdminToken.findUnique({ where: { keyId } });
+    if (!row || row.revoked) return false;
 
-    token.revoked = true;
+    const revokedBy = opts.revokedBy ?? 'system';
+    const now = new Date();
+
+    await prisma.scopedAdminToken.update({
+      where: { keyId },
+      data: { revoked: true, revokedBy, revokedAt: now },
+    });
 
     logger.log('info', 'Scoped admin token revoked', {
       keyId,
-      label: token.label,
+      label: row.label,
+      revokedBy,
     });
 
     return true;
   }
 
-  get(keyId: string): ScopedAdminToken | null {
-    return this.tokens.get(keyId) ?? null;
+  /** Fetches a single token record by keyId (without secret verification). */
+  async get(keyId: string): Promise<ScopedAdminToken | null> {
+    const row = await prisma.scopedAdminToken.findUnique({ where: { keyId } });
+    return row ? mapRow(row as any) : null;
   }
 
-  list(opts: { includeRevoked?: boolean } = {}): ScopedAdminToken[] {
-    const all = Array.from(this.tokens.values());
-    if (opts.includeRevoked) return all;
-    return all.filter((t) => !t.revoked);
+  /** Lists all tokens, optionally including revoked ones. */
+  async list(opts: { includeRevoked?: boolean } = {}): Promise<ScopedAdminToken[]> {
+    const rows = await prisma.scopedAdminToken.findMany({
+      where: opts.includeRevoked ? {} : { revoked: false },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r: any) => mapRow(r));
   }
 
+  /**
+   * Returns the full rotation history for a token, oldest-first.
+   * Secrets are never included – only fingerprints and actor identities.
+   */
+  async listRotationEvents(keyId: string): Promise<ScopedAdminTokenRotationEvent[]> {
+    const rows = await prisma.scopedAdminTokenRotationEvent.findMany({
+      where: { keyId },
+      orderBy: { rotatedAt: 'asc' },
+    });
+    return rows.map((r: any) => ({
+      id: r.id,
+      keyId: r.keyId,
+      keyFingerprint: r.keyFingerprint,
+      rotatedBy: r.rotatedBy,
+      rotatedAt: r.rotatedAt.toISOString(),
+    }));
+  }
+
+  /** Returns the list of valid permission strings. */
   getValidPermissions(): string[] {
     return Array.from(VALID_PERMISSIONS);
   }
 
-  clear(): void {
-    this.tokens.clear();
+  /**
+   * Deletes all tokens **and** rotation events from the database.
+   * Only available in test environments; throws in production.
+   */
+  async clear(): Promise<void> {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('clear() is not allowed in production');
+    }
+    await prisma.scopedAdminTokenRotationEvent.deleteMany({});
+    await prisma.scopedAdminToken.deleteMany({});
   }
 }
 

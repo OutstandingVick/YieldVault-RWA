@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
-import confetti from "canvas-confetti";
+import React, { useEffect, useRef, useState } from "react";
+import { ArrowDownUp, ArrowUpRight, Clock3, Menu, X } from "lucide-react";
 import {
   Activity,
   AlertCircle,
   AlertTriangle,
   Check,
-  Loader2,
   Share2,
   ShieldCheck,
   TrendingUp,
@@ -28,12 +27,18 @@ import { useTokenAllowance } from "../hooks/useTokenAllowance";
 import { createDepositFormSchema, MIN_DEPOSIT_AMOUNT } from "../forms/schemas/depositFormSchema";
 import { createWithdrawFormSchema } from "../forms/schemas/withdrawFormSchema";
 import { mapServerError } from "../lib/errorMappers";
+import confetti from "canvas-confetti";
 import CopyButton from "./CopyButton";
+import Badge from "./Badge";
+import { Button } from "./ui/Button";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useFeeEstimate } from "../hooks/useFeeEstimate";
 import { useSlippage } from "../hooks/useSlippage";
 import HelpIcon from "./ui/HelpIcon";
 import EmptyState from "./ui/EmptyState";
+import { useTranslation } from "../i18n";
+import { useNavigate } from "react-router-dom";
+import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import { networkConfig } from "../config/network";
 import { useDashboardUrlState, type TransactionTab, type TransactionStep } from "../hooks/useDashboardUrlState";
 import RefreshControl from "./RefreshControl";
@@ -45,12 +50,8 @@ import { useOfflineRetryCountdown } from "../hooks/useOfflineRetryCountdown";
 import { useFormFocusFlow } from "../hooks/useFormFocusFlow";
 import { useStaleSubmissionGuard } from "../hooks/useStaleSubmissionGuard";
 import { useTransactionIntent } from "../hooks/useTransactionIntent";
-import {
-  clearVaultFormDraft,
-  saveVaultFormDraft,
-} from "../lib/formDraftStorage";
+import { saveVaultFormDraft, clearVaultFormDraft } from "../lib/formDraftStorage";
 import { buildDepositSummary, buildWithdrawalSummary } from "../lib/transactionConfirmationBuilder";
-import confetti from "canvas-confetti";
 import TransactionConflictResolver from "./TransactionConflictResolver";
 import {
   isTransactionConflict,
@@ -58,6 +59,38 @@ import {
   type TransactionConflictResolution,
 } from "../lib/transactionConflict";
 import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
+import { t } from "../i18n";
+
+const FIRST_DEPOSIT_PREFIX = "yieldvault:first-deposit:";
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function runDepositConfetti(): void {
+  if (prefersReducedMotion()) {
+    return;
+  }
+
+  const end = Date.now() + 2000;
+  const intervalId = window.setInterval(() => {
+    confetti({
+      particleCount: 28,
+      spread: 72,
+      startVelocity: 34,
+      gravity: 1.05,
+      ticks: 90,
+      origin: { x: Math.random() * 0.6 + 0.2, y: 0.6 },
+      colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"],
+    });
+
+    if (Date.now() > end) {
+      window.clearInterval(intervalId);
+    }
+  }, 220);
+}
 
 /**
  * Visual indicator for the 3-step transaction wizard.
@@ -65,9 +98,9 @@ import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
  */
 const StepIndicator: React.FC<{ currentStep: TransactionStep }> = ({ currentStep }) => {
   const steps: Array<{ id: TransactionStep; label: string }> = [
-    { id: "amount", label: "Amount" },
-    { id: "review", label: "Review" },
-    { id: "result", label: "Result" },
+    { id: "amount", label: t("vaultDashboard.steps.amount") },
+    { id: "review", label: t("vaultDashboard.steps.review") },
+    { id: "result", label: t("vaultDashboard.steps.result") },
   ];
   const stepOrder: TransactionStep[] = ["amount", "review", "result"];
   const currentIndex = stepOrder.indexOf(currentStep);
@@ -138,7 +171,7 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
             marginBottom: "4px",
           }}
         >
-          {isReached ? "Vault Capacity Reached" : "Vault Near Capacity"}
+          {isReached ? t("vaultDashboard.capWarning.reached") : t("vaultDashboard.capWarning.near")}
         </div>
         <div
           style={{
@@ -148,10 +181,101 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
           }}
         >
           {isReached
-            ? `This vault has reached its maximum deposit cap of ${percent}%. Deposits are temporarily disabled.`
-            : `This vault is at ${percent}% capacity. New deposits may be restricted soon.`}
+            ? t("vaultDashboard.capWarning.reachedDesc").replace("{{percent}}", percent)
+            : t("vaultDashboard.capWarning.nearDesc").replace("{{percent}}", percent)}
         </div>
       </div>
+    </div>
+  );
+};
+
+type RiskAction = {
+  id: string;
+  title: string;
+  description: string;
+  label: string;
+  tone: "critical" | "warning" | "info" | "success";
+  onClick: () => void;
+};
+
+const RiskSummaryCard: React.FC<{ items: RiskAction[] }> = ({ items }) => {
+  const hasWarnings = items.length > 0;
+
+  return (
+    <div
+      className="glass-panel"
+      style={{
+        padding: "20px",
+        background: "var(--bg-muted)",
+        border: "1px solid var(--border-glass)",
+        marginBottom: "24px",
+      }}
+    >
+      <div className="flex items-center justify-between gap-md" style={{ marginBottom: "16px" }}>
+        <div>
+          <h3 style={{ marginBottom: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertTriangle size={18} color="var(--text-warning)" />
+            Account Risk Summary
+          </h3>
+          <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+            Warnings are prioritized by what you can do next.
+          </p>
+        </div>
+        <Badge variant="pill" color={hasWarnings ? "warning" : "success"} size="compact">
+          {hasWarnings ? `${items.length} warning${items.length === 1 ? "" : "s"}` : "All clear"}
+        </Badge>
+      </div>
+
+      {hasWarnings ? (
+        <div style={{ display: "grid", gap: "12px" }}>
+          {items.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "16px",
+                padding: "14px 16px",
+                borderRadius: "12px",
+                border: `1px solid ${item.tone === "critical" ? "rgba(255, 107, 107, 0.4)" : "var(--border-glass)"}`,
+                background: item.tone === "critical"
+                  ? "rgba(255, 107, 107, 0.08)"
+                  : item.tone === "warning"
+                    ? "rgba(255, 159, 10, 0.08)"
+                    : "rgba(0, 240, 255, 0.05)",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: "4px" }}>{item.title}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                  {item.description}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={item.tone === "critical" ? "btn btn-warning" : "btn btn-secondary"}
+                onClick={item.onClick}
+                style={{ alignSelf: "center", whiteSpace: "nowrap" }}
+              >
+                {item.label}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            padding: "16px",
+            borderRadius: "12px",
+            border: "1px solid rgba(34, 197, 94, 0.25)",
+            background: "rgba(34, 197, 94, 0.08)",
+            color: "var(--text-secondary)",
+            lineHeight: 1.6,
+          }}
+        >
+          Your wallet is in a healthy operating window. Compare strategies to review other allocation options before moving capital.
+        </div>
+      )}
     </div>
   );
 };
@@ -161,6 +285,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   usdcBalance = 0,
   xlmBalance = 0,
 }) => {
+  const navigate = useNavigate();
   const dashboardUrl = useDashboardUrlState();
   const {
     formattedTvl,
@@ -174,6 +299,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     lastUpdate,
     refresh,
   } = useVault();
+  const { t } = useTranslation();
   const toast = useToast();
   const delayedLoading = useDelayedLoading(isLoading);
 
@@ -192,6 +318,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     message: string;
     txHash?: string
   } | null>(null);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [activeConflict, setActiveConflict] = useState<{
     conflict: TransactionConflictDetails;
     staleChanges?: StaleFieldChange[];
@@ -209,7 +336,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const confirmation = useTransactionConfirmation();
 
   const { isOnline } = useNetworkStatus();
-  const { feeXlm, isEstimating, isHighFee } = useFeeEstimate(
+  const { feeXlm, isEstimating, isHighFee, lastUpdated: feeLastUpdated } = useFeeEstimate(
     walletAddress,
     "",
     dashboardUrl.state.tab,
@@ -218,6 +345,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const { slippage, setSlippage, presets, isHighSlippage, minReceived } = useSlippage();
   const [customSlippage, setCustomSlippage] = useState("");
+  const { isStale: feeIsStale, ageText: feeAgeText } = useStaleIndicator(feeLastUpdated);
 
   // Create validation schema based on transaction type and current state
   const transactionSchema = React.useMemo<ValidationSchema<{ amount: string }>>(() => {
@@ -235,7 +363,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     handleChange,
     handleBlur,
     setValues,
-    setFieldError
+    setFieldError,
+    resetErrors,
   } = useForm({ amount: dashboardUrl.state.amount }, transactionSchema);
 
   const amount = values.amount;
@@ -284,35 +413,24 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     }
   }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues]);
 
+  const previousTabRef = useRef(dashboardUrl.state.tab);
+  useEffect(() => {
+    if (previousTabRef.current === dashboardUrl.state.tab) {
+      return;
+    }
+    previousTabRef.current = dashboardUrl.state.tab;
+    if (!dashboardUrl.state.amount) {
+      setValues({ amount: "" });
+    }
+    resetApproval();
+    resetErrors();
+  }, [dashboardUrl.state.tab, dashboardUrl.state.amount, setValues, resetApproval, resetErrors]);
+
   // Reset approval when deposit amount changes
   useEffect(() => {
     resetApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amount]);
-
-  const resetWizard = () => {
-    setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
-    setTransactionResult(null);
-    clearVaultFormDraft();
-  };
-
-  const goToReview = () => {
-    if (Object.keys(errors).length > 0) {
-      toast.warning({
-        title: "Please fix validation errors",
-        description: errors.amount || "Please enter a valid amount",
-      });
-      formFocus.focusFirstError();
-      return;
-    }
-
-    dashboardUrl.setStep("review");
-    window.setTimeout(() => {
-      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
-    }, 0);
-  };
 
   useEffect(() => {
     const handleDeposit = () => {
@@ -363,6 +481,69 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     !amount ||
     (dashboardUrl.state.tab === "deposit" && isCapReached);
 
+  const riskItems = React.useMemo<RiskAction[]>(() => {
+    const next: RiskAction[] = [];
+
+    if (!walletAddress) {
+      next.push({
+        id: "wallet",
+        title: "Connect your wallet",
+        description: "Personalized risk checks and transaction actions are only available after you connect a wallet.",
+        label: "Connect wallet",
+        tone: "info",
+        onClick: () => window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT")),
+      });
+    }
+
+    if (isCapReached) {
+      next.push({
+        id: "cap-reached",
+        title: "Vault capacity reached",
+        description: "Deposits are temporarily constrained. Compare vaults before adding more capital.",
+        label: "Compare vaults",
+        tone: "critical",
+        onClick: () => navigate("/compare"),
+      });
+    } else if (isCapWarning) {
+      next.push({
+        id: "cap-warning",
+        title: "Vault is nearing capacity",
+        description: "The vault is close to its deposit cap. Review alternate strategies before you submit a larger transfer.",
+        label: "Compare vaults",
+        tone: "warning",
+        onClick: () => navigate("/compare"),
+      });
+    }
+
+    if (xlmBalance < feeXlm) {
+      next.push({
+        id: "xlm-fee",
+        title: "Insufficient XLM for network fees",
+        description: "You need more XLM to cover the estimated network fee for the next transaction.",
+        label: "Adjust amount",
+        tone: "warning",
+        onClick: () => {
+          dashboardUrl.setTab("deposit");
+          dashboardUrl.setStep("amount");
+          window.dispatchEvent(new Event("TRIGGER_DEPOSIT"));
+        },
+      });
+    }
+
+    if (summary.contractPaused) {
+      next.push({
+        id: "contract-paused",
+        title: "Vault operations are paused",
+        description: "Deposits and withdrawals are currently blocked until the vault is re-enabled.",
+        label: "Refresh status",
+        tone: "critical",
+        onClick: refresh,
+      });
+    }
+
+    return next;
+  }, [dashboardUrl, feeXlm, isCapReached, isCapWarning, navigate, refresh, summary.contractPaused, walletAddress, xlmBalance]);
+
   const staleGuard = useStaleSubmissionGuard({
     action: dashboardUrl.state.tab,
     amount: enteredAmount,
@@ -381,11 +562,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const resetWizard = () => {
     setValues({ amount: "" });
-    dashboardUrl.setStep("amount");
-    dashboardUrl.setAmount("");
+    dashboardUrl.setState({ step: "amount", amount: "" });
+    clearVaultFormDraft();
     setTransactionResult(null);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
+    clearVaultFormDraft();
     if (walletAddress) {
       transactionIntent.clearIntent();
     }
@@ -394,14 +576,18 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const goToReview = () => {
     if (Object.keys(errors).length > 0) {
       toast.warning({
-        title: "Please fix validation errors",
-        description: errors.amount || "Please enter a valid amount",
+        title: t("vaultDashboard.toast.validationErrorTitle"),
+        description: errors.amount || t("vaultDashboard.toast.invalidAmount"),
       });
+      formFocus.focusFirstError();
       return;
     }
 
     staleGuard.captureReviewSnapshot();
     dashboardUrl.setStep("review");
+    window.setTimeout(() => {
+      document.getElementById(`vault-${activeTab}-confirm`)?.focus();
+    }, 0);
   };
 
   const executeTransaction = async (
@@ -412,8 +598,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
     if (!walletAddress) {
       toast.warning({
-        title: "Wallet required",
-        description: "Connect your wallet before submitting a transaction.",
+        title: t("vaultDashboard.toast.walletRequiredTitle"),
+        description: t("vaultDashboard.toast.walletRequiredDesc"),
       });
       return;
     }
@@ -425,7 +611,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           conflict: {
             type: "stale-form",
             message:
-              "Transaction details changed since you started reviewing this submission.",
+              t("vaultDashboard.toast.staleFormMessage"),
           },
           staleChanges: staleResult.changes,
         });
@@ -437,7 +623,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           conflict: {
             type: "stale-form",
             message:
-              "Your transaction intent is stale. Refresh the review details or start a new intent.",
+              t("vaultDashboard.toast.staleIntentMessage"),
           },
         });
         return;
@@ -480,29 +666,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         await depositMutation.mutateAsync(mutationParams);
 
         try {
-          const depositKey = `has_deposited_${walletAddress}`;
-          const alreadyDeposited = localStorage.getItem(depositKey);
-          const isTest = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
-          if (!alreadyDeposited && !isTest) {
-            confetti({
-              particleCount: 150,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"]
-            });
+          const depositKey = `${FIRST_DEPOSIT_PREFIX}${walletAddress}`;
+          const alreadyCelebrated = localStorage.getItem(depositKey) === "true";
+          if (!alreadyCelebrated) {
             localStorage.setItem(depositKey, "true");
+            runDepositConfetti();
           }
         } catch (storageErr) {
-          console.warn("Storage access failed, triggering confetti anyway", storageErr);
-          const isTest = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
-          if (!isTest) {
-            confetti({
-              particleCount: 150,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors: ["#00f0ff", "#a855f7", "#ffffff", "#3b82f6"]
-            });
-          }
+          console.warn("Storage access failed while tracking first deposit state", storageErr);
+          runDepositConfetti();
         }
       } else {
         await withdrawMutation.mutateAsync(mutationParams);
@@ -514,17 +686,17 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       setTransactionResult({
         success: true,
         message: actionType === "deposit"
-          ? `${value.toFixed(2)} USDC has been deposited into the vault.`
-          : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
+          ? t("vaultDashboard.depositMessage").replace("{{amount}}", value.toFixed(2))
+          : t("vaultDashboard.withdrawMessage").replace("{{amount}}", value.toFixed(2)),
       });
       dashboardUrl.setStep("result");
 
       toast.success({
-        title: actionType === "deposit" ? "Deposit Successful" : "Withdrawal Successful",
+        title: actionType === "deposit" ? t("vaultDashboard.toast.depositSuccessTitle") : t("vaultDashboard.toast.withdrawalSuccessTitle"),
         description:
           actionType === "deposit"
-            ? `${value.toFixed(2)} USDC has been deposited into the vault.`
-            : `${value.toFixed(2)} USDC has been withdrawn from the vault.`,
+            ? t("vaultDashboard.depositMessage").replace("{{amount}}", value.toFixed(2))
+            : t("vaultDashboard.withdrawMessage").replace("{{amount}}", value.toFixed(2)),
       });
     } catch (err: unknown) {
       if (isTransactionConflict(err)) {
@@ -544,7 +716,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         dashboardUrl.setStep("amount");
       }
 
-      let errorMessage = "An error occurred during the transaction.";
+      let errorMessage = t("vaultDashboard.toast.genericError");
 
       if (isValidationError(err)) {
         errorMessage = err.details?.[0]?.message || errorMessage;
@@ -561,7 +733,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       dashboardUrl.setStep("result");
 
       toast.error({
-        title: "Transaction Failed",
+        title: t("vaultDashboard.toast.transactionFailedTitle"),
         description: errorMessage,
       });
     }
@@ -621,12 +793,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       <div className="vault-dashboard-stats" aria-busy={delayedLoading}>
         <div className="glass-panel vault-stats-panel">
           {error && (
-            <ApiStatusBanner error={{ ...error, userMessage: "Failed to load vault data" }} />
+            <ApiStatusBanner error={{ ...error, userMessage: t("vaultDashboard.failedToLoad") }} />
           )}
           <div className="vault-stats-header flex justify-between items-center" style={{ marginBottom: "24px" }}>
             <div>
               <h2 style={{ fontSize: "1.5rem", marginBottom: "4px" }}>
-                {delayedLoading ? <SkeletonText width="240px" lineHeight="1.5rem" /> : "Global RWA Yield Fund"}
+                {delayedLoading ? <SkeletonText width="240px" lineHeight="1.5rem" /> : t("vaultDashboard.fundName")}
               </h2>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 {delayedLoading ? (
@@ -640,7 +812,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         color: "var(--text-secondary)",
                       }}
                     >
-                      Tokens: USDC
+                      {t("vaultDashboard.tokens")}
                     </span>
                     <SharePriceDisplay />
                   </>
@@ -649,11 +821,24 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}>
-                Current APY
+                {t("vaultDashboard.currentApy")}
                 <HelpIcon
                   variant="tooltip"
-                  content="Annualized yield based on the historical performance of the vault's underlying assets."
+                  content={t("vaultDashboard.apyTooltip")}
                 />
+                <Badge
+                  variant="pill"
+                  color={statsIsStale ? "warning" : "cyan"}
+                  size="compact"
+                  icon={<Clock3 size={10} />}
+                  style={{ marginLeft: "4px", whiteSpace: "nowrap" }}
+                >
+                  {statsIsStale
+                    ? t("vaultDashboard.staleAge").replace("{{age}}", statsAgeText || "").trim()
+                    : statsAgeText
+                      ? t("vaultDashboard.freshAge").replace("{{age}}", statsAgeText)
+                      : t("vaultDashboard.live")}
+                </Badge>
               </div>
               <div className="text-gradient" style={{ fontSize: "2rem", fontFamily: "var(--font-display)", fontWeight: 700 }}>
                 {delayedLoading ? <Skeleton width="100px" height="2.5rem" /> : formattedApy}
@@ -695,7 +880,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-warning, #f59e0b)", flexShrink: 0 }} />
-                Data may be stale · {statsAgeText}
+                {t("vaultDashboard.dataMayBeStale").replace("{{age}}", statsAgeText)}
               </div>
             )}
           </div>
@@ -712,7 +897,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   gap: "6px",
                 }}
               >
-                Total Value Locked
+                {t("vaultDashboard.totalValueLocked")}
                 <span
                   className="flex items-center gap-xs"
                   style={{
@@ -724,7 +909,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                   }}
                 >
                   {!isOffline && <Activity size={10} className={isLoading ? "animate-pulse" : undefined} />}
-                  {isOffline ? `Retrying in ${countdown}s...` : isLoading ? "Syncing" : "Live"}
+                  {isOffline ? t("vaultDashboard.retrying").replace("{{seconds}}", String(countdown)) : isLoading ? t("vaultDashboard.syncing") : t("vaultDashboard.live")}
                 </span>
               </div>
               <div style={{ fontSize: "1.25rem", fontFamily: "var(--font-display)", fontWeight: 600 }}>
@@ -733,7 +918,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
             <div>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginBottom: "4px" }}>
-                Underlying Asset
+                {t("vaultDashboard.underlyingAsset")}
               </div>
               <div className="flex items-center gap-sm">
                 {delayedLoading ? (
@@ -751,6 +936,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             </div>
           </div>
 
+          <RiskSummaryCard items={riskItems} />
+
           <div className="glass-panel" style={{ padding: "20px", background: "var(--bg-muted)" }}>
             {delayedLoading ? (
               <DashboardCardSkeleton />
@@ -766,7 +953,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               }}
             >
               <TrendingUp size={18} color="var(--accent-purple)" />
-              Strategy Overview
+              {t("vaultDashboard.strategyOverview")}
             </h3>
             <div
               style={{
@@ -776,11 +963,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 fontWeight: 600,
               }}
             >
-              BENJI Strategy
+              {t("vaultDashboard.strategyName")}
             </div>
             <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: "1.6" }}>
-              This vault pools USDC and deploys it into verified tokenized sovereign bonds available on
-              the Stellar network.
+              {t("vaultDashboard.strategyDesc")}
             </p>
             <div className="flex gap-md" style={{ marginTop: "14px", flexWrap: "wrap" }}>
               <div
@@ -793,10 +979,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 }}
               >
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
-                  Target Allocation
+                  {t("vaultDashboard.targetAllocation")}
                 </div>
-                <div style={{ fontWeight: 600 }}>70% Treasuries</div>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>30% Cash Reserve</div>
+                <div style={{ fontWeight: 600 }}>{t("vaultDashboard.treasuriesPercent")}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>{t("vaultDashboard.cashReservePercent")}</div>
               </div>
               <div
                 style={{
@@ -808,11 +994,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 }}
               >
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
-                  Yield Distribution
+                  {t("vaultDashboard.yieldDistribution")}
                 </div>
-                <div style={{ fontWeight: 600 }}>Daily Compounding</div>
+                <div style={{ fontWeight: 600 }}>{t("vaultDashboard.dailyCompounding")}</div>
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-                  Reflected in yvUSDC NAV
+                  {t("vaultDashboard.navReflection")}
                 </div>
               </div>
               <div
@@ -825,22 +1011,22 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                 }}
               >
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.75rem", marginBottom: "4px" }}>
-                  Risk Controls
+                  {t("vaultDashboard.riskControls")}
                 </div>
-                <div style={{ fontWeight: 600 }}>Issuer + Duration Caps</div>
+                <div style={{ fontWeight: 600 }}>{t("vaultDashboard.issuerDurationCaps")}</div>
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-                  Rebalanced every epoch
+                  {t("vaultDashboard.rebalancedEpoch")}
                 </div>
               </div>
             </div>
             <div style={{ marginTop: "12px", color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-              Strategy: <span style={{ color: "var(--text-primary)" }}>{strategy.name}</span> ({strategy.issuer})
+              {t("vaultDashboard.strategyLabel")} <span style={{ color: "var(--text-primary)" }}>{strategy.name}</span> ({strategy.issuer})
             </div>
             <div
               className="copy-field"
               style={{ marginTop: "8px", color: "var(--text-secondary)", fontSize: "0.78rem" }}
             >
-              <span>Strategy ID:</span>
+              <span>{t("vaultDashboard.strategyIdLabel")}</span>
               <span className="copy-field-value copy-field-value-mono">{strategy.id}</span>
               <CopyButton value={strategy.id} label="strategy ID" />
             </div>
@@ -852,13 +1038,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           {!isLoading && walletAddress && usdcBalance === 0 && (
             <EmptyState
               kind="no-data"
-              title="No deposits yet."
-              description="Start earning yield by depositing USDC into our high-efficiency vaults."
+              title={t("dashboard.emptyState.noDeposits.title")}
+              description={t("dashboard.emptyState.noDeposits.desc")}
               icon={<TrendingUp />}
-              actionLabel="Deposit Now"
-              onAction={() => {
-                window.dispatchEvent(new Event("TRIGGER_DEPOSIT"));
-              }}
+              actionLabel={t("emptyState.depositNow")}
+              onAction={() => triggerDepositIntent(navigate, walletAddress)}
             />
           )}
         </div>
@@ -908,9 +1092,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               }}
             >
               <WalletIcon size={48} color="var(--accent-cyan)" style={{ marginBottom: "16px", opacity: 0.8 }} />
-              <h3>Wallet Not Connected</h3>
+              <h3>{t("vaultDashboard.walletNotConnected")}</h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                Please connect your Freighter wallet to interact with the vault.
+                {t("vaultDashboard.connectPrompt")}
               </p>
             </div>
           )}
@@ -919,15 +1103,17 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             value={dashboardUrl.state.tab}
             defaultValue="deposit"
             onValueChange={(value) => {
-              dashboardUrl.setTab(value as TransactionTab);
+              dashboardUrl.setState({
+                tab: value as TransactionTab,
+                amount: "",
+              });
               setValues({ amount: "" });
-              dashboardUrl.setAmount("");
             }}
           >
             {dashboardUrl.state.step === "amount" && (
               <TabsList style={{ marginBottom: "24px" }}>
-                <TabsTrigger value="deposit">Deposit</TabsTrigger>
-                <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
+                <TabsTrigger value="deposit">{t("vaultDashboard.tabs.deposit")}</TabsTrigger>
+                <TabsTrigger value="withdraw">{t("vaultDashboard.tabs.withdraw")}</TabsTrigger>
               </TabsList>
             )}
 
@@ -949,15 +1135,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         <div style={{ marginBottom: "24px" }}>
                           <div className="flex justify-between items-center" style={{ marginBottom: "16px" }}>
                             <div style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-                              {tab === "deposit" ? "Amount to deposit" : "Amount to withdraw"}
+                              {tab === "deposit" ? t("vaultDashboard.amountToDeposit") : t("vaultDashboard.amountToWithdraw")}
                             </div>
                             <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
-                              Balance: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
+                              {t("vaultDashboard.balanceLabel")} <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{availableBalance.toFixed(2)}</span>
                             </div>
                           </div>
 
                           <FormField
-                            label={tab === "deposit" ? "Deposit amount" : "Withdrawal amount"}
+                            label={tab === "deposit" ? t("vaultDashboard.depositAmountLabel") : t("vaultDashboard.withdrawalAmountLabel")}
                             name="amount"
                             id={tab === activeTab ? amountFieldId : `vault-${tab}-amount`}
                             type="number"
@@ -968,12 +1154,12 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             onBlur={handleBlur}
                             disabled={isBusy || (tab === "deposit" && isCapReached)}
                             error={showInlineError ? activeAmountError ?? undefined : undefined}
-                            helperText={tab === "deposit" ? `Min: ${MIN_DEPOSIT_AMOUNT.toFixed(2)} USDC` : `Max: ${availableBalance.toFixed(2)} USDC`}
+                            helperText={tab === "deposit" ? t("vaultDashboard.minDeposit").replace("{{amount}}", MIN_DEPOSIT_AMOUNT.toFixed(2)) : t("vaultDashboard.maxWithdraw").replace("{{amount}}", availableBalance.toFixed(2))}
                           />
 
                           <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
                             <div className="flex items-center gap-sm">
-                              <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>Asset: USDC</span>
+                              <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{t("vaultDashboard.assetUsdc")}</span>
                               {tab === "deposit" && (
                                 <>
                                   <div style={{ width: "1px", height: "14px", background: "var(--border-glass)", margin: "0 4px" }} />
@@ -990,19 +1176,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                       try {
                                         await copyTextToClipboard(shareUrl);
                                         toast.success({
-                                          title: "Link copied",
-                                          description: "Shareable vault link is ready to paste."
+                                          title: t("vaultDashboard.toast.linkCopiedTitle"),
+                                          description: t("vaultDashboard.toast.linkCopiedDesc")
                                         });
                                       } catch {
                                         toast.error({
-                                          title: "Copy failed",
-                                          description: "Could not copy link to clipboard."
+                                          title: t("vaultDashboard.toast.copyFailedTitle"),
+                                          description: t("vaultDashboard.toast.copyFailedDesc")
                                         });
                                       }
                                     }}
                                   >
                                     <Share2 size={12} />
-                                    Share Link
+                                    {t("vaultDashboard.shareLink")}
                                   </button>
                                 </>
                               )}
@@ -1021,7 +1207,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                 (tab === "deposit" && isCapReached)
                               }
                             >
-                              MAX
+                              {t("vaultDashboard.maxButton")}
                             </button>
                           </div>
                         </div>
@@ -1036,10 +1222,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         >
                           <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
                             <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                              Estimated protocol fee
+                              {t("vaultDashboard.estimatedProtocolFee")}
                               <HelpIcon
                                 variant="popover"
-                                content="A protocol fee of 35 basis points (0.35%) of the transaction amount is applied. This fee is deducted before settlement."
+                                content={t("vaultDashboard.protocolFeeTooltip")}
                               />
                             </span>
                             <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
@@ -1048,7 +1234,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           </div>
                           <div className="flex justify-between items-center">
                             <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                              {tab === "deposit" ? "Estimated net deposit" : "Estimated net withdrawal"}
+                              {tab === "deposit" ? t("vaultDashboard.estimatedNetDeposit") : t("vaultDashboard.estimatedNetWithdrawal")}
                             </span>
                             <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
                               {isValidAmount ? `${estimatedNetAmount.toFixed(4)} USDC` : "0.0000 USDC"}
@@ -1064,7 +1250,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           onClick={goToReview}
                           disabled={isSubmitDisabled}
                         >
-                          Review Transaction
+                          {t("vaultDashboard.reviewTransaction")}
                         </button>
                       </div>
                     )}
@@ -1074,7 +1260,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         <div className="flex-1">
                           <h4 style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
                             <AlertCircle size={20} color="var(--accent-cyan)" />
-                            Confirm Transaction
+                            {t("vaultDashboard.confirmTransaction")}
                           </h4>
                           
                           <div 
@@ -1088,27 +1274,41 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           >
                             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                               <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Action</span>
+                                <span style={{ color: "var(--text-secondary)" }}>{t("vaultDashboard.action")}</span>
                                 <span style={{ fontWeight: 600, textTransform: "capitalize" }}>{tab}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Amount</span>
+                                <span style={{ color: "var(--text-secondary)" }}>{t("vaultDashboard.amount")}</span>
                                 <span style={{ fontWeight: 600 }}>{enteredAmount.toFixed(2)} USDC</span>
                               </div>
                               <div style={{ height: "1px", background: "var(--border-glass)" }} />
                               <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Protocol Fee (0.35%)</span>
+                                <span style={{ color: "var(--text-secondary)" }}>{t("vaultDashboard.protocolFeeLine")}</span>
                                 <span style={{ fontWeight: 600 }}>{estimatedFee.toFixed(4)} USDC</span>
                               </div>
                               <div className="flex justify-between">
-                                <span style={{ color: "var(--text-secondary)" }}>Network Fee</span>
-                                <span style={{ fontWeight: 600, textAlign: "right" }}>
+                                <span style={{ color: "var(--text-secondary)" }}>{t("vaultDashboard.networkFee")}</span>
+                                <span style={{ fontWeight: 600, textAlign: "right", display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
                                   {isEstimating ? <Skeleton width="60px" height="1.1rem" /> : `${feeXlm.toFixed(4)} XLM`}
+                                  {!isEstimating && (
+                                    <Badge
+                                      variant="outline"
+                                      color={feeIsStale ? "warning" : "info"}
+                                      size="compact"
+                                      icon={<Clock3 size={10} />}
+                                    >
+                                      {feeIsStale
+                                        ? t("vaultDashboard.feeQuoteStale").replace("{{age}}", feeAgeText).trim()
+                                        : feeAgeText
+                                          ? t("vaultDashboard.feeQuoteFresh").replace("{{age}}", feeAgeText)
+                                          : t("vaultDashboard.feeQuoteFreshPlain")}
+                                    </Badge>
+                                  )}
                                 </span>
                               </div>
                               <div style={{ height: "1px", background: "var(--border-glass)" }} />
                               <div className="flex justify-between items-center">
-                                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>Total To {tab === "deposit" ? "Vault" : "Wallet"}</span>
+                                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{tab === "deposit" ? t("vaultDashboard.totalToVault") : t("vaultDashboard.totalToWallet")}</span>
                                 <span style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--accent-cyan)" }}>
                                   {estimatedNetAmount.toFixed(4)} USDC
                                 </span>
@@ -1126,7 +1326,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               }}
                             >
                               <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "10px", fontWeight: 600 }}>
-                                Slippage Tolerance
+                                {t("vaultDashboard.slippageTolerance")}
                               </div>
                               <div className="flex items-center gap-sm" style={{ flexWrap: "wrap" }}>
                                 {presets.map((p) => (
@@ -1153,7 +1353,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                   min="0"
                                   max="50"
                                   step="0.1"
-                                  placeholder="Custom"
+                                  placeholder={t("vaultDashboard.customPlaceholder")}
                                   value={customSlippage}
                                   onChange={(e) => {
                                     const v = e.target.value;
@@ -1171,7 +1371,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                     fontSize: "0.82rem",
                                     outline: "none",
                                   }}
-                                  aria-label="Custom slippage percentage"
+                                  aria-label={t("vaultDashboard.customSlippageAria")}
                                 />
                                 <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>%</span>
                               </div>
@@ -1179,15 +1379,29 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                 <div className="flex items-center gap-xs" style={{ marginTop: "8px" }}>
                                   <AlertTriangle size={13} color="var(--text-warning, #f59e0b)" />
                                   <span style={{ fontSize: "0.78rem", color: "var(--text-warning, #f59e0b)" }}>
-                                    High slippage — you may receive significantly less than expected.
+                                    {t("vaultDashboard.highSlippageWarning")}
                                   </span>
                                 </div>
                               )}
                               <div className="flex justify-between" style={{ marginTop: "10px" }}>
-                                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>Minimum received</span>
+                                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{t("vaultDashboard.minimumReceived")}</span>
                                 <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
                                   {minReceived(estimatedNetAmount).toFixed(4)} USDC
                                 </span>
+                              </div>
+                              <div style={{ marginTop: "10px" }}>
+                                <Badge
+                                  variant="outline"
+                                  color={statsIsStale ? "warning" : "info"}
+                                  size="compact"
+                                  icon={<Clock3 size={10} />}
+                                >
+                                  {statsIsStale
+                                    ? t("vaultDashboard.apyQuoteStale").replace("{{age}}", statsAgeText).trim()
+                                    : statsAgeText
+                                      ? t("vaultDashboard.apyQuoteFresh").replace("{{age}}", statsAgeText)
+                                      : t("vaultDashboard.apyQuoteFreshPlain")}
+                                </Badge>
                               </div>
                             </div>
                           )}
@@ -1204,8 +1418,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             >
                               <AlertTriangle size={16} color="var(--text-error)" style={{ marginTop: "2px" }} />
                               <div style={{ fontSize: "0.82rem", color: "var(--text-error)", lineHeight: "1.4" }}>
-                                <strong style={{ display: "block", marginBottom: "2px" }}>High network fee</strong>
-                                The estimated network fee exceeds 1% of your transaction value.
+                                <strong style={{ display: "block", marginBottom: "2px" }}>{t("vaultDashboard.highNetworkFeeTitle")}</strong>
+                                {t("vaultDashboard.highNetworkFeeDesc")}
                               </div>
                             </div>
                           )}
@@ -1223,8 +1437,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             >
                               <AlertTriangle size={16} color="var(--text-error)" style={{ marginTop: "2px" }} />
                               <div style={{ fontSize: "0.82rem", color: "var(--text-error)", lineHeight: "1.4" }}>
-                                <strong style={{ display: "block", marginBottom: "2px" }}>Insufficient XLM balance</strong>
-                                You do not have enough XLM to cover the estimated network fee.
+                                <strong style={{ display: "block", marginBottom: "2px" }}>{t("vaultDashboard.insufficientXlmTitle")}</strong>
+                                {t("vaultDashboard.insufficientXlmDesc")}
                               </div>
                             </div>
                           )}
@@ -1260,31 +1474,33 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                                   }}>
                                     {approvalStatus === "confirmed" ? <Check size={12} /> : "1"}
                                   </div>
-                                  Approve USDC
+                                  {t("vaultDashboard.approveUsdc")}
                                 </div>
                                 <div style={{ flex: 1, height: "1px", background: "var(--border-glass)" }} />
                                 <div className="flex items-center gap-xs" style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                                   <div style={{ width: "20px", height: "20px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border-glass)", fontSize: "0.7rem" }}>2</div>
-                                  Deposit
+                                  {t("vaultDashboard.depositStepLabel")}
                                 </div>
                               </div>
                               {approvalStatus !== "confirmed" && (
-                                <button
+                                <Button
                                   type="button"
-                                  className="btn btn-outline"
+                                  variant="outline"
                                   style={{ width: "100%", padding: "10px" }}
+                                  status={approvalStatus === "pending" ? "pending" : "idle"}
+                                  loadingLabel={t("vaultDashboard.approving")}
                                   disabled={approvalStatus === "pending"}
                                   onClick={async () => {
                                     try {
                                       await approve(enteredAmount);
-                                      toast.success({ title: "USDC Approved" });
+                                      toast.success({ title: t("vaultDashboard.toast.usdcApproved") });
                                     } catch {
-                                      toast.error({ title: "Approval Failed" });
+                                      toast.error({ title: t("vaultDashboard.toast.approvalFailed") });
                                     }
                                   }}
                                 >
-                                  {approvalStatus === "pending" ? "Approving..." : "Approve USDC"}
-                                </button>
+                                  {t("vaultDashboard.approveUsdc")}
+                                </Button>
                               )}
                             </div>
                           )}
@@ -1312,13 +1528,15 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             }}
                             disabled={isBusy}
                           >
-                            Back
+                            {t("vaultDashboard.back")}
                           </button>
-                          <button
+                          <Button
                             type="button"
                             id={`vault-${tab}-confirm`}
-                            className="btn btn-primary"
+                            variant="primary"
                             style={{ flex: 2 }}
+                            status={isBusy ? "pending" : "idle"}
+                            loadingLabel={t("vaultDashboard.processing")}
                             onClick={() => void handleTransaction(tab)}
                             disabled={
                               isBusy || 
@@ -1326,15 +1544,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                               (tab === "deposit" && xlmBalance < feeXlm)
                             }
                           >
-                            {isBusy ? (
-                              <>
-                                <Loader2 size={16} className="spin" style={{ animation: "spin 0.9s linear infinite" }} />
-                                Processing...
-                              </>
-                            ) : (
-                              `Confirm ${tab}`
-                            )}
-                          </button>
+                            {t("vaultDashboard.confirmAction").replace("{{tab}}", tab)}
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -1345,7 +1556,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           {transactionResult.success ? <Check size={32} /> : <AlertTriangle size={32} />}
                         </div>
                         <h3 style={{ marginBottom: "12px" }}>
-                          {transactionResult.success ? "Transaction Successful" : "Transaction Failed"}
+                          {transactionResult.success ? t("vaultDashboard.transactionSuccessful") : t("vaultDashboard.transactionFailed")}
                         </h3>
                         <p style={{ color: "var(--text-secondary)", marginBottom: "32px", maxWidth: "300px" }}>
                           {transactionResult.message}
@@ -1357,7 +1568,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           style={{ width: "100%", padding: "16px" }}
                           onClick={resetWizard}
                         >
-                          {transactionResult.success ? "Done" : "Try Again"}
+                          {transactionResult.success ? t("vaultDashboard.done") : t("vaultDashboard.tryAgain")}
                         </button>
                       </div>
                     )}
@@ -1366,7 +1577,46 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
             ))}
           </Tabs>
         </div>
+        <div className="mobile-vault-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setMobileActionsOpen(true)}>
+            <Menu size={16} />
+            {t("vaultDashboard.quickActionsButton")}
+          </button>
+        </div>
       </div>
+      {mobileActionsOpen && (
+        <div className="mobile-bottom-sheet" role="dialog" aria-modal="true" aria-label={t("vaultDashboard.quickVaultActionsAria")}>
+          <button
+            type="button"
+            className="mobile-bottom-sheet__backdrop"
+            aria-label={t("vaultDashboard.closeQuickActionsAria")}
+            onClick={() => setMobileActionsOpen(false)}
+          />
+          <div className="mobile-bottom-sheet__panel">
+            <div className="mobile-bottom-sheet__handle" />
+            <div className="flex justify-between items-center" style={{ marginBottom: "14px" }}>
+              <strong>{t("vaultDashboard.quickActionsButton")}</strong>
+              <button type="button" className="btn btn-outline" onClick={() => setMobileActionsOpen(false)} aria-label={t("vaultDashboard.closeQuickActionsAria")}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mobile-bottom-sheet__actions">
+              <button type="button" className="btn btn-primary" onClick={() => { dashboardUrl.setTab("deposit"); setMobileActionsOpen(false); }}>
+                <ArrowDownUp size={16} />
+                {t("vaultDashboard.tabs.deposit")}
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => { dashboardUrl.setTab("withdraw"); setMobileActionsOpen(false); }}>
+                <ArrowUpRight size={16} />
+                {t("vaultDashboard.tabs.withdraw")}
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => { navigate("/transactions"); setMobileActionsOpen(false); }}>
+                <Clock3 size={16} />
+                {t("vaultDashboard.activityLabel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

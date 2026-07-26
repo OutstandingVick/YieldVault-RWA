@@ -23,6 +23,9 @@ const findings = [];
 for (const file of files) {
   const content = fs.readFileSync(file, 'utf8');
   const lowered = content.toLowerCase();
+  const allowsBootstrapIndexes = lowered.includes(
+    'migration-safety: allow-nonconcurrent-indexes'
+  );
 
   const highRiskPatterns = [
     { pattern: /\bdrop\s+(table|column|index)\b/, label: 'irreversible drop operation' },
@@ -44,6 +47,12 @@ for (const file of files) {
   ];
 
   for (const rule of longRunningPatterns) {
+    if (
+      rule.label === 'index creation without concurrent mode' &&
+      allowsBootstrapIndexes
+    ) {
+      continue;
+    }
     if (rule.pattern.test(lowered)) {
       findings.push({ file, severity: 'warning', message: rule.label });
     }

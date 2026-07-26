@@ -23,20 +23,25 @@ import {
   loadVaultFormDraft,
   type VaultFormDraft,
 } from "./lib/formDraftStorage";
+import ErrorBoundary from "./components/ErrorBoundary";
 import ErrorFallback from "./components/ErrorFallback";
 import RouteLoadingFallback from "./components/RouteLoadingFallback";
+import {
+  LazyAnalytics,
+  LazyHome,
+  LazyPortfolio,
+  LazySettings,
+  LazyTransactionHistory,
+  LazyUIPreview,
+  prefetchDashboardRoutes,
+} from "./lib/routePrefetch";
 import NetworkWarningBanner from "./components/NetworkWarningBanner";
 import OfflineBanner from "./components/OfflineBanner";
 import { useVault, VaultProvider } from "./context/VaultContext";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
-const Home = lazy(() => import("./pages/Home"));
-const Portfolio = lazy(() => import("./pages/Portfolio"));
-const Analytics = lazy(() => import("./pages/Analytics"));
-const UIPreview = lazy(() => import("./pages/UIPreview"));
-const TransactionHistory = lazy(() => import("./pages/TransactionHistory"));
-const Settings = lazy(() => import("./pages/Settings"));
+const VaultComparison = lazy(() => import("./pages/VaultComparison"));
 const TransactionReceipt = lazy(() => import("./pages/TransactionReceipt"));
 
 // Removed simple fallback in favor of components/ErrorFallback
@@ -63,6 +68,18 @@ function AppContent() {
         .catch((err) => console.error("[SW] Registration failed:", err));
     }
   }, []);
+
+  useEffect(() => {
+    const schedulePrefetch = () => prefetchDashboardRoutes(location.pathname);
+
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(schedulePrefetch, { timeout: 2500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timeoutId = globalThis.setTimeout(schedulePrefetch, 1500);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [location.pathname]);
 
   const handleConnect = useCallback((address: string) => {
     clearSessionExpired();
@@ -142,7 +159,7 @@ function AppContent() {
                 <Route
                   path="/"
                   element={
-                    <Home
+                    <LazyHome
                       walletAddress={walletAddress}
                       usdcBalance={usdcBalance}
                       xlmBalance={xlmBalance}
@@ -152,7 +169,7 @@ function AppContent() {
                 <Route
                   path="/portfolio"
                   element={
-                    <Portfolio
+                    <LazyPortfolio
                       walletAddress={walletAddress}
                     />
                   }
@@ -161,14 +178,16 @@ function AppContent() {
                   path="/analytics"
                   element={
                     <FeatureGate flag="ANALYTICS_PAGE">
-                      <Analytics />
+                      <LazyAnalytics />
                     </FeatureGate>
                   }
                 />
-                <Route path="/transactions" element={<TransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/compare" element={<VaultComparison />} />
+                <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
                 <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/ui-kit" element={<UIPreview />} />
+                <Route path="/settings" element={<LazySettings />} />
+                <Route path="/ui-kit" element={<LazyUIPreview />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </SentryRoutes>
             </Suspense>
@@ -212,15 +231,17 @@ function App() {
           resetError={props.resetError}
         />
       )}
-      showDialog
+      showDialog={false}
     >
-      <AuthProvider>
-        <FeatureFlagProvider>
-          <VaultProvider>
-            <AppContent />
-          </VaultProvider>
-        </FeatureFlagProvider>
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <FeatureFlagProvider>
+            <VaultProvider>
+              <AppContent />
+            </VaultProvider>
+          </FeatureFlagProvider>
+        </AuthProvider>
+      </ErrorBoundary>
     </Sentry.ErrorBoundary>
   );
 }

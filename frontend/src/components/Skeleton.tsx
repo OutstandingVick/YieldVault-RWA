@@ -165,5 +165,85 @@ export const ChartSkeleton: React.FC = () => {
   );
 };
 
+export const SharePriceSkeleton: React.FC = () => (
+  <div style={{ display: "flex", alignItems: "center", gap: "6px" }} aria-hidden="true">
+    <SkeletonCircle width={16} height={16} />
+    <SkeletonText width="80px" lineHeight="1rem" />
+  </div>
+);
+
+export const VaultStatSkeleton: React.FC = () => (
+  <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+    <SkeletonText width="60%" lineHeight="0.75rem" />
+    <SkeletonBlock width="120px" height="1.5rem" borderRadius="var(--radius-sm)" />
+  </div>
+);
+
+export const TransactionRowSkeleton: React.FC = () => (
+  <div
+    aria-hidden="true"
+    className="data-table-row"
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "12px 0",
+      gap: "12px",
+    }}
+  >
+    <div style={{ flex: 2 }}>
+      <SkeletonText width="70%" lineHeight="1rem" />
+      <SkeletonText width="40%" lineHeight="0.75rem" style={{ marginTop: "4px" }} />
+    </div>
+    <div style={{ flex: 1, textAlign: "right" }}>
+      <SkeletonBlock width="80px" height="1rem" borderRadius="var(--radius-sm)" />
+    </div>
+    <div style={{ flex: 1, textAlign: "right" }}>
+      <SkeletonBlock width="60px" height="22px" borderRadius="99px" />
+    </div>
+  </div>
+);
+
+export const PortfolioCardSkeleton: React.FC = () => (
+  <div className="glass-panel" style={{ padding: "20px" }} aria-hidden="true">
+    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <SkeletonCircle width={32} height={32} />
+        <div>
+          <SkeletonText width="100px" lineHeight="1rem" />
+          <SkeletonText width="60px" lineHeight="0.75rem" style={{ marginTop: "4px" }} />
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <SkeletonText width="80px" lineHeight="1rem" />
+        <SkeletonText width="50px" lineHeight="0.75rem" style={{ marginTop: "4px" }} />
+      </div>
+    </div>
+    <div
+      style={{
+        height: "1px",
+        background: "var(--border-glass)",
+        marginBottom: "12px",
+      }}
+    />
+    <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <SkeletonText width="50%" lineHeight="0.8rem" />
+      <SkeletonText width="30%" lineHeight="0.8rem" />
+    </div>
+  </div>
+);
+
+export const AnalyticsWidgetSkeleton: React.FC = () => (
+  <div className="glass-panel" style={{ padding: "20px" }} aria-hidden="true">
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+      <SkeletonCircle width={18} height={18} />
+      <SkeletonText width="140px" lineHeight="1rem" />
+    </div>
+    <SkeletonBlock width="100%" height="48px" borderRadius="var(--radius-sm)" style={{ marginBottom: "12px" }} />
+    <SkeletonText width="80%" lineHeight="0.75rem" />
+    <SkeletonText width="50%" lineHeight="0.75rem" style={{ marginTop: "6px" }} />
+  </div>
+);
+
 // Default export for backward compatibility
 export default SkeletonBlock;

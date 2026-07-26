@@ -160,7 +160,7 @@ callers to the canonical shape when building new integrations.
 ## 5. Soroban contract errors (`VaultError`)
 
 Returned when invoking the vault contract directly (simulation or failed transaction).
-Numeric codes match `#[contracterror]` in `contracts/vault/src/lib.rs`.
+Numeric codes match `#[contracterror]` in `contracts/vault/src/errors.rs`.
 
 | Code | Name | When raised | Remediation |
 |------|------|-------------|-------------|
@@ -172,6 +172,41 @@ Numeric codes match `#[contracterror]` in `contracts/vault/src/lib.rs`.
 | 6 | `MinDepositNotMet` | Deposit below configured minimum | Deposit at least `min_deposit` (read from contract) |
 | 7 | `TimelockNotExpired` | `execute_withdrawal` before 24h timelock | Wait until `unlock_timestamp`; poll pending withdrawal state |
 | 8 | `NoPendingWithdrawal` | `execute_withdrawal` with no pending record | Call `withdraw` first for large withdrawals |
+| 9 | `LiquidityBufferNotMet` | `invest` would breach minimum idle buffer | Reduce invest amount or wait for deposits |
+| 10 | `ExceedsStrategyCap` | Strategy allocation exceeds cap | Lower allocation amount |
+| 11 | `ExceedsRiskThreshold` | Allocation exceeds risk threshold | Reduce allocation or adjust threshold |
+| 12 | `WithdrawalCooldownActive` | Withdrawal during deposit cooldown | Wait for cooldown window |
+| 13 | `InvalidMigrationTarget` | Storage migration target invalid | Use current or next storage version |
+| 14 | `MathOverflow` | Arithmetic overflow guard | Lower amounts; report if unexpected |
+| 15 | `SlippageExceeded` | Strategy slippage limit exceeded | Retry with adjusted bounds |
+| 16 | `BatchTooLarge` | Batch deposit exceeds max size | Split into smaller batches |
+| 17 | `RelayerNotAuthorized` | Relayer not whitelisted | Register relayer via admin |
+| 18–24 | Emergency / admin / liquidity | See contract `VaultError` enum | Match simulation error code |
+| 25 | `GovernanceSignersNotConfigured` | Governance multisig not set | Admin must call `set_governance_signers` |
+| 26 | `GovernanceThresholdNotMet` | Insufficient governance approvals | Collect required signer approvals |
+| 27 | `OracleValidationFailed` | Oracle price check failed | Refresh oracle; verify heartbeat |
+| 28 | `ClaimQuotaExceeded` | Treasury claim quota exceeded | Wait for next epoch or raise quota |
+| 29 | `StrategyHeartbeatExpired` | Strategy heartbeat stale | Strategy must call `record_strategy_heartbeat` |
+| 30 | `InvalidDaoThreshold` | DAO threshold ≤ 0 | Set threshold > 0 |
+| 31 | `InvalidGovernanceThreshold` | Signer threshold out of range | Set 0 < threshold ≤ signer count |
+| 32 | `InvalidVoteWeight` | Vote weight ≤ 0 | Use positive vote weight |
+| 33 | `DuplicateVote` | Voter already voted on proposal | Each voter may vote once |
+| 34 | `ProposalAlreadyExecuted` | Proposal already executed | Create a new proposal |
+| 35 | `QuorumNotReached` | Yes votes below DAO threshold | Gather more yes votes |
+| 36 | `ProposalRejected` | Yes votes ≤ no votes | Revise proposal or gather support |
+| 37 | `UnauthorizedStrategy` | Caller is not configured strategy | Use whitelisted/configured strategy |
+| 38 | `InvalidFeeBps` | Fee bps outside 0–10000 | Set fee within valid bps range |
+| 39 | `NoFeesToClaim` | Treasury balance is zero | Accrue fees before claiming |
+| 40 | `InvalidMinDeposit` | Negative min deposit | Set min deposit ≥ 0 |
+| 41 | `InvalidLiquidityBuffer` | Negative liquidity buffer | Set buffer ≥ 0 |
+| 42 | `InvalidRiskThreshold` | Risk threshold outside 0–10000 | Set valid bps threshold |
+| 43 | `StrategyNotWhitelisted` | Strategy not on whitelist | Whitelist strategy first |
+| 44 | `WhitelistOperationFailed` | Whitelist mutation failed | Retry; verify admin auth |
+| 45 | `InvalidYieldAmount` | Yield amount ≤ 0 | Report positive yield only |
+| 46 | `ShipmentAlreadyExists` | Duplicate shipment ID | Use unique shipment ID |
+| 47 | `InvalidPageSize` | Pagination page size is zero | Use page_size > 0 |
+| 48 | `InvalidMaxBatchSize` | Max batch size is zero | Set max batch size > 0 |
+| 49 | `RapidAction` | Opposing action in same ledger | Wait for next ledger |
 
 **Large withdrawals:** Above `LargeWithdrawalThreshold`, `withdraw` emits
 `pndwdraw` and returns `0` assets until `execute_withdrawal` after timelock.
@@ -308,7 +343,7 @@ curl -s -X POST "http://localhost:3000/api/v1/vault/deposits" \
 |-----------|--------|------------|
 | Some admin responses omit `status` / `message` | Harder to parse uniformly | Rely on HTTP status + `error` string |
 | `error` label vs catalog ID | `error` is human label, not `API_*` ID | Use catalog ID in your SDK mapping table |
-| Contract panics vs `VaultError` | Strategy/governance paths may `panic!` | Parse simulation logs; treat as non-retryable until fixed |
+| Contract panics vs `VaultError` | Most user paths return `VaultError`; internal `expect` may still panic | Use `try_*` simulation; map numeric code via catalog |
 | Future Issue #571 | Stable `code` field on all JSON errors | This catalog will gain a column linking `API_*` → wire `code` |
 
 ---

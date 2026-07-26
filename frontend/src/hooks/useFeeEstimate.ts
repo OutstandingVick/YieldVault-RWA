@@ -27,6 +27,7 @@ export function useFeeEstimate(
   const [feeXlm, setFeeXlm] = useState<number>(0);
   const [feeUsd, setFeeUsd] = useState<number>(0);
   const [isEstimating, setIsEstimating] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const { data: xlmPrice = 0.12 } = useQuery({
     queryKey: ["xlmPrice"],
@@ -59,6 +60,7 @@ export function useFeeEstimate(
           const xlmFee = parseFloat(xlmFeeStr);
           setFeeXlm(xlmFee);
           setFeeUsd(xlmFee * xlmPrice);
+          setLastUpdated(new Date());
         }
       } catch (error) {
         console.error("Fee estimation failed", error);
@@ -85,5 +87,6 @@ export function useFeeEstimate(
     isEstimating,
     isHighFee,
     feeToValueRatio,
+    lastUpdated,
   };
 }

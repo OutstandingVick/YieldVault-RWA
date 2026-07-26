@@ -1,5 +1,6 @@
 import React from "react";
 import VaultDashboard from "../components/VaultDashboard";
+import SecurityAuditOfferBanner from "../components/SecurityAuditOfferBanner";
 import { usePageHeadingFocus } from "../hooks/usePageHeadingFocus";
 import { useTranslation } from "../i18n";
 
@@ -27,6 +28,8 @@ const Home: React.FC<HomeProps> = ({ walletAddress, usdcBalance, xlmBalance }) =
           {t("hero.description")}
         </p>
       </header>
+
+      <SecurityAuditOfferBanner />
 
       <VaultDashboard walletAddress={walletAddress} usdcBalance={usdcBalance} xlmBalance={xlmBalance} />
     </>

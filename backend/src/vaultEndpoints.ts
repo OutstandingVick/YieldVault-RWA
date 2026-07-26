@@ -2,8 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
 import { allowlistMiddleware } from './middleware/allowlist';
-import { invalidateCache } from './middleware/cache';
-import { writesLimiter } from './rateLimiter';
+import { triggerCacheInvalidation, registerInvalidationHook } from './middleware/cache';
+import { depositsLimiter } from './rateLimiter';
 import { idempotencyStore, IdempotencyConflictError } from './idempotency';
 import { sorobanCircuitBreaker, CircuitOpenError } from './circuitBreaker';
 import { withSpan, getCurrentTraceId } from './tracing';
@@ -12,7 +12,11 @@ import { requireFlag } from './featureFlags';
 import { referralService } from './referralService';
 import { getPrismaClient } from './prismaClient';
 import { emitTransactionEvent, TransactionEventType } from './webhookDelivery';
-import { validate, VaultOperationSchema } from './middleware/validate';
+import {
+  validate,
+  VaultDepositBodySchema,
+  VaultWithdrawalBodySchema,
+} from './middleware/validate';
 import { withdrawalDailyLimitMiddleware } from './middleware/withdrawalDailyLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import { createTimeoutFor } from './middleware/timeoutMiddleware';
@@ -20,17 +24,28 @@ import crypto from 'crypto';
 // crypto is still used below for generateFingerprint and body.id generation.
 import { tryAcquireWalletLock } from './walletLock';
 import { normalizeWalletAddress } from './walletUtils';
+import { recordVaultLifecycleEvent } from './vaultAuditLog';
 import Decimal from 'decimal.js';
 
 const router = Router();
 const ZERO = new Decimal(0);
 const DEFAULT_SHARE_PRICE = new Decimal(1);
 
+// Register cache invalidation hooks for transaction state changes
+registerInvalidationHook((eventType) => {
+  if (eventType.startsWith('transaction.')) {
+    return [
+      'GET:/api/v1/vault',
+      'GET:/api/v1/transactions',
+      'GET:/api/v1/portfolio',
+    ];
+  }
+  return [];
+});
+
 function invalidateReadCaches(_req: Request, _res: Response, next: NextFunction): void {
-  // R5: pattern-scoped invalidation — only clear vault, transactions, and portfolio entries
-  invalidateCache('GET:/api/v1/vault');
-  invalidateCache('GET:/api/v1/transactions');
-  invalidateCache('GET:/api/v1/portfolio');
+  // Trigger adaptive cache invalidation via hooks
+  triggerCacheInvalidation('transaction.write');
   next();
 }
 
@@ -128,6 +143,7 @@ async function handleVaultOperation(
 
   const { amount, asset, walletAddress, email, referralCode } = req.body;
   const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const correlationId = req.header('x-correlation-id') || undefined;
   const walletLock = tryAcquireWalletLock(normalizedWallet);
 
   if (!walletLock.acquired) {
@@ -139,6 +155,18 @@ async function handleVaultOperation(
       walletAddress: normalizedWallet,
     });
   }
+
+  // Audit: the vault operation has been accepted and is about to be attempted.
+  recordVaultLifecycleEvent({
+    operation: type,
+    phase: 'initiated',
+    actor: normalizedWallet,
+    amount: String(amount),
+    asset: String(asset),
+    correlationId,
+    traceId: getCurrentTraceId(),
+    metadata: { idempotent: !!idempotencyKey },
+  });
 
   const operation = async () => {
     return withSpan(`vault.${type}`, async (span) => {
@@ -159,6 +187,18 @@ async function handleVaultOperation(
         throw err;
       }
 
+      // Audit: the transaction was accepted by the Soroban RPC.
+      recordVaultLifecycleEvent({
+        operation: type,
+        phase: 'submitted',
+        actor: normalizedWallet,
+        amount: String(amount),
+        asset: String(asset),
+        txHash,
+        correlationId,
+        traceId: getCurrentTraceId(),
+      });
+
       // Persist transaction to DB
       const prisma = getPrismaClient();
       await prisma.transaction.create({
@@ -172,6 +212,18 @@ async function handleVaultOperation(
       });
 
       await updateVaultStateAndSnapshot(type, String(amount), new Date());
+
+      // Audit: transaction durably recorded and vault state updated.
+      recordVaultLifecycleEvent({
+        operation: type,
+        phase: 'confirmed',
+        actor: normalizedWallet,
+        amount: String(amount),
+        asset: String(asset),
+        txHash,
+        correlationId,
+        traceId: getCurrentTraceId(),
+      });
 
       // Handle referral recording on deposit
       if (type === 'deposit') {
@@ -267,20 +319,45 @@ async function handleVaultOperation(
         operation,
       );
       if (replayed) res.setHeader('idempotency-status', 'replayed');
-      // R5: pattern-scoped invalidation on successful write
-      invalidateCache('GET:/api/v1/vault');
-      invalidateCache('GET:/api/v1/transactions');
-      invalidateCache('GET:/api/v1/portfolio');
+      // Trigger adaptive cache invalidation via hooks
+      triggerCacheInvalidation(`transaction.${type}.completed`, {
+        wallet: normalizedWallet,
+        amount: String(amount),
+      });
       return res.status(result.statusCode).json(result.body);
     }
 
     const result = await operation();
-    // R5: pattern-scoped invalidation on successful write
-    invalidateCache('GET:/api/v1/vault');
-    invalidateCache('GET:/api/v1/transactions');
-    invalidateCache('GET:/api/v1/portfolio');
+    // Trigger adaptive cache invalidation via hooks
+    triggerCacheInvalidation(`transaction.${type}.completed`, {
+      wallet: normalizedWallet,
+      amount: String(amount),
+    });
     return res.status(result.statusCode).json(result.body);
   } catch (err) {
+    // Audit: the operation failed. Idempotency conflicts are replays of an
+    // in-flight/complete request rather than a lifecycle failure, so they are
+    // classified with a distinct error code but still recorded.
+    const errorCode =
+      err instanceof CircuitOpenError
+        ? 'SOROBAN_CIRCUIT_OPEN'
+        : err instanceof SorobanSimulationError
+          ? err.code || 'SOROBAN_SIMULATION_ERROR'
+          : err instanceof IdempotencyConflictError
+            ? 'IDEMPOTENCY_CONFLICT'
+            : 'VAULT_OPERATION_ERROR';
+    recordVaultLifecycleEvent({
+      operation: type,
+      phase: 'failed',
+      actor: normalizedWallet,
+      amount: String(amount),
+      asset: String(asset),
+      correlationId,
+      traceId: getCurrentTraceId(),
+      errorCode,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
+
     if (err instanceof IdempotencyConflictError) {
       return res.status(409).json({
         error: 'Conflict',
@@ -330,11 +407,11 @@ async function handleVaultOperation(
  */
 router.post(
   '/deposits',
-  writesLimiter,
+  depositsLimiter,
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
@@ -346,11 +423,11 @@ router.post(
  */
 router.post(
   '/withdrawals',
-  writesLimiter,
+  depositsLimiter,
   invalidateReadCaches,
   requireSignedWalletAction('withdrawal'),
   allowlistMiddleware,
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultWithdrawalBodySchema }),
   withdrawalDailyLimitMiddleware(),
   createTimeoutFor.write(),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'withdrawal'),
@@ -365,11 +442,11 @@ router.post(
  */
 router.post(
   '/deposits/v2',
-  writesLimiter,
+  depositsLimiter,
   invalidateReadCaches,
   requireSignedWalletAction('deposit'),
   requireFlag('deposit-v2'),
-  validate({ body: VaultOperationSchema }),
+  validate({ body: VaultDepositBodySchema }),
   (req: Request, res: Response) => handleVaultOperation(req, res, 'deposit'),
 );
 
@@ -377,7 +454,7 @@ router.post(
  * POST /api/v1/vault/strategy
  * Gated behind the "strategy-selection" feature flag.
  */
-router.post('/strategy', writesLimiter, requireFlag('strategy-selection'), (_req: Request, res: Response) => {
+router.post('/strategy', depositsLimiter, requireFlag('strategy-selection'), (_req: Request, res: Response) => {
   res.status(200).json({ message: 'Strategy selection endpoint (v2 preview)' });
 });
 

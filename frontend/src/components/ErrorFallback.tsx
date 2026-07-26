@@ -8,16 +8,37 @@ interface ErrorFallbackProps {
   resetError: () => void;
   onReload?: () => void;
   onGoHome?: () => void;
+  /** When true, show a sanitized one-line detail (dev only by default). */
+  showErrorDetail?: boolean;
+}
+
+function isSafeUserFacingDetail(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed || trimmed.length > 160) return false;
+  // Block stack-like / path / secret-looking content
+  if (/[/\\]|\.tsx?\b|\.jsx?\b|at\s+\S+|Error:|TypeError|ReferenceError|http/i.test(trimmed)) {
+    return false;
+  }
+  return true;
 }
 
 const ErrorFallback: React.FC<ErrorFallbackProps> = ({
   error,
+  resetError,
   onReload = reloadPage,
   onGoHome = goHome,
+  showErrorDetail = import.meta.env.DEV,
 }) => {
   const { t } = useTranslation();
+  const detail =
+    showErrorDetail && error?.message && isSafeUserFacingDetail(error.message)
+      ? error.message
+      : null;
+
   return (
     <div
+      role="alert"
+      aria-live="assertive"
       style={{
         display: "flex",
         alignItems: "center",
@@ -51,7 +72,7 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({
             marginBottom: "8px",
           }}
         >
-          <AlertOctagon size={48} />
+          <AlertOctagon size={48} aria-hidden="true" />
         </div>
 
         <div>
@@ -71,8 +92,9 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({
           >
             {t("errorFallback.message")}
           </p>
-          {error?.message && (
+          {detail && (
             <div
+              data-testid="error-fallback-detail"
               style={{
                 background: "rgba(0,0,0,0.2)",
                 border: "1px solid var(--border-glass)",
@@ -87,7 +109,7 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({
                 fontFamily: "monospace",
               }}
             >
-              {error.message}
+              {detail}
             </div>
           )}
         </div>
@@ -102,20 +124,32 @@ const ErrorFallback: React.FC<ErrorFallbackProps> = ({
           }}
         >
           <button
+            type="button"
             className="btn btn-primary"
+            onClick={resetError}
+            style={{ width: "100%", padding: "14px" }}
+          >
+            <RefreshCw size={18} aria-hidden="true" />
+            {t("errorFallback.tryAgain")}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-outline"
             onClick={onReload}
             style={{ width: "100%", padding: "14px" }}
           >
-            <RefreshCw size={18} />
+            <RefreshCw size={18} aria-hidden="true" />
             {t("errorFallback.reload")}
           </button>
 
           <button
+            type="button"
             className="btn btn-outline"
             onClick={onGoHome}
             style={{ width: "100%", padding: "14px" }}
           >
-            <Home size={18} />
+            <Home size={18} aria-hidden="true" />
             {t("errorFallback.goHome")}
           </button>
         </div>

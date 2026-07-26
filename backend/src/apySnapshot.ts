@@ -20,7 +20,9 @@
 import { db } from './database';
 import { logger } from './middleware/structuredLogging';
 import { invalidateCache } from './middleware/cache';
-import { runJobWithRetry, registerJob } from './jobGovernance';
+import { runJobWithRetry, registerJob, registerJobHandler } from './jobGovernance';
+
+registerJobHandler('apySnapshot', () => runApySnapshotJob());
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

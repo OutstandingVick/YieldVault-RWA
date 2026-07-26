@@ -4,10 +4,20 @@ import {
   webhookDeduplicationStore,
   WebhookDeduplicationStore,
 } from './webhookDeduplication';
+import { getActiveCorrelationId, getActiveRequestId } from './requestContext';
 
 export type TransactionEventType =
   | 'transaction.deposit.created'
   | 'transaction.withdrawal.created';
+
+/**
+ * Monotonically increasing schema version for the outbound webhook envelope.
+ * Increment this when the envelope shape changes in a breaking way so consumers
+ * can gate on `schemaVersion` for forward-compatibility handling.
+ *
+ * v1 – initial shape: { schemaVersion, eventType, sentAt, payload }
+ */
+export const WEBHOOK_SCHEMA_VERSION = 1;
 
 export interface TransactionEventPayload {
   transactionId: string;
@@ -17,6 +27,14 @@ export interface TransactionEventPayload {
   transactionHash: string;
   status: string;
   timestamp: string;
+}
+
+/** The full outbound envelope written to the wire and stored in dead-letter records. */
+export interface WebhookEnvelope {
+  schemaVersion: number;
+  eventType: TransactionEventType;
+  sentAt: string;
+  payload: TransactionEventPayload;
 }
 
 export type WebhookVerificationStatus = 'pending' | 'verified' | 'failed';
@@ -494,7 +512,7 @@ export async function retryWebhookDeadLetter(id: string): Promise<WebhookDeadLet
 
 async function persistWebhookDeadLetter(
   entry: WebhookDeadLetterRecord,
-  envelope: { eventType: TransactionEventType; sentAt: string; payload: TransactionEventPayload },
+  envelope: WebhookEnvelope,
 ): Promise<void> {
   try {
     await prisma.webhookDeadLetter.create({
@@ -627,19 +645,28 @@ async function deliverWithRetry(
   delivery.attempts = attempt;
   delivery.updatedAt = new Date().toISOString();
 
-  const envelope = {
+  const envelope: WebhookEnvelope = {
+    schemaVersion: WEBHOOK_SCHEMA_VERSION,
     eventType: delivery.eventType,
     sentAt: new Date().toISOString(),
     payload,
   };
 
   const body = JSON.stringify(envelope);
+  const correlationId = getActiveCorrelationId();
+  const requestId = getActiveRequestId();
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': 'YieldVault-Webhook-Delivery/1.0',
     'X-YieldVault-Event': delivery.eventType,
     'X-YieldVault-Delivery-Id': delivery.id,
   };
+
+  // Propagate correlation identifiers for traceability.
+  // Downstream systems can use these to correlate webhook requests.
+  if (correlationId) headers['X-Correlation-ID'] = correlationId;
+  if (requestId) headers['X-Request-ID'] = requestId;
 
   if (endpoint.secret) {
     headers['X-YieldVault-Signature'] = createWebhookSignature(endpoint.secret, envelope);

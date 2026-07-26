@@ -11,6 +11,7 @@ import { useTranslation } from "../i18n";
 import { useWalletNetwork } from "../hooks/useWalletNetwork";
 import Badge from "./Badge";
 import { usePendingTransactionCount } from "../hooks/usePendingTransactionCount";
+import { getRoutePrefetchHandlers } from "../lib/routePrefetch";
 
 interface NavbarProps {
   currentPath?: "/" | "/analytics" | "/portfolio";
@@ -105,16 +106,24 @@ const Navbar: FC<NavbarProps> = ({
 
           {/* Desktop links */}
           <div className="flex gap-lg nav-desktop-links" style={{ marginLeft: "32px" }}>
-            <NavLink to="/" className="nav-link">
+            <NavLink to="/" className="nav-link" {...getRoutePrefetchHandlers("/")}>
               {t("nav.vaults")}
             </NavLink>
-            <NavLink to="/portfolio" className="nav-link">
+            <NavLink to="/portfolio" className="nav-link" {...getRoutePrefetchHandlers("/portfolio")}>
               {t("nav.portfolio")}
             </NavLink>
-            <NavLink to="/analytics" className="nav-link">
+            <NavLink to="/compare" className="nav-link">
+              {t("nav.compare")}
+            </NavLink>
+            <NavLink to="/analytics" className="nav-link" {...getRoutePrefetchHandlers("/analytics")}>
               {t("nav.analytics")}
             </NavLink>
-            <NavLink to="/transactions" className="nav-link" style={{ position: "relative" }}>
+            <NavLink
+              to="/transactions"
+              className="nav-link"
+              style={{ position: "relative" }}
+              {...getRoutePrefetchHandlers("/transactions")}
+            >
               {t("nav.transactions")}
               {pendingCount > 0 && (
                 <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
@@ -185,16 +194,19 @@ const Navbar: FC<NavbarProps> = ({
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <div className="nav-mobile-menu is-open">
-          <NavLink to="/" onClick={() => setIsMobileMenuOpen(false)}>
+          <NavLink to="/" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/")}>
             {t("nav.vaults")}
           </NavLink>
-          <NavLink to="/portfolio" onClick={() => setIsMobileMenuOpen(false)}>
+          <NavLink to="/portfolio" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/portfolio")}>
             {t("nav.portfolio")}
           </NavLink>
-          <NavLink to="/analytics" onClick={() => setIsMobileMenuOpen(false)}>
+          <NavLink to="/compare" onClick={() => setIsMobileMenuOpen(false)}>
+            {t("nav.compare")}
+          </NavLink>
+          <NavLink to="/analytics" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/analytics")}>
             {t("nav.analytics")}
           </NavLink>
-          <NavLink to="/transactions" onClick={() => setIsMobileMenuOpen(false)}>
+          <NavLink to="/transactions" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/transactions")}>
             {t("nav.transactions")}
             {pendingCount > 0 && (
               <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
@@ -213,16 +225,19 @@ const Navbar: FC<NavbarProps> = ({
       {/* Dropdown fallback menu */}
       {menuOpen && (
         <div className="nav-mobile-menu" role="menu">
-          <NavLink to="/" role="menuitem" onClick={() => setMenuOpen(false)}>
+          <NavLink to="/" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/")}>
             {t("nav.vaults")}
           </NavLink>
-          <NavLink to="/portfolio" role="menuitem" onClick={() => setMenuOpen(false)}>
+          <NavLink to="/portfolio" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/portfolio")}>
             {t("nav.portfolio")}
           </NavLink>
-          <NavLink to="/analytics" role="menuitem" onClick={() => setMenuOpen(false)}>
+          <NavLink to="/compare" role="menuitem" onClick={() => setMenuOpen(false)}>
+            {t("nav.compare")}
+          </NavLink>
+          <NavLink to="/analytics" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/analytics")}>
             {t("nav.analytics")}
           </NavLink>
-          <NavLink to="/transactions" role="menuitem" onClick={() => setMenuOpen(false)}>
+          <NavLink to="/transactions" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/transactions")}>
             {t("nav.transactions")}
             {pendingCount > 0 && (
               <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>

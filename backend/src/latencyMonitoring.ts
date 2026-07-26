@@ -1,4 +1,8 @@
 import { logger } from './middleware/structuredLogging';
+import { ENDPOINT_SLA_REGISTRY, resolveLatencyBudgetMs, EndpointType, getEndpointSla } from './endpointSlaRegistry';
+import { recordSloBreachAlert, endpointSloP95LatencyMs, endpointSloBudgetMs, endpointSloBreach } from './metrics';
+
+export { EndpointType } from './endpointSlaRegistry';
 
 // SLO Configuration
 export interface SLOConfig {
@@ -6,12 +10,6 @@ export interface SLOConfig {
   writeEndpoints: number; // P95 latency threshold in ms (default: 500ms)
   evaluationWindowMs: number; // Rolling window for P95 calculation (default: 5 minutes)
   alertCooldownMs: number; // Cooldown between alerts for same endpoint (default: 15 minutes)
-}
-
-// Endpoint categorization
-export enum EndpointType {
-  READ = 'read',
-  WRITE = 'write',
 }
 
 // Latency data point
@@ -141,42 +139,25 @@ export class LatencyMonitoringService {
   }
 
   private initializeEndpointMappings(): void {
-    // Define endpoint types and their SLO thresholds
-    const endpointMappings = new Map<string, EndpointType>([
-      // Read endpoints (200ms SLO)
-      ['/api/v1/vault/summary', EndpointType.READ],
-      ['/api/v1/vault/metrics', EndpointType.READ],
-      ['/api/v1/vault/apy', EndpointType.READ],
-      ['/api/v1/vault/:id', EndpointType.READ],
-      ['/health', EndpointType.READ],
-      ['/ready', EndpointType.READ],
-      ['/metrics', EndpointType.READ],
-      ['/admin/api-keys/audit-events', EndpointType.READ],
-      ['/admin/exports/jobs', EndpointType.READ],
-      
-      // Write endpoints (500ms SLO)
-      ['/api/v1/vault/deposit', EndpointType.WRITE],
-      ['/api/v1/vault/withdraw', EndpointType.WRITE],
-      ['/api/v1/vault/create', EndpointType.WRITE],
-      ['/admin/cache/invalidate', EndpointType.WRITE],
-      ['/admin/api-keys/register', EndpointType.WRITE],
-      ['/admin/api-keys/rotate', EndpointType.WRITE],
-      ['/admin/api-keys/revoke', EndpointType.WRITE],
-      ['/admin/exports/jobs/:id/verify', EndpointType.WRITE],
-    ]);
-
     const sloConfig = this.getSLOConfig();
-    
-    endpointMappings.forEach((type, endpoint) => {
-      const threshold = type === EndpointType.READ ? sloConfig.readEndpoints : sloConfig.writeEndpoints;
-      this.trackers.set(endpoint, new EndpointLatencyTracker(
-        endpoint,
-        type,
-        threshold,
-        sloConfig.evaluationWindowMs,
-        sloConfig.alertCooldownMs
-      ));
-    });
+
+    for (const entry of ENDPOINT_SLA_REGISTRY) {
+      const threshold = resolveLatencyBudgetMs(
+        entry.path,
+        sloConfig.readEndpoints,
+        sloConfig.writeEndpoints,
+      );
+      this.trackers.set(
+        entry.path,
+        new EndpointLatencyTracker(
+          entry.path,
+          entry.type,
+          threshold,
+          sloConfig.evaluationWindowMs,
+          sloConfig.alertCooldownMs,
+        ),
+      );
+    }
   }
 
   private initializeAlertIntegrations(): void {
@@ -281,6 +262,7 @@ export class LatencyMonitoringService {
     };
     
     tracker.recordAlert();
+    this.recordSloBreachMetric(endpoint, tracker.endpointType);
     await this.sendAlerts([violation]);
     
     logger.log('info', 'Immediate SLO breach alert triggered', {
@@ -304,6 +286,7 @@ export class LatencyMonitoringService {
         });
         
         tracker.recordAlert();
+        this.recordSloBreachMetric(endpoint, tracker.endpointType);
       }
     });
 
@@ -325,6 +308,30 @@ export class LatencyMonitoringService {
       });
     } catch (error: any) {
       logger.log('error', 'Failed to send some alerts', { error: error.message });
+    }
+  }
+
+  private recordSloBreachMetric(endpoint: string, type: EndpointType): void {
+    const sla = getEndpointSla(endpoint);
+    const tier = sla?.tier ?? 'unknown';
+    recordSloBreachAlert(endpoint, tier, type);
+  }
+
+  /**
+   * Syncs endpoint SLO state into Prometheus gauges.
+   * Call before scraping /metrics.
+   */
+  syncSloMetrics(): void {
+    const detailed = this.getDetailedMetrics();
+
+    for (const metric of detailed) {
+      const sla = getEndpointSla(metric.endpoint);
+      const tier = sla?.tier ?? 'unknown';
+      const labels = { path: metric.endpoint, tier, type: metric.type };
+
+      endpointSloP95LatencyMs.set(labels, metric.currentP95);
+      endpointSloBudgetMs.set(labels, metric.threshold);
+      endpointSloBreach.set(labels, metric.isBreaching ? 1 : 0);
     }
   }
 
