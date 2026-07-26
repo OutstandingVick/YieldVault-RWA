@@ -8,6 +8,7 @@ This directory contains operational runbooks for disaster recovery and incident 
 
 | Runbook | RTO | RPO | Use When |
 |---------|-----|-----|----------|
+| [Incident Triage & Severity Classification](./INCIDENT_TRIAGE_AND_SEVERITY.md) | N/A | N/A | First responder triage and severity classification for any alert |
 | [RTO/RPO Targets](./RTO_RPO_TARGETS.md) | N/A | N/A | Understanding recovery objectives |
 | [Database Restore](./DATABASE_RESTORE.md) | 1 hour | 15 min | Database corruption or failure |
 | [Backend Redeploy](./BACKEND_REDEPLOY.md) | 30 min | N/A | Backend service issues |
@@ -278,6 +279,10 @@ Runbooks are step-by-step operational guides that enable any engineer to execute
 Use this decision tree to select the appropriate runbook:
 
 ```
+Alert fires or incident reported
+│
+└─▶ Step 0: Classify severity using [Incident Triage & Severity Classification](./INCIDENT_TRIAGE_AND_SEVERITY.md). Then:
+
 Is the entire infrastructure down?
 ├─ YES → Use Full DR Procedure
 └─ NO → Continue
@@ -314,11 +319,17 @@ All runbooks must be tested according to this schedule:
 | RPC Failover | Monthly | ⚠️ Never | TBD |
 | Full DR Procedure | Annually | ⚠️ Never | TBD |
 | Replay & State Recovery | Monthly | ⚠️ Never | TBD |
+| Incident Triage & Severity | Quarterly (tabletop) | ⚠️ Never | TBD |
 | Error Code Troubleshooting | Quarterly | ⚠️ Never | TBD |
 
 ### Testing Types
 
-1. **Tabletop Exercise** (Quarterly)
+1. **Triage Drill** (Monthly)
+   - Simulate an alert and run through the [Incident Triage & Severity Classification](./INCIDENT_TRIAGE_AND_SEVERITY.md) triage flow
+   - Time the classification decision against the 15-minute target
+   - Duration: 30 minutes
+
+2. **Tabletop Exercise** (Quarterly)
    - Walk through runbook as a team
    - Identify gaps and issues
    - Update documentation
@@ -648,6 +659,6 @@ See individual runbooks for detailed checklists.
 
 ---
 
-**Last Updated:** April 29, 2026  
+**Last Updated:** July 26, 2026  
 **Maintained By:** DevOps Team  
-**Next Review:** July 29, 2026
+**Next Review:** October 26, 2026
