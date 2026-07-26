@@ -522,6 +522,33 @@ The contract structure (SPA, custody agreement, indenture, etc.) connecting on-c
 **Redemption Right**
 Legal mechanism for token holders to redeem their on-chain RWA tokens for the underlying asset or its cash equivalent. Typically requires KYC/AML checks at the RWA layer.
 
+**Proof of Reserve (PoR)**
+On-chain attestation or cryptographic oracle proof verifying that off-chain collateral held by custodians equals or exceeds the total value of tokenized RWA issued.
+
+**Off-Chain Settlement**
+The operational process of completing asset transfers, bank wires, or delivery-versus-payment (DvP) in traditional financial rails before updating on-chain balances.
+
+**CUSIP / ISIN**
+Unique alphanumeric identifiers assigned to financial securities (Committee on Uniform Security Identification Procedures / International Securities Identification Number) used to identify and trace off-chain RWA underlying holdings.
+
+**Delivery-versus-Payment (DvP)**
+A settlement mechanism that links the transfer of financial assets to payment execution, ensuring securities delivery occurs if and only if payment is fulfilled.
+
+**Off-Chain Collateral Ratio**
+The ratio of verified off-chain collateral held in custody to total on-chain shares or tokens issued against those assets, ensuring full backing.
+
+**Bankruptcy-Remote SPV**
+A Special Purpose Vehicle legally structured to isolate RWA assets from the operational liabilities of the issuer or custodian, protecting investor capital in bankruptcy scenarios.
+
+**Subscription & Redemption Window**
+The specified timeframe and operational delay required for fiat processing, bank settlement, and custodial transfer when subscribing to or redeeming RWA positions.
+
+**Yield Distribution Epoch**
+The discrete time period over which harvested RWA yield (e.g., T-Bill interest or sovereign bond coupons) is aggregated and socialized to vault share price.
+
+**Fractional RWA Ownership**
+The mechanism enabling retail or institutional users to hold fractional shares of institutional-grade RWA assets with high minimum investment thresholds via tokenized ERC-4626 vault shares.
+
 ---
 
 ## Oracle Price Validation & Heartbeats
