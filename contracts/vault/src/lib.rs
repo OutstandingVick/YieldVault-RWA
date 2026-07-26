@@ -78,6 +78,8 @@ pub mod storage_registry;
 pub mod strategy;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod formal_verification_tests;
 pub mod upgrade;
 
 pub mod oracle;
