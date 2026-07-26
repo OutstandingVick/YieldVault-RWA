@@ -1,6 +1,9 @@
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
-import { runJobWithRetry, registerJob } from './jobGovernance';
+import { runJobWithRetry, registerJob, registerJobHandler } from './jobGovernance';
+
+registerJobHandler('positionReconciliation', () => runPositionReconciliationJob());
+registerJobHandler('reportGeneration', () => runLedgerReconciliationJob());
 import { startEventPollingService } from './eventPollingService';
 import { updateVaultMetrics } from './metrics';
 import Decimal from 'decimal.js';

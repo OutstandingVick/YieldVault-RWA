@@ -12,8 +12,8 @@ import {
   nativeToScVal,
   StrKey,
   TransactionBuilder,
-  BASE_FEE,
 } from '@stellar/stellar-sdk';
+import { getDeterministicBaseFee } from './feeCalculator';
 import { logger } from './middleware/structuredLogging';
 import { getCurrentTraceId } from './tracing';
 import { sorobanRetryBudget } from './retryBudget';
@@ -221,7 +221,7 @@ export async function submitVaultOperation(
     );
 
     const tx = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
+      fee: getDeterministicBaseFee(),
       networkPassphrase,
     })
       .addOperation(op)

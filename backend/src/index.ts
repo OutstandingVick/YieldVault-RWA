@@ -1,4 +1,4 @@
-﻿// Load environment variables FIRST before any other imports
+// Load environment variables FIRST before any other imports
 // This ensures OTEL_ENABLED is set before tracing initialization
 import dotenv from 'dotenv';
 dotenv.config();
@@ -145,7 +145,20 @@ import {
 } from './exportJobs';
 import { parseUtcDateRange, DateRangeParseError } from './dateRange';
 import { backfillApySnapshots } from './apySnapshot';
-import { getJobMetrics, getJobHealthStatus } from './jobGovernance';
+import {
+  getJobMetrics,
+  getJobHealthStatus,
+  listDeadLetters,
+  getDeadLetterRecord,
+  retryDeadLetter,
+  resolveDeadLetter,
+  discardDeadLetter,
+  bulkRetryDeadLetters,
+  bulkDiscardDeadLetters,
+  processDeadLetterQueue,
+  type JobName,
+  type DeadLetterStatus,
+} from './jobGovernance';
 import {
   createBulkExportJob,
   getBulkExportJob,
@@ -3484,6 +3497,347 @@ app.get('/admin/jobs/dashboard', validateApiKey, (_req: Request, res: Response) 
       </body>
     </html>
   `);
+});
+
+// ─── Dead-Letter Queue Admin Endpoints ─────────────────────────────────────
+
+/**
+ * GET /admin/jobs/metrics
+ * Returns background job runtime and governance metrics.
+ */
+app.get('/admin/jobs/metrics', validateApiKey, (_req: Request, res: Response) => {
+  const metrics = getJobMetrics();
+  const health = getJobHealthStatus();
+
+  res.status(200).json({
+    summary: { health },
+    metrics,
+    prisma: getPrismaConfig(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/dead-letters
+ * Lists dead-letter queue records with optional filtering (jobName, status, limit, offset).
+ * Requires API key authentication.
+ */
+app.get('/admin/jobs/dead-letters', validateApiKey, (req: Request, res: Response) => {
+  const jobName = typeof req.query.jobName === 'string' ? (req.query.jobName as JobName) : undefined;
+  const status = typeof req.query.status === 'string' ? (req.query.status as DeadLetterStatus) : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 500);
+  const offset = parseLimited(req.query.offset, 0, 0, 10000);
+
+  const { records, total } = listDeadLetters({ jobName, status, limit, offset });
+
+  res.status(200).json({
+    data: records,
+    total,
+    limit,
+    offset,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/dead-letters/:id
+ * Retrieves a single dead-letter record by ID.
+ * Requires API key authentication.
+ */
+app.get('/admin/jobs/dead-letters/:id', validateApiKey, (req: Request, res: Response) => {
+  const record = getDeadLetterRecord(req.params.id);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/:id/retry
+ * Retries a single dead-letter queue entry.
+ * Supports dryRun flag.
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/:id/retry', validateApiKey, async (req: Request, res: Response) => {
+  const record = getDeadLetterRecord(req.params.id);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    void recordAdminAuditLog(req, 'jobs.dlq.retry.dry_run', 200, {
+      id: req.params.id,
+      jobName: record.jobName,
+      actor,
+    });
+
+    res.status(200).json({
+      dryRun: true,
+      message: `Dead-letter record '${req.params.id}' (${record.jobName}) would be retried`,
+      record,
+      wouldRetry: true,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const outcome = await retryDeadLetter(req.params.id);
+  void recordAdminAuditLog(req, 'jobs.dlq.retry', outcome.success ? 200 : 500, {
+    id: req.params.id,
+    jobName: record.jobName,
+    success: outcome.success,
+    actor,
+    error: outcome.error,
+  });
+
+  if (!outcome.success) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: outcome.error || 'Failed to retry dead-letter record',
+      record: outcome.record,
+    });
+    return;
+  }
+
+  res.status(200).json({
+    message: 'Dead-letter record retried successfully',
+    result: outcome.result,
+    record: outcome.record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/:id/resolve
+ * Marks a dead-letter entry as manually resolved.
+ * Body: { notes?: string }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/:id/resolve', validateApiKey, async (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+
+  const record = resolveDeadLetter(req.params.id, actor, notes);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'jobs.dlq.resolve', 200, {
+    id: req.params.id,
+    jobName: record.jobName,
+    actor,
+    notes,
+  });
+
+  res.status(200).json({
+    message: 'Dead-letter record resolved successfully',
+    record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/jobs/dead-letters/:id
+ * Discards a dead-letter record from the queue.
+ * Requires API key authentication.
+ */
+app.delete('/admin/jobs/dead-letters/:id', validateApiKey, (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    const existing = getDeadLetterRecord(req.params.id);
+    res.status(existing ? 200 : 404).json({
+      dryRun: true,
+      message: existing
+        ? `Dead-letter record '${req.params.id}' would be discarded`
+        : `Dead-letter record '${req.params.id}' not found`,
+      id: req.params.id,
+      wouldDiscard: Boolean(existing),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const record = discardDeadLetter(req.params.id, actor);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'jobs.dlq.discard', 200, {
+    id: req.params.id,
+    jobName: record.jobName,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Dead-letter record discarded successfully',
+    record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/bulk-retry
+ * Bulk retries multiple dead-letter records.
+ * Body: { ids: string[] }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/bulk-retry', validateApiKey, async (req: Request, res: Response) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+
+  if (ids.length === 0) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`ids` array must not be empty',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: `Bulk retry preview for ${ids.length} dead-letter records`,
+      ids,
+      wouldRetryCount: ids.length,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const summary = await bulkRetryDeadLetters(ids);
+
+  void recordAdminAuditLog(req, 'jobs.dlq.bulk_retry', 200, {
+    requestedCount: ids.length,
+    retried: summary.retried,
+    failed: summary.failed,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Bulk retry completed',
+    retried: summary.retried,
+    failed: summary.failed,
+    results: summary.results,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/bulk-discard
+ * Bulk discards multiple dead-letter records.
+ * Body: { ids: string[] }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/bulk-discard', validateApiKey, (req: Request, res: Response) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+
+  if (ids.length === 0) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`ids` array must not be empty',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: `Bulk discard preview for ${ids.length} dead-letter records`,
+      ids,
+      wouldDiscardCount: ids.length,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const summary = bulkDiscardDeadLetters(ids);
+
+  void recordAdminAuditLog(req, 'jobs.dlq.bulk_discard', 200, {
+    requestedCount: ids.length,
+    discardedCount: summary.discarded,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Bulk discard completed',
+    discardedCount: summary.discarded,
+    ids: summary.ids,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/process
+ * Triggers batch processing worker for dead-letter records.
+ * Body: { batchSize?: number }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/process', validateApiKey, async (req: Request, res: Response) => {
+  const batchSize = typeof req.body?.batchSize === 'number' && req.body.batchSize > 0 ? req.body.batchSize : 10;
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: `DLQ processor dry-run preview for batchSize ${batchSize}`,
+      batchSize,
+      wouldProcess: true,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const summary = await processDeadLetterQueue(batchSize);
+
+  void recordAdminAuditLog(req, 'jobs.dlq.process', 200, {
+    batchSize,
+    processed: summary.processed,
+    succeeded: summary.succeeded,
+    failed: summary.failed,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'DLQ queue processing batch completed',
+    batchSize,
+    processed: summary.processed,
+    succeeded: summary.succeeded,
+    failed: summary.failed,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // â”€â”€â”€ Idempotency Admin Endpoints (Issues #457 & #466) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
