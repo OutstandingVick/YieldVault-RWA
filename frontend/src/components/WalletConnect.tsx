@@ -106,8 +106,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
         } else if (walletAddress) {
           onDisconnect("connection-lost");
           toast.info({
-            title: "Wallet disconnected",
-            description: "Freighter is no longer connected to this session.",
+            title: t("toast.walletConnectionLost.title"),
+            description: t("toast.walletConnectionLost.description"),
           });
         }
       } finally {
@@ -129,7 +129,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       mounted = false;
       window.clearInterval(interval);
     };
-  }, [onConnect, onDisconnect, toast, walletAddress]);
+  }, [onConnect, onDisconnect, toast, walletAddress, t]);
 
   const handleConnect = useCallback(async () => {
     setIsConnecting(true);

@@ -26,6 +26,7 @@ import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPol
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
 import { ChartModeToggle } from "./ChartModeToggle";
+import { t, useTranslation } from "../i18n";
 
 const VaultPerformanceTooltip = ({
   active,
@@ -51,7 +52,7 @@ const VaultPerformanceTooltip = ({
           {label ? formatDate(label, { month: "short", day: "numeric", year: "numeric" }, locale) : ""}
         </div>
         <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>
-          Index: {formatChartNumber(value, locale, { maxDecimals: 2 })}
+          {t("vaultPerformanceChart.tooltipIndexLabel")} {formatChartNumber(value, locale, { maxDecimals: 2 })}
         </div>
       </div>
     );
@@ -67,6 +68,7 @@ const VaultPerformanceChart: React.FC = () => {
   const { data: rawData = [], isLoading, isFetching, error, refetch } = query;
   const { isStale, ageText } = useStaleIndicator(lastUpdated);
   const { preferences, chartModes, setChartMode } = usePreferencesContext();
+  const { t } = useTranslation();
   const [timeRange, setTimeRange] = useState<TimeRange>("ALL");
   const chartMode = chartModes.vaultPerformance;
   const isTest = process.env.NODE_ENV === 'test';
@@ -182,10 +184,10 @@ const VaultPerformanceChart: React.FC = () => {
                 }}
               >
                 <TrendingUp size={18} color="var(--accent-cyan)" />
-                Vault Performance
+                {t("vaultPerformanceChart.title")}
               </h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                yvUSDC share price index (100 = baseline)
+                {t("vaultPerformanceChart.subtitle")}
               </p>
             </div>
 
@@ -193,7 +195,7 @@ const VaultPerformanceChart: React.FC = () => {
             <ChartModeToggle
               value={chartMode}
               onChange={(mode) => setChartMode("vaultPerformance", mode)}
-              aria-label="Vault performance chart mode"
+              aria-label={t("vaultPerformanceChart.modeAria")}
             />
             <div className="flex gap-xs" style={{ background: "rgba(255,255,255,0.03)", padding: "4px", borderRadius: "8px", border: "1px solid var(--border-glass)" }}>
               {(["7D", "1M", "3M", "ALL"] as const).map((range) => (
@@ -245,7 +247,7 @@ const VaultPerformanceChart: React.FC = () => {
                 }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-warning, #f59e0b)", flexShrink: 0 }} />
-                Data may be stale · {ageText}
+                {t("vaultPerformanceChart.dataMayBeStale").replace("{{age}}", ageText)}
               </div>
             )}
           </div>
@@ -254,16 +256,16 @@ const VaultPerformanceChart: React.FC = () => {
             {error ? (
               <ChartWidgetPlaceholder
                 variant="error"
-                title="Unable to load performance data"
-                description="We could not fetch vault performance history. Please try again."
+                title={t("vaultPerformanceChart.errorTitle")}
+                description={t("vaultPerformanceChart.errorDesc")}
                 height={260}
                 onRetry={() => void refetch()}
               />
             ) : filteredData.length === 0 ? (
               <ChartWidgetPlaceholder
                 variant="empty"
-                title="No performance data yet"
-                description="Vault performance history will appear after the first data points are recorded."
+                title={t("vaultPerformanceChart.emptyTitle")}
+                description={t("vaultPerformanceChart.emptyDesc")}
                 height={260}
               />
             ) : isTest ? (
