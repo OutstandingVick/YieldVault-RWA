@@ -58,6 +58,7 @@ pub mod benji_strategy;
 pub mod errors;
 pub use errors::VaultError;
 pub mod emergency;
+pub mod emergency_rescue;
 #[cfg(test)]
 mod event_tests;
 pub mod external_calls;
@@ -71,6 +72,7 @@ mod invariant_tests;
 pub mod math;
 #[cfg(test)]
 mod oracle_tests;
+pub mod packed_storage;
 pub mod permissions;
 #[cfg(test)]
 pub mod proxy_tests;
@@ -79,6 +81,7 @@ pub mod strategy;
 #[cfg(test)]
 mod test;
 pub mod upgrade;
+pub mod withdrawal_queue_safety;
 
 pub mod oracle;
 pub mod strategy_heartbeat;
