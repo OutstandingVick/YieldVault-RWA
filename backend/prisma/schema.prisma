@@ -34,6 +34,8 @@ model SharePriceSnapshot {
   createdAt   DateTime @default(now())
 
   @@index([recordedAt])
+  // Issue #895 – calculateUserYield orders by (recordedAt ASC, id ASC); composite covers both
+  @@index([recordedAt(sort: Asc), id(sort: Asc)])
 }
 
 model Transaction {
@@ -44,6 +46,15 @@ model Transaction {
   status       String?
   referralCode String?
   timestamp    DateTime @default(now())
+
+  // Issue #895 – query optimisation indices
+  // Ordered by timestamp DESC to match the default sort on the list endpoint.
+  @@index([timestamp(sort: Desc)])
+  @@index([user, timestamp(sort: Desc)])
+  @@index([type, timestamp(sort: Desc)])
+  @@index([status, timestamp(sort: Desc)])
+  @@index([user, type, timestamp(sort: Desc)])
+  @@index([user, status, timestamp(sort: Desc)])
 }
 
 model Referral {
@@ -61,6 +72,9 @@ model ReferralCode {
   code         String   @unique
   ownerAddress String
   createdAt    DateTime @default(now())
+
+  // Issue #895 – getOrCreateReferralCode does findFirst({ where: { ownerAddress } })
+  @@index([ownerAddress])
 }
 
 model AdminAuditLog {
@@ -191,6 +205,8 @@ model WebhookDelivery {
 
   @@index([createdAt])
   @@index([endpointId])
+  // Issue #895 – listWebhookDeliveryPage sorts by (createdAt DESC, id DESC) filtered by endpointId
+  @@index([endpointId, createdAt(sort: Desc)])
 }
 
 model AdminActionReceipt {

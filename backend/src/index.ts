@@ -44,7 +44,7 @@ import { corsMiddleware } from './middleware/cors';
 import { geofencingMiddleware } from './middleware/geofencing';
 import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
 import { getRedisCacheHealth, redisCacheClient } from './redisCache';
-import { validate, LoginSchema, NonceRequestSchema, RefreshSchema } from './middleware/validate';
+import { validate, LoginSchema, NonceRequestSchema, RefreshSchema, WebhookRegisterSchema, WebhookUpdateSchema } from './middleware/validate';
 import { tieredJsonBodyParser } from './middleware/payloadLimit';
 import { requireSignedWalletAction } from './middleware/walletSignedAction';
 import { timeoutMiddleware, createTimeoutFor } from './middleware/timeoutMiddleware';
@@ -121,6 +121,7 @@ import {
   verifyWebhookSignature,
   listWebhookDeadLetters,
   retryWebhookDeadLetter,
+  WEBHOOK_SCHEMA_VERSION,
 } from './webhookDelivery';
 import {
   maintenanceModeMiddleware,
@@ -2539,17 +2540,9 @@ app.get('/admin/api-keys/audit-events', validateApiKey, async (req: Request, res
 /**
  * POST /admin/webhooks - register webhook endpoint for transaction events
  */
-app.post('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
+app.post('/admin/webhooks', validateApiKey, validate({ body: WebhookRegisterSchema }), (req: Request, res: Response) => {
   try {
     const { url, eventTypes, enabled, secret } = req.body;
-    if (!url || typeof url !== 'string') {
-      res.status(400).json({
-        error: 'Bad Request',
-        status: 400,
-        message: 'url is required and must be a string',
-      });
-      return;
-    }
 
     const endpoint = registerWebhookEndpoint({
       url,
@@ -2611,7 +2604,7 @@ app.post('/admin/webhooks/:id/verify', validateApiKey, async (req: Request, res:
 /**
  * PATCH /admin/webhooks/:id - update webhook endpoint
  */
-app.patch('/admin/webhooks/:id', validateApiKey, (req: Request, res: Response) => {
+app.patch('/admin/webhooks/:id', validateApiKey, validate({ body: WebhookUpdateSchema }), (req: Request, res: Response) => {
   if (!assertWebhookParameterUpdate(req, res)) {
     return;
   }
