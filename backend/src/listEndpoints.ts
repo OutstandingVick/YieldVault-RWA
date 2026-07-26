@@ -456,30 +456,22 @@ export async function buildTransactionsResponse(
   const limit = query.limit ?? TRANSACTION_PAGINATION_CONFIG.defaultLimit ?? 20;
   const normalizedDateRange = parseDateRangeOrThrow({ from: query.from, to: query.to });
 
-  let filtered = filterTransactions(MOCK_TRANSACTIONS, {
-    ...filters,
-    from: normalizedDateRange.normalizedStart ?? undefined,
-    to: normalizedDateRange.normalizedEnd ?? undefined,
-  });
-  if (pagination.sortBy) {
-    filtered = sortItems(filtered, pagination.sortBy, pagination.sortOrder, ['timestamp', 'id']);
-  }
-
   const sortBy = query.sortBy ?? TRANSACTION_PAGINATION_CONFIG.defaultSortBy ?? 'timestamp';
   const sortOrder = query.sortOrder ?? TRANSACTION_PAGINATION_CONFIG.defaultSortOrder ?? 'desc';
 
-  // Decode cursor to get the timestamp+id anchor for keyset pagination
-  let cursorWhere: Record<string, unknown> | undefined;
-  if (query.cursor) {
-    try {
-      const decoded = Buffer.from(query.cursor, 'base64url').toString('utf-8');
-      // cursor encodes the id
-      cursorWhere = { id: { not: undefined } }; // placeholder; use skip-based below
-      void decoded; // will use skip approach via findMany cursor
-    } catch {
-      // invalid cursor — ignore
-    }
-  }
+  const where = {
+    ...(query.type ? { type: query.type } : {}),
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.walletAddress ? { user: normalizeWalletAddress(query.walletAddress) } : {}),
+    ...((normalizedDateRange.normalizedStart || normalizedDateRange.normalizedEnd)
+      ? {
+          timestamp: {
+            ...(normalizedDateRange.normalizedStart ? { gte: new Date(normalizedDateRange.normalizedStart) } : {}),
+            ...(normalizedDateRange.normalizedEnd ? { lte: new Date(normalizedDateRange.normalizedEnd) } : {}),
+          },
+        }
+      : {}),
+  };
 
   const [total, rows] = await Promise.all([
     prisma.transaction.count({ where: where as any }),

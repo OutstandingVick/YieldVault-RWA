@@ -123,7 +123,7 @@ const ADMIN_ROUTE_RULES: RouteRule[] = [
 // ─── Core helpers ────────────────────────────────────────────────────────────
 
 export function resolveApiKeyRole(req: Request): ApiKeyRole {
-  return normalizeApiKeyRole(req.authApiKeyRole);
+  return normalizeApiKeyRole(req.authApiKeyRole) ?? 'admin';
 }
 
 export function roleHasPermission(role: ApiKeyRole, permission: Permission): boolean {

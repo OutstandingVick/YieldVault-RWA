@@ -189,11 +189,103 @@ const VaultCapWarning: React.FC<{ utilization: number; isReached: boolean }> = (
   );
 };
 
+type RiskAction = {
+  id: string;
+  title: string;
+  description: string;
+  label: string;
+  tone: "critical" | "warning" | "info" | "success";
+  onClick: () => void;
+};
+
+const RiskSummaryCard: React.FC<{ items: RiskAction[] }> = ({ items }) => {
+  const hasWarnings = items.length > 0;
+
+  return (
+    <div
+      className="glass-panel"
+      style={{
+        padding: "20px",
+        background: "var(--bg-muted)",
+        border: "1px solid var(--border-glass)",
+        marginBottom: "24px",
+      }}
+    >
+      <div className="flex items-center justify-between gap-md" style={{ marginBottom: "16px" }}>
+        <div>
+          <h3 style={{ marginBottom: "4px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertTriangle size={18} color="var(--text-warning)" />
+            Account Risk Summary
+          </h3>
+          <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+            Warnings are prioritized by what you can do next.
+          </p>
+        </div>
+        <Badge variant="pill" color={hasWarnings ? "warning" : "success"} size="compact">
+          {hasWarnings ? `${items.length} warning${items.length === 1 ? "" : "s"}` : "All clear"}
+        </Badge>
+      </div>
+
+      {hasWarnings ? (
+        <div style={{ display: "grid", gap: "12px" }}>
+          {items.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "16px",
+                padding: "14px 16px",
+                borderRadius: "12px",
+                border: `1px solid ${item.tone === "critical" ? "rgba(255, 107, 107, 0.4)" : "var(--border-glass)"}`,
+                background: item.tone === "critical"
+                  ? "rgba(255, 107, 107, 0.08)"
+                  : item.tone === "warning"
+                    ? "rgba(255, 159, 10, 0.08)"
+                    : "rgba(0, 240, 255, 0.05)",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: "4px" }}>{item.title}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                  {item.description}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={item.tone === "critical" ? "btn btn-warning" : "btn btn-secondary"}
+                onClick={item.onClick}
+                style={{ alignSelf: "center", whiteSpace: "nowrap" }}
+              >
+                {item.label}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          style={{
+            padding: "16px",
+            borderRadius: "12px",
+            border: "1px solid rgba(34, 197, 94, 0.25)",
+            background: "rgba(34, 197, 94, 0.08)",
+            color: "var(--text-secondary)",
+            lineHeight: 1.6,
+          }}
+        >
+          Your wallet is in a healthy operating window. Compare strategies to review other allocation options before moving capital.
+        </div>
+      )}
+    </div>
+  );
+};
+
 const VaultDashboard: React.FC<VaultDashboardProps> = ({
   walletAddress,
   usdcBalance = 0,
   xlmBalance = 0,
 }) => {
+  const navigate = useNavigate();
   const dashboardUrl = useDashboardUrlState();
   const {
     formattedTvl,
@@ -208,7 +300,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     refresh,
   } = useVault();
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const toast = useToast();
   const delayedLoading = useDelayedLoading(isLoading);
 
@@ -389,6 +480,69 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     Boolean(activeAmountError) ||
     !amount ||
     (dashboardUrl.state.tab === "deposit" && isCapReached);
+
+  const riskItems = React.useMemo<RiskAction[]>(() => {
+    const next: RiskAction[] = [];
+
+    if (!walletAddress) {
+      next.push({
+        id: "wallet",
+        title: "Connect your wallet",
+        description: "Personalized risk checks and transaction actions are only available after you connect a wallet.",
+        label: "Connect wallet",
+        tone: "info",
+        onClick: () => window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT")),
+      });
+    }
+
+    if (isCapReached) {
+      next.push({
+        id: "cap-reached",
+        title: "Vault capacity reached",
+        description: "Deposits are temporarily constrained. Compare vaults before adding more capital.",
+        label: "Compare vaults",
+        tone: "critical",
+        onClick: () => navigate("/compare"),
+      });
+    } else if (isCapWarning) {
+      next.push({
+        id: "cap-warning",
+        title: "Vault is nearing capacity",
+        description: "The vault is close to its deposit cap. Review alternate strategies before you submit a larger transfer.",
+        label: "Compare vaults",
+        tone: "warning",
+        onClick: () => navigate("/compare"),
+      });
+    }
+
+    if (xlmBalance < feeXlm) {
+      next.push({
+        id: "xlm-fee",
+        title: "Insufficient XLM for network fees",
+        description: "You need more XLM to cover the estimated network fee for the next transaction.",
+        label: "Adjust amount",
+        tone: "warning",
+        onClick: () => {
+          dashboardUrl.setTab("deposit");
+          dashboardUrl.setStep("amount");
+          window.dispatchEvent(new Event("TRIGGER_DEPOSIT"));
+        },
+      });
+    }
+
+    if (summary.contractPaused) {
+      next.push({
+        id: "contract-paused",
+        title: "Vault operations are paused",
+        description: "Deposits and withdrawals are currently blocked until the vault is re-enabled.",
+        label: "Refresh status",
+        tone: "critical",
+        onClick: refresh,
+      });
+    }
+
+    return next;
+  }, [dashboardUrl, feeXlm, isCapReached, isCapWarning, navigate, refresh, summary.contractPaused, walletAddress, xlmBalance]);
 
   const staleGuard = useStaleSubmissionGuard({
     action: dashboardUrl.state.tab,
@@ -781,6 +935,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
               </div>
             </div>
           </div>
+
+          <RiskSummaryCard items={riskItems} />
 
           <div className="glass-panel" style={{ padding: "20px", background: "var(--bg-muted)" }}>
             {delayedLoading ? (

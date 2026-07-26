@@ -123,6 +123,9 @@ import {
   retryWebhookDeadLetter,
   WEBHOOK_SCHEMA_VERSION,
 } from './webhookDelivery';
+import { webhookDeduplicationStore } from './webhookDeduplication';
+import { healthProbeService } from './healthProbe';
+import { writeAheadAuditLog } from './writeAheadAuditLog';
 import {
   maintenanceModeMiddleware,
   getMaintenanceModeState,
@@ -2420,7 +2423,7 @@ app.post('/admin/api-keys/rotate', validateApiKey, async (req: Request, res: Res
     });
   } catch (error) {
     revokeApiKey(newHash);
-    restoreApiKey(oldHash, previousMetadata);
+    restoreApiKey(oldHash);
     res.status(500).json({
       error: 'Internal Server Error',
       status: 500,
@@ -2470,7 +2473,7 @@ app.post('/admin/api-keys/revoke', validateApiKey, async (req: Request, res: Res
       revokedAt: new Date().toISOString(),
     });
   } catch (error) {
-    restoreApiKey(hash, previousMetadata);
+    restoreApiKey(hash);
     res.status(500).json({
       error: 'Internal Server Error',
       status: 500,

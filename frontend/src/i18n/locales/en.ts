@@ -17,6 +17,7 @@ export const en = {
     },
     vaults: "Vaults",
     portfolio: "Portfolio",
+    compare: "Compare",
     analytics: "Analytics",
     transactions: "Transactions",
   },
