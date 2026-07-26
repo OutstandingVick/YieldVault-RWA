@@ -10,6 +10,15 @@ export type TransactionEventType =
   | 'transaction.deposit.created'
   | 'transaction.withdrawal.created';
 
+/**
+ * Monotonically increasing schema version for the outbound webhook envelope.
+ * Increment this when the envelope shape changes in a breaking way so consumers
+ * can gate on `schemaVersion` for forward-compatibility handling.
+ *
+ * v1 – initial shape: { schemaVersion, eventType, sentAt, payload }
+ */
+export const WEBHOOK_SCHEMA_VERSION = 1;
+
 export interface TransactionEventPayload {
   transactionId: string;
   amount: string;
@@ -18,6 +27,14 @@ export interface TransactionEventPayload {
   transactionHash: string;
   status: string;
   timestamp: string;
+}
+
+/** The full outbound envelope written to the wire and stored in dead-letter records. */
+export interface WebhookEnvelope {
+  schemaVersion: number;
+  eventType: TransactionEventType;
+  sentAt: string;
+  payload: TransactionEventPayload;
 }
 
 export type WebhookVerificationStatus = 'pending' | 'verified' | 'failed';
@@ -495,7 +512,7 @@ export async function retryWebhookDeadLetter(id: string): Promise<WebhookDeadLet
 
 async function persistWebhookDeadLetter(
   entry: WebhookDeadLetterRecord,
-  envelope: { eventType: TransactionEventType; sentAt: string; payload: TransactionEventPayload },
+  envelope: WebhookEnvelope,
 ): Promise<void> {
   try {
     await prisma.webhookDeadLetter.create({
@@ -628,7 +645,8 @@ async function deliverWithRetry(
   delivery.attempts = attempt;
   delivery.updatedAt = new Date().toISOString();
 
-  const envelope = {
+  const envelope: WebhookEnvelope = {
+    schemaVersion: WEBHOOK_SCHEMA_VERSION,
     eventType: delivery.eventType,
     sentAt: new Date().toISOString(),
     payload,
