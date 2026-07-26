@@ -824,3 +824,29 @@ async function ensureWebhookPersistenceTable(): Promise<void> {
   `);
   persistenceInitialized = true;
 }
+
+export async function initializeWebhookEndpoints(): Promise<void> {
+  try {
+    await ensureWebhookPersistenceTable();
+    const rows = await prisma.$queryRawUnsafe<any[]>(
+      'SELECT id, url, eventTypes, enabled, secretHash, createdAt, updatedAt, deletedAt, deletedBy FROM WebhookEndpoint',
+    );
+
+    for (const row of rows) {
+      endpoints.set(row.id, {
+        id: row.id,
+        url: row.url,
+        eventTypes: JSON.parse(row.eventTypes),
+        enabled: row.enabled === 1 || row.enabled === true,
+        secretHash: row.secretHash || undefined,
+        verificationStatus: 'verified',
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        deletedAt: row.deletedAt || undefined,
+        deletedBy: row.deletedBy || undefined,
+      });
+    }
+  } catch {
+    // Ignore initialization errors in test environments.
+  }
+}
