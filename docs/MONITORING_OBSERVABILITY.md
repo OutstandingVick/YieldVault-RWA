@@ -1,6 +1,6 @@
 # Monitoring & Observability Dashboard Guide
 
-This guide explains every metric, alert, and dashboard panel used to monitor YieldVault backend health and webhook delivery.
+This guide explains every metric, alert, and dashboard panel used to monitor YieldVault backend health and webhook delivery. All monitoring targets and alert thresholds are governed by the **[Non-Functional Requirement (NFR) Baselines Specification](./NFR_BASELINES.md)** and machine-readable spec [`docs/nfr-baselines.json`](./nfr-baselines.json).
 
 ---
 
