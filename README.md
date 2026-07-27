@@ -198,6 +198,9 @@ We welcome community contributions! Please read our contribution and review guid
 # Validate branch naming, PR description format, and contribution standards
 npm run validate:contribution-standards
 
+# Validate the testing strategy document for unit, integration, and E2E coverage guidance
+npm run validate:testing-strategy
+
 # Validate sprint label formats and issue triage taxonomy
 npm run validate:sprint-and-triage
 
