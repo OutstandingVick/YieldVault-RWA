@@ -383,6 +383,8 @@ Interactions:
 - **Pause mechanism:** Admin can pause vault to stop deposits/withdrawals during emergencies
 - **Strategy whitelist:** Admin controls which strategies can be set
 - **Governance threshold:** Admin sets DAO voting threshold
+- **Upgrade checklist:** every upgrade should preserve storage versioning, validate proxy admin/auth state, and verify storage layouts before deployment
+- **Strategy sanity checks:** rebalance operations reject self-reallocation and negative slippage bounds to avoid accidental fund movement
 
 ### Input Validation
 
