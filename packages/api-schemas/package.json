@@ -17,7 +17,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.vitest.json",
     "test": "vitest run",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "schemas:generate": "tsx scripts/generate-webhook-json-schema.ts"
   },
   "dependencies": {
     "zod": "^4.3.6"
