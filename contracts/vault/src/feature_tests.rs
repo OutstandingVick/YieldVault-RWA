@@ -80,7 +80,6 @@ fn test_dual_approval_emergency_pause() {
 }
 
 #[test]
-#[should_panic(expected = "only primary approver can initiate")]
 fn test_emergency_proposal_rejects_non_primary() {
     let env = Env::default();
     env.mock_all_auths();
@@ -92,12 +91,18 @@ fn test_emergency_proposal_rejects_non_primary() {
 
     vault.set_emergency_approvers(&primary, &secondary);
 
-    vault.propose_emergency_action(
+    // Issue #963: previously a panic, now returns VaultError::UnauthorizedCaller.
+    let result = vault.try_propose_emergency_action(
         &outsider,
         &EmergencyActionKind::Pause,
         &(PauseReason::Governance as u32),
         &None,
         &None,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        VaultError::UnauthorizedCaller,
+        "non-primary approver must be rejected with UnauthorizedCaller"
     );
 }
 
