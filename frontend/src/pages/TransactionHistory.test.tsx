@@ -351,10 +351,8 @@ describe("TransactionHistory", () => {
 
     fireEvent.change(searchInput, { target: { value: "" } });
 
-    await waitFor(() =>
-      expect(within(table).getByText("USDC")).toBeInTheDocument(),
-    );
-    expect(within(table).getByText("EURC")).toBeInTheDocument();
+    expect(await screen.findByText("USDC")).toBeInTheDocument();
+    expect(await screen.findByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
   });
 
