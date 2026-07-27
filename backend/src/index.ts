@@ -4384,61 +4384,95 @@ app.get('/health/probes', async (_req: Request, res: Response) => {
  * GET /admin/wal/entries
  * Lists write-ahead audit log entries with optional filters.
  */
-app.get('/admin/wal/entries', validateApiKey, (req: Request, res: Response) => {
+app.get('/admin/wal/entries', validateApiKey, async (req: Request, res: Response) => {
   const configType = typeof req.query.configType === 'string' ? req.query.configType : undefined;
   const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
   const status = typeof req.query.status === 'string' ? req.query.status as 'pending' | 'committed' | 'rolled_back' : undefined;
   const limit = parseLimited(req.query.limit, 50, 1, 200);
 
-  const entries = writeAheadAuditLog.list({ configType, actor, status, limit });
+  try {
+    const entries = await writeAheadAuditLog.list({ configType, actor, status, limit });
+    const metrics = await writeAheadAuditLog.getMetrics();
 
-  res.status(200).json({
-    entries,
-    count: entries.length,
-    metrics: writeAheadAuditLog.getMetrics(),
-    timestamp: new Date().toISOString(),
-  });
+    res.status(200).json({
+      entries,
+      count: entries.length,
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to list write-ahead audit log entries',
+    });
+  }
 });
 
 /**
  * GET /admin/wal/entries/:id
  * Returns a specific write-ahead audit log entry.
  */
-app.get('/admin/wal/entries/:id', validateApiKey, (req: Request, res: Response) => {
-  const entry = writeAheadAuditLog.getEntry(req.params.id);
-  if (!entry) {
-    res.status(404).json({
-      error: 'Not Found',
-      status: 404,
-      message: 'Write-ahead audit log entry not found',
+app.get('/admin/wal/entries/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const entry = await writeAheadAuditLog.getEntry(req.params.id);
+    if (!entry) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Write-ahead audit log entry not found',
+      });
+      return;
+    }
+    res.status(200).json({ entry });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch write-ahead audit log entry',
     });
-    return;
   }
-  res.status(200).json({ entry });
 });
 
 /**
  * GET /admin/wal/metrics
  * Returns metrics for the write-ahead audit log.
  */
-app.get('/admin/wal/metrics', validateApiKey, (_req: Request, res: Response) => {
-  res.status(200).json({
-    metrics: writeAheadAuditLog.getMetrics(),
-    timestamp: new Date().toISOString(),
-  });
+app.get('/admin/wal/metrics', validateApiKey, async (_req: Request, res: Response) => {
+  try {
+    const metrics = await writeAheadAuditLog.getMetrics();
+    res.status(200).json({
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch write-ahead audit log metrics',
+    });
+  }
 });
 
 /**
  * GET /admin/wal/pending
  * Returns currently pending (uncommitted) write-ahead entries.
  */
-app.get('/admin/wal/pending', validateApiKey, (_req: Request, res: Response) => {
-  const pending = writeAheadAuditLog.getPendingEntries();
-  res.status(200).json({
-    entries: pending,
-    count: pending.length,
-    timestamp: new Date().toISOString(),
-  });
+app.get('/admin/wal/pending', validateApiKey, async (_req: Request, res: Response) => {
+  try {
+    const pending = await writeAheadAuditLog.getPendingEntries();
+    res.status(200).json({
+      entries: pending,
+      count: pending.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch pending write-ahead audit log entries',
+    });
+  }
 });
 
 // ─── Scoped Admin Token Endpoints (Issue #723 / #858) ───────────────────────
