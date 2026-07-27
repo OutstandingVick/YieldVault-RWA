@@ -9,7 +9,7 @@ This project is structured as a monorepo containing both the Stellar Soroban sma
 - `/contracts/vault/`: Contains the Rust Soroban smart contract for handling the vault logic, fractional share minting (`yvUSDC`), scaling withdrawals, and simulated yield accrual.
 - `/contracts/mock-strategy/`: Contains test mock contracts for the Korean sovereign debt strategy and price oracle.
 - `/frontend/`: Contains the React + Vite frontend application, integrating `@stellar/freighter-api` for seamless user wallet connections and a premium UI to interact with the protocol.
-- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, [Domain Glossary](./docs/GLOSSARY.md), [Monitoring & Observability](./docs/MONITORING_OBSERVABILITY.md) (including dashboard minimums for logs/metrics/traces), and tracked GitHub issues. See also the [Deposit & Withdrawal Lifecycle](./docs/DEPOSIT_WITHDRAWAL_LIFECYCLE.md) for sequence diagrams and the [Vault UX Pattern Library](./docs/VAULT_UX_PATTERN_LIBRARY.md) for approved frontend interaction rules.
+- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, [Domain Glossary](./docs/GLOSSARY.md), and tracked GitHub issues. See also the [Deposit & Withdrawal Lifecycle](./docs/DEPOSIT_WITHDRAWAL_LIFECYCLE.md) for sequence diagrams.
 
 ## Architecture
 
@@ -39,7 +39,6 @@ For a comprehensive overview of the smart contract architecture, module responsi
 
 - **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)** – Complete setup guide with step-by-step instructions
 - **[Service Dependency Matrix](./docs/SERVICE_DEPENDENCY_MATRIX.md)** – Visual dependency graph and service specifications
-- **[Stellar Testnet & Mainnet Deployment Runbook](./docs/DEPLOYMENT.md)** – Pinned toolchain alignment, optimizations, and upgrade guide
 
 ### Quick Start (5 minutes)
 
@@ -61,32 +60,7 @@ For a comprehensive overview of the smart contract architecture, module responsi
    cd frontend && npm install && npm run dev
    ```
 
-4. **Configure frontend contract env** (required before on-chain features work):
-
-   ```bash
-   cp frontend/.env.local.example frontend/.env.local
-   # Set VITE_VAULT_CONTRACT_ID from deployment.json after a contract deploy
-   npm run validate:frontend-env -- --env-file frontend/.env.local --strict --check-rpc
-   ```
-
-5. **Open browser**: http://localhost:5173
-
-### Fund a Stellar testnet account
-
-After installing backend dependencies, fund a contributor wallet with Friendbot:
-
-```bash
-read -rsp "Testnet secret key: " TESTNET_SECRET_KEY && echo
-export TESTNET_SECRET_KEY
-node scripts/fund-testnet-account.js
-unset TESTNET_SECRET_KEY
-```
-
-To create a classic test-USDC trustline, set `TESTNET_USDC_ISSUER`. For a
-locally controlled test issuer, also set `TESTNET_USDC_ISSUER_SECRET`; the
-script will send `TESTNET_USDC_AMOUNT` (default `1000`) to the contributor
-wallet. Secrets are read only from environment variables and are never
-committed or printed.
+4. **Open browser**: http://localhost:5173
 
 For detailed setup instructions, prerequisites, and troubleshooting, see **[Local Development Quickstart](./docs/LOCAL_DEVELOPMENT_QUICKSTART.md)**.
 
@@ -105,21 +79,13 @@ npm run docs:api
 
 See `docs/api/README.md` for output locations. Integrators should also read
 [`docs/api/ERROR_CODE_CATALOG.md`](docs/api/ERROR_CODE_CATALOG.md) for error codes
-and remediation guidance, and [`docs/api/PAGINATION.md`](docs/api/PAGINATION.md) for
-deterministic cursor paging examples.
-
-**Pagination consumer examples:**
-
-- [TypeScript](./docs/examples/api_pagination_consumer.ts)
-- [Python](./docs/examples/api_pagination_consumer.py)
+and remediation guidance.
 
 ## Webhook Integration
 
 YieldVault emits cryptographically-signed events for all critical vault operations. Off-chain services can consume these events to track deposits, withdrawals, fee changes, and other protocol activity.
 
 For a complete guide on consuming YieldVault events, see **[Webhook Integration Guide](./docs/WEBHOOK_INTEGRATION.md)**.
-
-For the exact, machine-readable event/payload shapes the HTTP webhook delivery service sends (as opposed to raw on-chain contract events), see the **[Webhook Event Schema Catalog](./docs/WEBHOOK_EVENT_SCHEMA_CATALOG.md)** and its generated [JSON Schema files](./docs/schemas/webhooks/).
 
 ### Quick Start
 
@@ -161,19 +127,9 @@ YieldVault has comprehensive disaster recovery procedures to ensure system resil
 
 - **RTO (Recovery Time Objective):** 1 hour for critical systems
 - **RPO (Recovery Point Objective):** 15 minutes maximum data loss
-- **Runbooks:** Step-by-step recovery procedures for all failure scenarios. Key runbooks include:
-  - [Disaster Recovery Runbooks Overview](./docs/runbooks/README.md)
-  - [Replay and State Recovery Procedures](./docs/runbooks/REPLAY_PROCEDURES.md)
+- **Runbooks:** Step-by-step recovery procedures for all failure scenarios
 
-## Incident Postmortems
-
-YieldVault documents significant incidents with blameless postmortems and tracked action items:
-
-- **Templates:** [Post-mortem](./docs/runbooks/templates/post-mortem.md), [Incident Report](./docs/runbooks/templates/incident-report.md)
-- **Publication workflow:** [Postmortem Playbook](./docs/postmortem-playbook.md)
-- **Published reports:** [docs/incidents/](./docs/incidents/README.md)
-
-Postmortem drafts are due within 48 hours of incident resolution; publication within 5 business days.
+See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedures.
 
 ## Roadmap (Phases)
 
@@ -182,29 +138,17 @@ Postmortem drafts are due within 48 hours of incident resolution; publication wi
 - **Phase 3**: Stellar Testnet Deployment and Frontend Integration (Up next)
 - **Phase 4**: Security Audit and Mainnet Launch
 
+### Quarterly Milestones
+
+- **Q1**: Finalize product scope, harden core vault flows, and complete baseline integration testing.
+- **Q2**: Ship testnet-ready contract and frontend integration, then close critical polish gaps.
+- **Q3**: Expand security review, run load and failure-mode validation, and prepare launch readiness.
+- **Q4**: Complete mainnet launch checklist, monitor production stability, and gather retrospective improvements.
+
 ## 🤝 Contributing
 
-We welcome community contributions! Please read our contribution and review guides before submitting PRs:
-
-- **[Contributing Guide](./CONTRIBUTING.md)** — Pre-commit hooks, local environment setup, and branch naming conventions.
-- **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Review SLAs, approval requirements by criticality (Tiers 1-4), reviewer expectations, and comment conventions.
-- **[Sprint Labeling Standards & Triage Conventions](./docs/SPRINT_AND_TRIAGE_CONVENTIONS.md)** — Sprint naming schemes (`sprint: YYYY-WXX`), 2-week sprint lifecycle, and unified issue taxonomy.
-- **[Release Notes Playbook](./docs/release-notes-playbook.md)** & **[Release Notes Template](./.github/RELEASE_NOTES_TEMPLATE.md)** — Release notes standards with Security & Performance highlights.
-- **[Non-Functional Requirement Baselines](./docs/NFR_BASELINES.md)** — Binding production SLOs, SLIs, RTO, and RPO disaster recovery baselines.
-- **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of code paths to maintainers.
-- **[Issue Triage & PR Review](./TRIAGE_AND_REVIEW.md)** — Issue triage workflows and merge readiness checklists.
-
-```bash
-# Validate branch naming, PR description format, and contribution standards
-npm run validate:contribution-standards
-
-# Validate sprint label formats and issue triage taxonomy
-npm run validate:sprint-and-triage
-
-# Validate release notes template and cliff config
-npm run validate:release-notes
-
-# Validate NFR baselines (SLO, RTO, RPO)
-npm run validate:nfr-baselines
-```
-
+Fork the repository and clone it to your local machine
+Create a new branch for your changes
+Make and test your updates following the project guidelines
+Commit and push your changes to your fork
+Open a Pull Request with a clear description
