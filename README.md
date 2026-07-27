@@ -119,6 +119,8 @@ YieldVault emits cryptographically-signed events for all critical vault operatio
 
 For a complete guide on consuming YieldVault events, see **[Webhook Integration Guide](./docs/WEBHOOK_INTEGRATION.md)**.
 
+For the exact, machine-readable event/payload shapes the HTTP webhook delivery service sends (as opposed to raw on-chain contract events), see the **[Webhook Event Schema Catalog](./docs/WEBHOOK_EVENT_SCHEMA_CATALOG.md)** and its generated [JSON Schema files](./docs/schemas/webhooks/).
+
 ### Quick Start
 
 **Listen for vault events (TypeScript):**
