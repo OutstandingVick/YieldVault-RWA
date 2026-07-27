@@ -232,15 +232,19 @@ const label = t("some.key");
 
 For comprehensive contribution standards on code reviews, approval thresholds, SLAs, reviewer expectations, and comment conventions, see:
 - **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Detailed guidelines for PR reviews, approval gates (Tiers 1-4), SLAs, and review comment prefixes (`blocking:`, `nit:`, `security:`).
+- **[Sprint Labeling Standards & Triage Conventions](./docs/SPRINT_AND_TRIAGE_CONVENTIONS.md)** — Sprint naming schemes (`sprint: YYYY-WXX`), 2-week sprint lifecycle, and unified issue taxonomy.
 - **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of file paths to responsible review teams.
 - **[Issue Triage & Review Readiness](./TRIAGE_AND_REVIEW.md)** — Triage SLAs, label taxonomies, and merge checklists.
 
-### Automated Contribution Validation
+### Automated Contribution & Triage Validation
 
-To check your branch, PR format, and governance configuration before submitting:
+To check your branch, PR format, sprint labels, and governance configuration before submitting:
 
 ```bash
 # Run contribution standards validator
 npm run validate:contribution-standards
+
+# Run sprint labeling and issue triage validator
+npm run validate:sprint-and-triage
 ```
 

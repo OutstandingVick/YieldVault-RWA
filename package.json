@@ -9,6 +9,7 @@
     "test": "vitest run",
     "validate:frontend-env": "tsx scripts/validate-frontend-env.ts",
     "test:validate-frontend-env": "vitest run --config scripts/vitest.config.ts",
-    "validate:contribution-standards": "tsx scripts/validate-contribution-standards.ts"
+    "validate:contribution-standards": "tsx scripts/validate-contribution-standards.ts",
+    "validate:sprint-and-triage": "tsx scripts/validate-sprint-and-triage-conventions.ts"
   }
 }

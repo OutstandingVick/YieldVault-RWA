@@ -186,11 +186,15 @@ We welcome community contributions! Please read our contribution and review guid
 
 - **[Contributing Guide](./CONTRIBUTING.md)** — Pre-commit hooks, local environment setup, and branch naming conventions.
 - **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Review SLAs, approval requirements by criticality (Tiers 1-4), reviewer expectations, and comment conventions.
+- **[Sprint Labeling Standards & Triage Conventions](./docs/SPRINT_AND_TRIAGE_CONVENTIONS.md)** — Sprint naming schemes (`sprint: YYYY-WXX`), 2-week sprint lifecycle, and unified issue taxonomy.
 - **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of code paths to maintainers.
 - **[Issue Triage & PR Review](./TRIAGE_AND_REVIEW.md)** — Issue triage workflows and merge readiness checklists.
 
 ```bash
 # Validate branch naming, PR description format, and contribution standards
 npm run validate:contribution-standards
+
+# Validate sprint label formats and issue triage taxonomy
+npm run validate:sprint-and-triage
 ```
 
