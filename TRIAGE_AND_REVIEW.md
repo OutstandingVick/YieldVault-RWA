@@ -2,6 +2,8 @@
 
 This document defines how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged into `main`.
 
+For detailed **code review standards**, approval thresholds across component criticality tiers (Tiers 1-4), reviewer SLAs, and comment conventions, see [docs/CODE_REVIEW_STANDARDS.md](./docs/CODE_REVIEW_STANDARDS.md) and repository code owners in [.github/CODEOWNERS](./.github/CODEOWNERS).
+
 For the **cross-team triage rotation schedule**, primary/secondary ownership, and escalation timelines, see [docs/TRIAGE_ROTATION_CALENDAR.md](./docs/TRIAGE_ROTATION_CALENDAR.md).
 
 For **backend module-level ownership routing** (which maintainer owns each source file, middleware, and domain), see [docs/BACKEND_MODULE_OWNERSHIP.md](./docs/BACKEND_MODULE_OWNERSHIP.md) — includes a file→domain quick lookup, PR review routing cheat sheet, and issue triage command patterns.

@@ -182,8 +182,15 @@ Postmortem drafts are due within 48 hours of incident resolution; publication wi
 
 ## 🤝 Contributing
 
-Fork the repository and clone it to your local machine
-Create a new branch for your changes
-Make and test your updates following the project guidelines
-Commit and push your changes to your fork
-Open a Pull Request with a clear description
+We welcome community contributions! Please read our contribution and review guides before submitting PRs:
+
+- **[Contributing Guide](./CONTRIBUTING.md)** — Pre-commit hooks, local environment setup, and branch naming conventions.
+- **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Review SLAs, approval requirements by criticality (Tiers 1-4), reviewer expectations, and comment conventions.
+- **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of code paths to maintainers.
+- **[Issue Triage & PR Review](./TRIAGE_AND_REVIEW.md)** — Issue triage workflows and merge readiness checklists.
+
+```bash
+# Validate branch naming, PR description format, and contribution standards
+npm run validate:contribution-standards
+```
+

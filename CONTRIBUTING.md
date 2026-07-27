@@ -228,6 +228,19 @@ import { t } from "../i18n";
 const label = t("some.key");
 ```
 
-## Issue Triage and PR Review Process
+## Issue Triage, Code Review, and Approval Standards
 
-For details on how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged, see [TRIAGE_AND_REVIEW.md](./TRIAGE_AND_REVIEW.md).
+For comprehensive contribution standards on code reviews, approval thresholds, SLAs, reviewer expectations, and comment conventions, see:
+- **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Detailed guidelines for PR reviews, approval gates (Tiers 1-4), SLAs, and review comment prefixes (`blocking:`, `nit:`, `security:`).
+- **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of file paths to responsible review teams.
+- **[Issue Triage & Review Readiness](./TRIAGE_AND_REVIEW.md)** — Triage SLAs, label taxonomies, and merge checklists.
+
+### Automated Contribution Validation
+
+To check your branch, PR format, and governance configuration before submitting:
+
+```bash
+# Run contribution standards validator
+npm run validate:contribution-standards
+```
+

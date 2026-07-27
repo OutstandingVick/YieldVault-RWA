@@ -2,7 +2,7 @@
 
 Features that span across multiple surfaces (Backend, Frontend, Smart Contracts, Infrastructure) require a rigorous Definition of Done to ensure complete, secure, and maintainable delivery. 
 
-Use this checklist before marking a multi-surface feature as "Done".
+Use this checklist before marking a multi-surface feature as "Done". All reviews and approvals must adhere to the [Code Review and Approval Standards](./CODE_REVIEW_STANDARDS.md).
 
 ## 1. Smart Contracts
 - [ ] Code is fully implemented and peer-reviewed by at least two core maintainers.
