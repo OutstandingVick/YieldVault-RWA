@@ -13,8 +13,10 @@ describe("VaultComparison", () => {
 
     expect(screen.getByRole("heading", { name: /Compare Vault Strategies/i })).toBeInTheDocument();
     expect(screen.getByText(/Side-by-side comparison/i)).toBeInTheDocument();
-    expect(screen.getByText(/Franklin BENJI Connector/i)).toBeInTheDocument();
-    expect(screen.getByText(/Tokenized Treasury Ladder/i)).toBeInTheDocument();
+    const franklinMatches = screen.getAllByText(/Franklin BENJI Connector/i);
+    expect(franklinMatches.length).toBeGreaterThan(0);
+    const tokenizedMatches = screen.getAllByText(/Tokenized Treasury Ladder/i);
+    expect(tokenizedMatches.length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /Liquidity Buffer/i }));
     expect(screen.getByText(/3 selected/i)).toBeInTheDocument();
