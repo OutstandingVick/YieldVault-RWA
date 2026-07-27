@@ -188,6 +188,7 @@ We welcome community contributions! Please read our contribution and review guid
 - **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Review SLAs, approval requirements by criticality (Tiers 1-4), reviewer expectations, and comment conventions.
 - **[Sprint Labeling Standards & Triage Conventions](./docs/SPRINT_AND_TRIAGE_CONVENTIONS.md)** — Sprint naming schemes (`sprint: YYYY-WXX`), 2-week sprint lifecycle, and unified issue taxonomy.
 - **[Release Notes Playbook](./docs/release-notes-playbook.md)** & **[Release Notes Template](./.github/RELEASE_NOTES_TEMPLATE.md)** — Release notes standards with Security & Performance highlights.
+- **[Non-Functional Requirement Baselines](./docs/NFR_BASELINES.md)** — Binding production SLOs, SLIs, RTO, and RPO disaster recovery baselines.
 - **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of code paths to maintainers.
 - **[Issue Triage & PR Review](./TRIAGE_AND_REVIEW.md)** — Issue triage workflows and merge readiness checklists.
 
@@ -200,5 +201,8 @@ npm run validate:sprint-and-triage
 
 # Validate release notes template and cliff config
 npm run validate:release-notes
+
+# Validate NFR baselines (SLO, RTO, RPO)
+npm run validate:nfr-baselines
 ```
 

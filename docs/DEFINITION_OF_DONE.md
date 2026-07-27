@@ -36,6 +36,7 @@ Use this checklist before marking a multi-surface feature as "Done". All reviews
 - [ ] Threat modeling considered for the holistic feature.
 - [ ] Alerts and dashboards created for new critical metrics (e.g., failure rates).
 - [ ] Feature flagged appropriately (if using gradual rollout).
+- [ ] All changes meet the non-functional requirement baselines ([`docs/NFR_BASELINES.md`](./NFR_BASELINES.md)) for SLO, RTO, and RPO.
 
 ## 6. Release Management
 - [ ] Cross-repo integration tests passing in the staging environment.

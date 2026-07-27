@@ -1,0 +1,67 @@
+{
+  "version": "1.0.0",
+  "tiers": [
+    {
+      "tier": "tier1_smart_contracts",
+      "name": "Tier 1: Core Smart Contracts",
+      "slo": {
+        "availability_percent": 99.99,
+        "transaction_finality_seconds": 6,
+        "max_unhandled_invariants": 0
+      },
+      "rto_minutes": 0,
+      "rpo_minutes": 0,
+      "gas_limits": {
+        "deposit": 45000,
+        "withdraw": 50000
+      }
+    },
+    {
+      "tier": "tier2_backend_api",
+      "name": "Tier 2: Backend API & Data Layer",
+      "slo": {
+        "availability_percent": 99.9,
+        "latency_p95_read_ms": 200,
+        "latency_p95_write_ms": 500,
+        "error_rate_max_percent": 0.1
+      },
+      "rto_minutes": 60,
+      "rpo_minutes": 15,
+      "sustained_tps": 250
+    },
+    {
+      "tier": "tier3_frontend_ui",
+      "name": "Tier 3: Frontend UI & Client Web3",
+      "slo": {
+        "availability_percent": 99.9,
+        "lcp_seconds": 2.5,
+        "fid_ms": 100,
+        "cls_max": 0.1,
+        "lighthouse_score_min": 90
+      },
+      "rto_minutes": 15,
+      "rpo_minutes": 0
+    },
+    {
+      "tier": "tier4_operational_tooling",
+      "name": "Tier 4: Operational Tooling & CI",
+      "slo": {
+        "availability_percent": 99.5
+      },
+      "rto_minutes": 30,
+      "rpo_minutes": 0
+    }
+  ],
+  "error_budget_policy": {
+    "fast_burn": {
+      "budget_consumed_percent": 2,
+      "window_hours": 1,
+      "severity": "P0_CRITICAL"
+    },
+    "slow_burn": {
+      "budget_consumed_percent": 5,
+      "window_hours": 6,
+      "severity": "P1_HIGH"
+    }
+  }
+}
