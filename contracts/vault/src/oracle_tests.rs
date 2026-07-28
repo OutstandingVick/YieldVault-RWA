@@ -116,7 +116,7 @@ fn test_oracle_config_functions() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
 
-    vault.initialize(&admin, &usdc.address).unwrap();
+    vault.initialize(&admin, &usdc.address);
 
     assert!(vault.price_oracle().is_none());
     assert!(!vault.is_oracle_enabled());
@@ -148,7 +148,7 @@ fn test_oracle_setters_require_admin_auth() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
 
-    vault.initialize(&admin, &usdc.address).unwrap();
+    vault.initialize(&admin, &usdc.address);
 
     let oracle_addr = Address::generate(&env);
 
@@ -186,7 +186,7 @@ fn test_oracle_heartbeat_minimum() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
 
-    vault.initialize(&admin, &usdc.address).unwrap();
+    vault.initialize(&admin, &usdc.address);
 
     vault.set_oracle_heartbeat(&1);
     assert_eq!(vault.oracle_heartbeat(), 1);

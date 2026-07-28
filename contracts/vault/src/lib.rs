@@ -96,7 +96,7 @@ use crate::upgrade::{
 };
 use crate::whitelist::SecureWhitelist;
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
+    contract, contractclient, contractimpl, contracttype, symbol_short, token,
     Address, BytesN, Env, String, Vec,
 };
 
@@ -234,6 +234,7 @@ pub enum DataKey {
     GovernanceConfig,
     BenjiStrategy,
     KoreanDebtStrategy,
+    ConfiguredStrategy(soroban_sdk::Symbol),
     PauseReason,
     EmergencyApprovers,
     Emergency(EmergencyStorageKey),
@@ -383,76 +384,6 @@ pub struct BatchDepositResult {
     pub failure_count: u32,
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-/// Vault error codes.
-pub enum VaultError {
-    /// Contract has already been initialized.
-    AlreadyInitialized = 1,
-    /// User does not have enough shares to withdraw.
-    InsufficientShares = 2,
-    /// Amount is invalid (zero or negative).
-    InvalidAmount = 3,
-    /// Vault is paused; deposits and withdrawals are blocked.
-    ContractPaused = 4,
-    /// Deposit would exceed per-user cap.
-    ExceedsUserCap = 5,
-    /// Deposit is below minimum deposit threshold.
-    MinDepositNotMet = 6,
-    /// Large withdrawal timelock has not expired yet.
-    TimelockNotExpired = 7,
-    /// No pending withdrawal exists for this user.
-    NoPendingWithdrawal = 8,
-    /// Strategy allocation would leave idle liquidity below the configured buffer.
-    LiquidityBufferNotMet = 9,
-    /// Strategy allocation exceeds configured cap.
-    ExceedsStrategyCap = 10,
-    /// Strategy allocation exceeds configured risk threshold.
-    ExceedsRiskThreshold = 11,
-    /// Withdrawal blocked due to active deposit cooldown.
-    WithdrawalCooldownActive = 12,
-    /// Requested storage migration target is older than the current stored version.
-    InvalidMigrationTarget = 13,
-    /// Arithmetic overflow was detected before mutating state.
-    MathOverflow = 14,
-    /// Strategy operation exceeded maximum allowed slippage.
-    SlippageExceeded = 15,
-    /// Batch deposit entries vector exceeds the maximum allowed size.
-    BatchTooLarge = 16,
-    /// Caller is not a registered relayer and cannot submit batch deposits.
-    RelayerNotAuthorized = 17,
-    /// Emergency proposal is still within the dispute window and cannot be confirmed yet.
-    DisputeWindowActive = 18,
-    /// Emergency proposal has been cancelled and cannot be confirmed or executed.
-    ProposalCancelled = 19,
-    /// Dispute window has already closed; the proposal can no longer be cancelled.
-    DisputeWindowClosed = 20,
-    /// Withdrawal was queued because idle liquidity was insufficient.
-    WithdrawalQueued = 21,
-    /// Admin parameter change attempted before the minimum interval elapsed.
-    AdminParamChangeTooSoon = 22,
-    /// No strategy has been configured on the vault.
-    StrategyNotConfigured = 23,
-    /// Vault does not have enough idle liquidity to satisfy the operation.
-    InsufficientLiquidity = 24,
-    /// Governance signers are not configured.
-    GovernanceSignersNotConfigured = 25,
-    /// Governance signature threshold was not met.
-    GovernanceThresholdNotMet = 26,
-    /// Oracle validation failed (stale or manipulated price).
-    OracleValidationFailed = 27,
-    /// Treasury claim quota exceeded for the current epoch.
-    ClaimQuotaExceeded = 28,
-    StrategyHeartbeatExpired = 29,
-    /// Referenced admin or governance proposal does not exist.
-    ProposalNotFound = 30,
-    /// Proposal has already been executed or accepted.
-    ProposalAlreadyExecuted = 31,
-    /// Invalid RWA shipment status transition (violates lifecycle rules).
-    InvalidShipmentStatusTransition = 30,
-}
-
 #[contractclient(name = "OracleClient")]
 /// Client for reading price data from the configured oracle.
 pub trait OracleInterface {
@@ -592,7 +523,7 @@ impl YieldVault {
     /// Accept the admin role for a specific proposal.
     /// Only the pending Admin can call this.
     pub fn accept_admin(env: Env, proposal_id: u32) -> Result<(), VaultError> {
-        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::NoPendingWithdrawal)?;
 
         if proposal.cancelled {
             return Err(VaultError::ProposalCancelled);
@@ -622,7 +553,7 @@ impl YieldVault {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::NoPendingWithdrawal)?;
 
         if proposal.accepted {
             return Err(VaultError::ProposalAlreadyExecuted);
@@ -773,10 +704,8 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
 
         // Use SecureWhitelist module for whitelist operations
-        match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
-            Ok(_) => {}
-            Err(_) => return Err(VaultError::WhitelistOperationFailed),
-        }
+        SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved)
+            .expect("whitelist operation failed");
     }
 
     /// Check if a strategy is whitelisted.
@@ -1328,7 +1257,7 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold as usize > signers.len() {
+        if threshold == 0 || threshold > signers.len() {
             return Err(VaultError::InvalidGovernanceThreshold);
         }
 
@@ -1610,7 +1539,7 @@ impl YieldVault {
         }
 
         if !Self::is_valid_shipment_status_transition(&old_status, &new_status) {
-            return Err(VaultError::InvalidShipmentStatusTransition);
+            return Err(VaultError::InvalidMigrationTarget);
         }
 
         let old_key = DataKey::ShipmentByStatus(old_status);

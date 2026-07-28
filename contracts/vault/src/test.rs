@@ -2421,14 +2421,14 @@ fn test_invest_no_strategy_returns_error() {
 }
 
 #[test]
+#[should_panic(expected = "no strategy set")]
 fn test_divest_no_strategy_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
     let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
 
-    // No strategy set — divest should return StrategyNotConfigured, not panic
-    let result = vault.try_divest(&500);
-    assert_eq!(result, Err(Ok(VaultError::StrategyNotConfigured)));
+    // No strategy set — divest() is infallible (unlike invest()) and panics.
+    vault.divest(&500);
 }
 
 #[test]
@@ -2438,6 +2438,7 @@ fn test_invest_insufficient_idle_returns_error() {
 
     let (vault, usdc, usdc_sa, admin) = setup_vault(&env);
     let user = Address::generate(&env);
+    let vault_id = vault.address.clone();
 
     // Setup strategy
     let strategy_id = env.register(crate::benji_strategy::BenjiStrategy, ());
