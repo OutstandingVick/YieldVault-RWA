@@ -1,11 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { 
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
+  AreaChart, 
+  Area, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -24,16 +20,20 @@ import { formatChartNumber, createChartNumberTickFormatter } from "../lib/chartF
 import RefreshControl from "./RefreshControl";
 import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
-import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
-import { ChartModeToggle } from "./ChartModeToggle";
-import { t, useTranslation } from "../i18n";
+import { sampleChartSeries } from "../lib/chartSeries";
+
+const MAX_RENDER_POINTS = 120;
+
+type VaultPerformanceTooltipProps = TooltipContentProps<ValueType, NameType> & {
+  locale: string;
+};
 
 const VaultPerformanceTooltip = ({
   active,
   payload,
   label,
   locale,
-}: TooltipContentProps<ValueType, NameType> & { locale: string }) => {
+}: VaultPerformanceTooltipProps) => {
   if (active && payload && payload.length) {
     const raw = payload[0]?.value;
     const value = typeof raw === "number" ? raw : undefined;
@@ -52,7 +52,7 @@ const VaultPerformanceTooltip = ({
           {label ? formatDate(label, { month: "short", day: "numeric", year: "numeric" }, locale) : ""}
         </div>
         <div style={{ color: "var(--accent-cyan)", fontWeight: 700 }}>
-          {t("vaultPerformanceChart.tooltipIndexLabel")} {formatChartNumber(value, locale, { maxDecimals: 2 })}
+          Index: {formatChartNumber(value, locale, { maxDecimals: 2 })}
         </div>
       </div>
     );
@@ -65,14 +65,16 @@ const VaultPerformanceChart: React.FC = () => {
   const { query, polling, lastUpdated } = useQueryWithPolling(historyQuery, {
     interval: POLLING_INTERVALS.slow,
   });
-  const { data: rawData = [], isLoading, isFetching, error, refetch } = query;
+  const { data: rawData = [], isLoading, isFetching } = query;
   const { isStale, ageText } = useStaleIndicator(lastUpdated);
-  const { preferences, chartModes, setChartMode } = usePreferencesContext();
-  const { t } = useTranslation();
+  const { preferences } = usePreferencesContext();
   const [timeRange, setTimeRange] = useState<TimeRange>("ALL");
-  const chartMode = chartModes.vaultPerformance;
   const isTest = process.env.NODE_ENV === 'test';
   const locale = preferences.locale;
+
+  const renderTooltip = (props: TooltipContentProps<ValueType, NameType>) => (
+    <VaultPerformanceTooltip {...props} locale={locale} />
+  );
 
   const filteredData = useMemo(() => {
     if (!rawData.length) return [];
@@ -83,88 +85,12 @@ const VaultPerformanceChart: React.FC = () => {
     return rawData.filter(point => new Date(point.date) >= cutoff);
   }, [rawData, timeRange]);
 
-  const chartMargin = { top: 10, right: 10, left: -20, bottom: 0 };
-
-  const renderChartBody = () => (
-    <>
-      {chartMode === "area" && (
-        <defs>
-          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="var(--accent-cyan)" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="var(--accent-cyan)" stopOpacity={0} />
-          </linearGradient>
-        </defs>
-      )}
-      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-      <XAxis
-        dataKey="date"
-        axisLine={false}
-        tickLine={false}
-        tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-        tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
-        minTickGap={30}
-      />
-      <YAxis
-        domain={["auto", "auto"]}
-        axisLine={false}
-        tickLine={false}
-        tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-        tickFormatter={createChartNumberTickFormatter(locale, true)}
-      />
-      <Tooltip
-        content={(props: TooltipContentProps<ValueType, NameType>) => (
-          <VaultPerformanceTooltip {...props} locale={locale} />
-        )}
-      />
-      {chartMode === "line" && (
-        <Line
-          type="monotone"
-          dataKey="value"
-          stroke="var(--accent-cyan)"
-          strokeWidth={2}
-          dot={false}
-          animationDuration={1200}
-        />
-      )}
-      {chartMode === "bar" && (
-        <Bar dataKey="value" fill="var(--accent-cyan)" radius={[4, 4, 0, 0]} animationDuration={1200} />
-      )}
-      {chartMode === "area" && (
-        <Area
-          type="monotone"
-          dataKey="value"
-          stroke="var(--accent-cyan)"
-          strokeWidth={2}
-          fillOpacity={1}
-          fill="url(#colorValue)"
-          animationDuration={1200}
-        />
-      )}
-    </>
+  const chartData = useMemo(
+    () => sampleChartSeries(filteredData, MAX_RENDER_POINTS),
+    [filteredData],
   );
 
-  const renderPerformanceChart = (width?: number, height?: number) => {
-    const sizeProps = width && height ? { width, height } : {};
-    if (chartMode === "line") {
-      return (
-        <LineChart data={filteredData} margin={chartMargin} {...sizeProps}>
-          {renderChartBody()}
-        </LineChart>
-      );
-    }
-    if (chartMode === "bar") {
-      return (
-        <BarChart data={filteredData} margin={chartMargin} {...sizeProps}>
-          {renderChartBody()}
-        </BarChart>
-      );
-    }
-    return (
-      <AreaChart data={filteredData} margin={chartMargin} {...sizeProps}>
-        {renderChartBody()}
-      </AreaChart>
-    );
-  };
+  const isCompactSeries = filteredData.length > chartData.length;
 
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
@@ -184,19 +110,13 @@ const VaultPerformanceChart: React.FC = () => {
                 }}
               >
                 <TrendingUp size={18} color="var(--accent-cyan)" />
-                {t("vaultPerformanceChart.title")}
+                Vault Performance
               </h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                {t("vaultPerformanceChart.subtitle")}
+                yvUSDC share price index (100 = baseline)
               </p>
             </div>
 
-            <div className="flex gap-sm" style={{ flexWrap: "wrap", alignItems: "flex-start" }}>
-            <ChartModeToggle
-              value={chartMode}
-              onChange={(mode) => setChartMode("vaultPerformance", mode)}
-              aria-label={t("vaultPerformanceChart.modeAria")}
-            />
             <div className="flex gap-xs" style={{ background: "rgba(255,255,255,0.03)", padding: "4px", borderRadius: "8px", border: "1px solid var(--border-glass)" }}>
               {(["7D", "1M", "3M", "ALL"] as const).map((range) => (
                 <button
@@ -217,7 +137,6 @@ const VaultPerformanceChart: React.FC = () => {
                   {range}
                 </button>
               ))}
-            </div>
             </div>
           </div>
 
@@ -247,32 +166,89 @@ const VaultPerformanceChart: React.FC = () => {
                 }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--text-warning, #f59e0b)", flexShrink: 0 }} />
-                {t("vaultPerformanceChart.dataMayBeStale").replace("{{age}}", ageText)}
+                Data may be stale · {ageText}
               </div>
             )}
           </div>
 
           <div style={{ flex: 1, minHeight: "260px", position: "relative" }}>
-            {error ? (
-              <ChartWidgetPlaceholder
-                variant="error"
-                title={t("vaultPerformanceChart.errorTitle")}
-                description={t("vaultPerformanceChart.errorDesc")}
-                height={260}
-                onRetry={() => void refetch()}
-              />
-            ) : filteredData.length === 0 ? (
-              <ChartWidgetPlaceholder
-                variant="empty"
-                title={t("vaultPerformanceChart.emptyTitle")}
-                description={t("vaultPerformanceChart.emptyDesc")}
-                height={260}
-              />
-            ) : isTest ? (
-              renderPerformanceChart(400, 260)
+            {isTest ? (
+              <AreaChart data={chartData} width={400} height={260} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent-cyan)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="var(--accent-cyan)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis 
+                  dataKey="date" 
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                  tickFormatter={(str: string) => {
+                    return formatDate(str, { month: 'short', day: 'numeric' }, locale);
+                  }}
+                  minTickGap={30}
+                />
+                <YAxis 
+                  domain={['auto', 'auto']}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                  tickFormatter={createChartNumberTickFormatter(locale, true)}
+                />
+                <Tooltip content={renderTooltip} />
+                <Area 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="var(--accent-cyan)" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorValue)" 
+                  isAnimationActive={!isCompactSeries}
+                  animationDuration={isCompactSeries ? 0 : 1200}
+                />
+              </AreaChart>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                {renderPerformanceChart()}
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--accent-cyan)" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="var(--accent-cyan)" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis 
+                    dataKey="date" 
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                    tickFormatter={(str: string) => {
+                      return formatDate(str, { month: 'short', day: 'numeric' }, locale);
+                    }}
+                    minTickGap={30}
+                  />
+                  <YAxis 
+                    domain={['auto', 'auto']}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                    tickFormatter={createChartNumberTickFormatter(locale, true)}
+                  />
+                  <Tooltip content={renderTooltip} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="var(--accent-cyan)" 
+                    strokeWidth={2}
+                    fillOpacity={1} 
+                    fill="url(#colorValue)" 
+                    isAnimationActive={!isCompactSeries}
+                    animationDuration={isCompactSeries ? 0 : 1200}
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
