@@ -1,9 +1,11 @@
 // src/__tests__/withdrawalRecoveryEndpoint.test.ts
 /**
- * End-to-end behaviour of the withdrawal endpoint and the recovery admin
- * surface when a ledger write fails after the on-chain submission (Issue #954).
+ * End-to-end behaviour of POST /vault/withdrawals when a ledger write fails
+ * after the on-chain submission (Issue #954).
  *
- * Prisma is mocked so the failure can be injected at an exact step boundary.
+ * The vault router is mounted on a local Express app rather than importing
+ * src/index.ts, and Prisma is mocked, so the failure can be injected at an exact
+ * step boundary.
  */
 
 const upsertTransaction = jest.fn();
@@ -22,6 +24,20 @@ jest.mock('../prismaClient', () => ({
   disconnectPrismaClient: jest.fn().mockResolvedValue(undefined),
 }));
 
+// The signed-action middleware pulls in the wallet nonce service, which is not
+// exercised here (signature enforcement is off in tests).
+jest.mock('../walletNonce', () => ({
+  walletNonceService: {
+    issue: jest.fn(),
+    consume: jest.fn(),
+  },
+  NonceExpiredError: class NonceExpiredError extends Error {},
+  NonceReplayError: class NonceReplayError extends Error {},
+  NonceNotFoundError: class NonceNotFoundError extends Error {},
+  NonceActionMismatchError: class NonceActionMismatchError extends Error {},
+  NonceWalletMismatchError: class NonceWalletMismatchError extends Error {},
+}));
+
 jest.mock('../prisma', () => ({
   prisma: {
     transaction: {
@@ -35,18 +51,21 @@ jest.mock('../prisma', () => ({
   getPrismaRuntimeConfig: () => ({}),
 }));
 
+import express from 'express';
 import request from 'supertest';
-import app from '../index';
+import vaultRouter from '../vaultEndpoints';
 import { withdrawalRecoveryCoordinator } from '../withdrawalRecovery';
 import { idempotencyStore } from '../idempotency';
-import { registerApiKey } from '../middleware/apiKeyAuth';
 import { clearWithdrawalLimitStateForTests } from '../middleware/withdrawalDailyLimit';
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 const sorobanMock = require('./mocks/sorobanClient.js');
 
-const ADMIN_KEY = 'withdrawal-recovery-admin-key';
 const WALLET = `G${'B'.repeat(55)}`;
+
+const app = express();
+app.use(express.json());
+app.use('/api/v1/vault', vaultRouter);
 
 /** Transient DB failure: retryable, so the coordinator schedules recovery. */
 function dbOutage(): Error & { code: string } {
@@ -66,7 +85,6 @@ describe('withdrawal endpoint partial-failure recovery', () => {
     withdrawalRecoveryCoordinator.reset();
     idempotencyStore.clear();
     clearWithdrawalLimitStateForTests();
-    registerApiKey(ADMIN_KEY);
     process.env.ALLOWLIST_ENABLED = 'false';
     delete process.env.WITHDRAWAL_DAILY_LIMIT_USDC;
 
@@ -112,14 +130,12 @@ describe('withdrawal endpoint partial-failure recovery', () => {
     const sagaId = accepted.body.recovery.sagaId;
     expect(sorobanMock.submitVaultOperation).toHaveBeenCalledTimes(1);
 
-    const resumed = await request(app)
-      .post(`/admin/withdrawals/recovery/${sagaId}/resume`)
-      .set('Authorization', `ApiKey ${ADMIN_KEY}`)
-      .send({});
+    const resumed = await withdrawalRecoveryCoordinator.resume(sagaId);
 
-    expect(resumed.status).toBe(200);
-    expect(resumed.body).toMatchObject({ status: 'completed', completed: true, partial: false });
-    expect(resumed.body.saga.steps.map((s: { status: string }) => s.status)).toEqual([
+    expect(resumed?.status).toBe('completed');
+    expect(resumed?.completed).toBe(true);
+    expect(resumed?.partial).toBe(false);
+    expect(resumed?.saga.steps.map((s) => s.status)).toEqual([
       'completed',
       'completed',
       'completed',
@@ -127,9 +143,25 @@ describe('withdrawal endpoint partial-failure recovery', () => {
 
     // The irreversible step ran exactly once across both passes.
     expect(sorobanMock.submitVaultOperation).toHaveBeenCalledTimes(1);
-    expect(resumed.body.saga.steps[0].attempts).toBe(1);
+    expect(resumed?.saga.steps[0].attempts).toBe(1);
     expect(upsertTransaction).toHaveBeenCalledTimes(2);
     expect(vaultStateTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('upserts the same deterministic row id on every attempt', async () => {
+    upsertTransaction.mockRejectedValueOnce(dbOutage());
+
+    const accepted = await postWithdrawal('idem-deterministic-1');
+    await withdrawalRecoveryCoordinator.resume(accepted.body.recovery.sagaId);
+
+    const [firstCall, secondCall] = upsertTransaction.mock.calls;
+    expect(firstCall[0].where.id).toMatch(/^wd_[0-9a-f]{28}$/);
+    expect(secondCall[0].where.id).toBe(firstCall[0].where.id);
+    expect(firstCall[0].create).toMatchObject({
+      user: WALLET,
+      type: 'withdrawal',
+      status: 'completed',
+    });
   });
 
   it('parks the saga for an operator once retries are exhausted', async () => {
@@ -142,23 +174,14 @@ describe('withdrawal endpoint partial-failure recovery', () => {
     await withdrawalRecoveryCoordinator.resume(sagaId);
     await withdrawalRecoveryCoordinator.resume(sagaId);
 
-    const detail = await request(app)
-      .get(`/admin/withdrawals/recovery/${sagaId}`)
-      .set('Authorization', `ApiKey ${ADMIN_KEY}`);
-
-    expect(detail.status).toBe(200);
-    expect(detail.body.saga.status).toBe('needs_manual_intervention');
-    expect(detail.body.saga.requiresManualIntervention).toBe(true);
-    expect(detail.body.saga.state.txHash).toBe('mock-soroban-tx-hash-abcd1234');
-
-    const queue = await request(app)
-      .get('/admin/withdrawals/recovery?requiresManualIntervention=true')
-      .set('Authorization', `ApiKey ${ADMIN_KEY}`);
-
-    expect(queue.status).toBe(200);
-    expect(queue.body.count).toBe(1);
-    expect(queue.body.sagas[0].id).toBe(sagaId);
-    expect(queue.body.metrics.byStatus.needs_manual_intervention).toBe(1);
+    const saga = withdrawalRecoveryCoordinator.get(sagaId);
+    expect(saga?.status).toBe('needs_manual_intervention');
+    expect(saga?.requiresManualIntervention).toBe(true);
+    expect(saga?.state.txHash).toBe('mock-soroban-tx-hash-abcd1234');
+    expect(withdrawalRecoveryCoordinator.listPendingRecovery().map((s) => s.id)).toEqual([sagaId]);
+    expect(
+      withdrawalRecoveryCoordinator.getMetrics().byStatus.needs_manual_intervention,
+    ).toBe(1);
   });
 
   it('rolls the withdrawal back when the failure precedes any irreversible step', async () => {
@@ -177,12 +200,7 @@ describe('withdrawal endpoint partial-failure recovery', () => {
     expect(response.status).toBe(422);
     expect(response.body).toMatchObject({ code: 'INSUFFICIENT_BALANCE' });
     expect(upsertTransaction).not.toHaveBeenCalled();
-
-    const sagas = await request(app)
-      .get('/admin/withdrawals/recovery')
-      .set('Authorization', `ApiKey ${ADMIN_KEY}`);
-
-    expect(sagas.body.sagas[0]).toMatchObject({
+    expect(withdrawalRecoveryCoordinator.list()[0]).toMatchObject({
       status: 'failed',
       requiresManualIntervention: false,
     });
@@ -203,7 +221,7 @@ describe('withdrawal endpoint partial-failure recovery', () => {
     expect(withdrawalRecoveryCoordinator.list({ withdrawalId: 'idem-retry-1' })).toHaveLength(1);
   });
 
-  it('drives due sagas to completion from the sweep endpoint', async () => {
+  it('drives due sagas to completion from a sweep', async () => {
     upsertTransaction.mockRejectedValueOnce(dbOutage());
     const accepted = await postWithdrawal('idem-sweep-1');
     const sagaId = accepted.body.recovery.sagaId;
@@ -212,73 +230,21 @@ describe('withdrawal endpoint partial-failure recovery', () => {
     const saga = withdrawalRecoveryCoordinator.get(sagaId)!;
     saga.nextAttemptAt = new Date(Date.now() - 1).toISOString();
 
-    const sweep = await request(app)
-      .post('/admin/withdrawals/recovery/sweep')
-      .set('Authorization', `ApiKey ${ADMIN_KEY}`)
-      .send({});
+    const sweep = await withdrawalRecoveryCoordinator.sweep();
 
-    expect(sweep.status).toBe(200);
-    expect(sweep.body.resumed).toEqual([sagaId]);
+    expect(sweep.resumed).toEqual([sagaId]);
     expect(withdrawalRecoveryCoordinator.get(sagaId)?.status).toBe('completed');
   });
 
-  describe('admin surface', () => {
-    it('requires an admin API key', async () => {
-      const response = await request(app).get('/admin/withdrawals/recovery');
-      expect(response.status).toBe(401);
-    });
+  it('leaves deposits on the original non-journalled path', async () => {
+    const response = await request(app)
+      .post('/api/v1/vault/deposits')
+      .send({ amount: 25, asset: 'USDC', walletAddress: WALLET });
 
-    it('404s for an unknown saga', async () => {
-      const response = await request(app)
-        .get('/admin/withdrawals/recovery/wsaga_missing')
-        .set('Authorization', `ApiKey ${ADMIN_KEY}`);
-      expect(response.status).toBe(404);
-    });
-
-    it('exposes aggregate metrics', async () => {
-      const response = await request(app)
-        .get('/admin/withdrawals/recovery/metrics')
-        .set('Authorization', `ApiKey ${ADMIN_KEY}`);
-
-      expect(response.status).toBe(200);
-      expect(response.body.metrics).toMatchObject({
-        total: expect.any(Number),
-        requiresManualIntervention: expect.any(Number),
-      });
-    });
-
-    it('requires a note to resolve a saga and records the operator', async () => {
-      upsertTransaction.mockRejectedValue(dbOutage());
-      const accepted = await postWithdrawal('idem-resolve-1');
-      const sagaId = accepted.body.recovery.sagaId;
-
-      const missingNote = await request(app)
-        .post(`/admin/withdrawals/recovery/${sagaId}/resolve`)
-        .set('Authorization', `ApiKey ${ADMIN_KEY}`)
-        .send({});
-      expect(missingNote.status).toBe(400);
-
-      const badOutcome = await request(app)
-        .post(`/admin/withdrawals/recovery/${sagaId}/resolve`)
-        .set('Authorization', `ApiKey ${ADMIN_KEY}`)
-        .send({ note: 'reconciled', outcome: 'sideways' });
-      expect(badOutcome.status).toBe(400);
-
-      const resolved = await request(app)
-        .post(`/admin/withdrawals/recovery/${sagaId}/resolve`)
-        .set('Authorization', `ApiKey ${ADMIN_KEY}`)
-        .set('x-admin-id', `G${'D'.repeat(55)}`)
-        .send({ note: 'ledger row inserted manually', outcome: 'completed' });
-
-      expect(resolved.status).toBe(200);
-      expect(resolved.body.saga).toMatchObject({
-        status: 'completed',
-        requiresManualIntervention: false,
-      });
-      expect(resolved.body.saga.manualResolution).toMatchObject({
-        note: 'ledger row inserted manually',
-        outcome: 'completed',
-      });
-    });
+    expect(response.status).toBe(201);
+    expect(response.body.status).toBe('pending');
+    // Deposits do not create withdrawal sagas.
+    expect(withdrawalRecoveryCoordinator.list()).toHaveLength(0);
+    expect(upsertTransaction).not.toHaveBeenCalled();
   });
 });

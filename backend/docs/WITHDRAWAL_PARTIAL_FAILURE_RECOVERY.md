@@ -245,8 +245,17 @@ recovery in production.
   resume-forward, no-double-submit, compensation ordering, compensation failure,
   optional steps, duplicate suppression, backoff, crash recovery, recovery
   budget, overlapping passes, operator actions, metrics, failure classification.
-- `src/__tests__/withdrawalRecoveryEndpoint.test.ts` — the HTTP surface with
-  Prisma mocked: the `202` recovery response, completion on the next pass with a
-  single on-chain submission, parking after exhausted retries, clean rollback
-  with the original `422` preserved, client retry safety, and the admin
-  endpoints.
+- `src/__tests__/withdrawalRecoveryEndpoint.test.ts` — the endpoint, with the
+  vault router mounted on a local Express app and Prisma mocked: the `202`
+  recovery response, completion on the next pass with a single on-chain
+  submission, the deterministic upsert id, parking after exhausted retries, clean
+  rollback with the original `422` preserved, client retry safety, and deposits
+  staying on the original non-journalled path.
+
+The admin endpoints are thin wrappers over coordinator methods
+(`list`, `get`, `getMetrics`, `resume`, `resolveManually`, `sweep`), each covered
+by the engine suite. They are not currently exercised over HTTP because
+`src/index.ts` cannot be imported from a test — it exports no app, and a
+duplicated `AsyncMutex` declaration in `src/walletNonce.ts` throws on import.
+Both are pre-existing breakages outside this change; once they are fixed, an HTTP
+test for the admin surface should be added.

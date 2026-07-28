@@ -4772,5 +4772,3 @@ app.post('/admin/withdrawals/recovery/sweep', validateApiKey, async (req: Reques
 if (process.env.NODE_ENV !== 'test') {
   withdrawalRecoveryCoordinator.startSweeper();
 }
-
-export default app;

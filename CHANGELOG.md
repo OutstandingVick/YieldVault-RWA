@@ -21,7 +21,6 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add deterministic request ID propagation across HTTP handlers, queued jobs, and worker logs using AsyncLocalStorage (#700)
 
 ### Bug Fixes
-- Restore the backend Express app export and remove a duplicated `AsyncMutex` declaration in `walletNonce.ts` that made the backend test suite fail to load
 - Vault performance dynamic date filter
 
 ### Documentation

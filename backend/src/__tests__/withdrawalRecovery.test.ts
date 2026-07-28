@@ -6,6 +6,17 @@
  * step boundary, which is the only way to assert that recovery never repeats an
  * irreversible side effect.
  */
+// The production plan lives in vaultEndpoints, whose middleware chain pulls in
+// the wallet nonce service. It is not exercised by these tests.
+jest.mock('../walletNonce', () => ({
+  walletNonceService: { issue: jest.fn(), consume: jest.fn() },
+  NonceExpiredError: class NonceExpiredError extends Error {},
+  NonceReplayError: class NonceReplayError extends Error {},
+  NonceNotFoundError: class NonceNotFoundError extends Error {},
+  NonceActionMismatchError: class NonceActionMismatchError extends Error {},
+  NonceWalletMismatchError: class NonceWalletMismatchError extends Error {},
+}));
+
 import {
   WithdrawalRecoveryCoordinator,
   registerWithdrawalPlan,
