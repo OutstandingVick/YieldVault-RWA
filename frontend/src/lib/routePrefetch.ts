@@ -5,6 +5,7 @@ export const routeImports = {
   "/portfolio": () => import("../pages/Portfolio"),
   "/analytics": () => import("../pages/Analytics"),
   "/transactions": () => import("../pages/TransactionHistory"),
+  "/compare": () => import("../pages/VaultComparison"),
   "/settings": () => import("../pages/Settings"),
   "/ui-kit": () => import("../pages/UIPreview"),
 } as const;
@@ -25,6 +26,7 @@ export function prefetchDashboardRoutes(excludePath?: string): void {
     "/portfolio",
     "/analytics",
     "/transactions",
+    "/compare",
   ];
 
   for (const path of primaryRoutes) {
@@ -45,5 +47,6 @@ export const LazyHome = lazy(routeImports["/"]);
 export const LazyPortfolio = lazy(routeImports["/portfolio"]);
 export const LazyAnalytics = lazy(routeImports["/analytics"]);
 export const LazyTransactionHistory = lazy(routeImports["/transactions"]);
+export const LazyVaultComparison = lazy(routeImports["/compare"]);
 export const LazySettings = lazy(routeImports["/settings"]);
 export const LazyUIPreview = lazy(routeImports["/ui-kit"]);

@@ -1,104 +1,89 @@
 import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/ui/EmptyState";
 import { Check, Layers, ShieldCheck, TrendingUp } from "../components/icons";
+import {
+  MAX_VAULT_COMPARISON_SELECTION,
+  VAULT_STRATEGIES,
+  type VaultStrategyOption,
+} from "../data/vaultStrategies";
 
-type StrategyOption = {
-  id: string;
-  name: string;
-  issuer: string;
-  apy: string;
-  liquidity: string;
-  lockup: string;
-  risk: string;
-  settlement: string;
-  note: string;
-  accent: string;
-};
+const STRATEGIES_PARAM = "strategies";
 
-const STRATEGIES: StrategyOption[] = [
-  {
-    id: "benji",
-    name: "Franklin BENJI Connector",
-    issuer: "Franklin Templeton",
-    apy: "8.45%",
-    liquidity: "Daily",
-    lockup: "None",
-    risk: "Moderate",
-    settlement: "T+0",
-    note: "Current vault allocation with short-duration sovereign bond exposure.",
-    accent: "var(--accent-cyan)",
-  },
-  {
-    id: "treasury-ladder",
-    name: "Tokenized Treasury Ladder",
-    issuer: "OpenEden",
-    apy: "7.90%",
-    liquidity: "T+1",
-    lockup: "None",
-    risk: "Low",
-    settlement: "T+1",
-    note: "Prioritizes capital preservation and predictable liquidity windows.",
-    accent: "var(--accent-green)",
-  },
-  {
-    id: "credit-income",
-    name: "Private Credit Income",
-    issuer: "Ondo Finance",
-    apy: "9.15%",
-    liquidity: "Weekly",
-    lockup: "7 days",
-    risk: "Elevated",
-    settlement: "T+2",
-    note: "Higher yield profile with more settlement friction and monitoring.",
-    accent: "var(--text-warning)",
-  },
-  {
-    id: "liquidity-buffer",
-    name: "Liquidity Buffer",
-    issuer: "YieldVault Treasury",
-    apy: "5.20%",
-    liquidity: "Instant",
-    lockup: "None",
-    risk: "Very low",
-    settlement: "Immediate",
-    note: "Keeps most assets in reserve for rapid withdrawals and capital calls.",
-    accent: "var(--accent-purple)",
-  },
-];
+function parseStrategiesParam(raw: string | null): string[] {
+  if (!raw) return [];
+  const validIds = new Set(VAULT_STRATEGIES.map((strategy) => strategy.id));
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const value of raw.split(",")) {
+    const id = value.trim();
+    if (validIds.has(id) && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids.slice(0, MAX_VAULT_COMPARISON_SELECTION);
+}
 
-const MAX_SELECTION = 3;
+function parseApy(apy: string): number {
+  const parsed = Number.parseFloat(apy.replace(/[^\d.-]/g, ""));
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
 
 const VaultComparison: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedIds, setSelectedIds] = useState<string[]>([STRATEGIES[0].id, STRATEGIES[1].id]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    const fromUrl = parseStrategiesParam(searchParams.get(STRATEGIES_PARAM));
+    return fromUrl.length > 0 ? fromUrl : [VAULT_STRATEGIES[0].id, VAULT_STRATEGIES[1].id];
+  });
 
   const selectedStrategies = useMemo(
-    () => STRATEGIES.filter((strategy) => selectedIds.includes(strategy.id)),
+    () => VAULT_STRATEGIES.filter((strategy) => selectedIds.includes(strategy.id)),
     [selectedIds],
   );
 
+  const atMaxSelection = selectedIds.length >= MAX_VAULT_COMPARISON_SELECTION;
+
+  const bestApyId = useMemo(() => {
+    if (selectedStrategies.length === 0) return null;
+    return selectedStrategies.reduce((best, strategy) =>
+      parseApy(strategy.apy) > parseApy(best.apy) ? strategy : best,
+    ).id;
+  }, [selectedStrategies]);
+
   const toggleStrategy = (id: string) => {
-    setSelectedIds((current) => {
-      if (current.includes(id)) {
-        return current.filter((value) => value !== id);
-      }
+    let next: string[];
+    if (selectedIds.includes(id)) {
+      next = selectedIds.filter((value) => value !== id);
+    } else if (atMaxSelection) {
+      return;
+    } else {
+      next = [...selectedIds, id];
+    }
 
-      if (current.length >= MAX_SELECTION) {
-        return current;
-      }
-
-      return [...current, id];
-    });
+    setSelectedIds(next);
+    setSearchParams(
+      (params) => {
+        const nextParams = new URLSearchParams(params);
+        if (next.length > 0) {
+          nextParams.set(STRATEGIES_PARAM, next.join(","));
+        } else {
+          nextParams.delete(STRATEGIES_PARAM);
+        }
+        return nextParams;
+      },
+      { replace: true },
+    );
   };
 
   const comparisonRows = [
-    { label: "APY", value: (strategy: StrategyOption) => strategy.apy },
-    { label: "Liquidity", value: (strategy: StrategyOption) => strategy.liquidity },
-    { label: "Lockup", value: (strategy: StrategyOption) => strategy.lockup },
-    { label: "Risk", value: (strategy: StrategyOption) => strategy.risk },
-    { label: "Settlement", value: (strategy: StrategyOption) => strategy.settlement },
+    { label: "APY", value: (strategy: VaultStrategyOption) => strategy.apy },
+    { label: "Liquidity", value: (strategy: VaultStrategyOption) => strategy.liquidity },
+    { label: "Lockup", value: (strategy: VaultStrategyOption) => strategy.lockup },
+    { label: "Risk", value: (strategy: VaultStrategyOption) => strategy.risk },
+    { label: "Settlement", value: (strategy: VaultStrategyOption) => strategy.settlement },
   ];
 
   return (
@@ -115,7 +100,7 @@ const VaultComparison: React.FC = () => {
       />
 
       <div style={{ display: "grid", gap: "20px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginBottom: "24px" }}>
-        {STRATEGIES.map((strategy) => {
+        {VAULT_STRATEGIES.map((strategy) => {
           const selected = selectedIds.includes(strategy.id);
 
           return (
@@ -124,6 +109,7 @@ const VaultComparison: React.FC = () => {
               type="button"
               onClick={() => toggleStrategy(strategy.id)}
               aria-pressed={selected}
+              aria-disabled={!selected && atMaxSelection ? true : undefined}
               style={{
                 textAlign: "left",
                 padding: "18px",
@@ -131,7 +117,8 @@ const VaultComparison: React.FC = () => {
                 border: selected ? `1px solid ${strategy.accent}` : "1px solid var(--border-glass)",
                 background: selected ? "rgba(0, 240, 255, 0.08)" : "rgba(255, 255, 255, 0.03)",
                 color: "inherit",
-                cursor: "pointer",
+                cursor: !selected && atMaxSelection ? "not-allowed" : "pointer",
+                opacity: !selected && atMaxSelection ? 0.6 : 1,
                 display: "flex",
                 flexDirection: "column",
                 gap: "12px",
@@ -192,7 +179,12 @@ const VaultComparison: React.FC = () => {
                 Compare the selected strategies across yield, liquidity, and risk signals.
               </p>
             </div>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate("/")}>Back to vault</button>
+            <div className="flex items-center gap-sm">
+              <button type="button" className="btn btn-secondary" onClick={() => navigate("/")}>Back to vault</button>
+              <button type="button" className="btn btn-primary" onClick={() => navigate("/?tab=deposit")}>
+                Allocate to selected
+              </button>
+            </div>
           </div>
 
           <div style={{ overflowX: "auto" }}>
@@ -212,11 +204,29 @@ const VaultComparison: React.FC = () => {
                     <th scope="row" style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: 600 }}>
                       {row.label}
                     </th>
-                    {selectedStrategies.map((strategy) => (
-                      <td key={`${strategy.id}-${row.label}`} style={{ padding: "12px", borderTop: "1px solid var(--border-glass)" }}>
-                        {row.value(strategy)}
-                      </td>
-                    ))}
+                    {selectedStrategies.map((strategy) => {
+                      const isBestApy = row.label === "APY" && strategy.id === bestApyId;
+
+                      return (
+                        <td
+                          key={`${strategy.id}-${row.label}`}
+                          data-best={isBestApy ? "true" : undefined}
+                          style={{
+                            padding: "12px",
+                            borderTop: "1px solid var(--border-glass)",
+                            ...(isBestApy
+                              ? {
+                                  color: "var(--accent-green)",
+                                  fontWeight: 700,
+                                  background: "rgba(0, 255, 163, 0.08)",
+                                }
+                              : {}),
+                          }}
+                        >
+                          {row.value(strategy)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
