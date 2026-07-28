@@ -26,7 +26,6 @@ export function prefetchDashboardRoutes(excludePath?: string): void {
     "/portfolio",
     "/analytics",
     "/transactions",
-    "/compare",
   ];
 
   for (const path of primaryRoutes) {

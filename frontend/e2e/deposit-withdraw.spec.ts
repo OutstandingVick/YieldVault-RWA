@@ -143,7 +143,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
       });
     });
     await goToConnectedVault(page);
-    await expect(page.getByText('Vault Capacity Reached')).toBeVisible();
+    await expect(page.getByText('Vault Capacity Reached', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Deposit amount')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'MAX' })).toBeDisabled();
     await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeDisabled();
