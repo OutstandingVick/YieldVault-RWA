@@ -1,10 +1,13 @@
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
+import EmptyState from "./ui/EmptyState";
+import ErrorState from "./ui/ErrorState";
 
-interface ViewStateProps {
+export interface ViewStateProps {
   title: string;
   description: string;
   tone?: "default" | "error";
   action?: ReactNode;
+  className?: string;
 }
 
 export default function ViewState({
@@ -12,10 +15,29 @@ export default function ViewState({
   description,
   tone = "default",
   action,
+  className = "",
 }: ViewStateProps) {
+  if (tone === "error") {
+    return (
+      <ErrorState
+        title={title}
+        description={description}
+        tone="error"
+        secondaryAction={
+          React.isValidElement(action)
+            ? undefined
+            : typeof action === "object" && action !== null && "label" in action
+              ? (action as unknown as any)
+              : undefined
+        }
+        className={`view-state view-state-error ${className}`.trim()}
+      />
+    );
+  }
+
   return (
     <div
-      className={`view-state ${tone === "error" ? "view-state-error" : ""}`}
+      className={`view-state ${tone === "error" ? "view-state-error" : ""} ${className}`.trim()}
       role={tone === "error" ? "alert" : "status"}
       aria-live="polite"
     >
