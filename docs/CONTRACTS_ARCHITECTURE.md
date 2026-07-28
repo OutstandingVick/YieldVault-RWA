@@ -642,3 +642,32 @@ See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK
 **Document Version:** 1.0  
 **Created:** May 29, 2026  
 **Maintainers:** YieldVault Development Team
+
+---
+
+## Access Control Hardening (Issue #963)
+
+The following production-hardening changes were applied to admin-only functions:
+
+### `propose_emergency_action` — panic → `VaultError::UnauthorizedCaller`
+
+Previously used `assert!(initiator == primary, "only primary approver can initiate")`, which caused an uncontrolled contract panic on mainnet. Changed to return `Err(VaultError::UnauthorizedCaller)` (code 50). The function return type changed from `u32` to `Result<u32, VaultError>`.
+
+### `confirm_emergency_action` — panic → `VaultError::UnauthorizedCaller`
+
+Three `assert!` guards replaced with proper `Result` error returns:
+- `confirmer != secondary` → `Err(VaultError::UnauthorizedCaller)`
+- `proposal.executed` → `Err(VaultError::ProposalAlreadyExecuted)`
+- `proposal.initiator == confirmer` → `Err(VaultError::UnauthorizedCaller)`
+
+### `test_seed_withdrawal_queue_entry` — gated to test builds
+
+Added `#[cfg(test)]` so this test helper is excluded from the compiled WASM and cannot be called on mainnet.
+
+### `VaultError::UnauthorizedCaller = 50`
+
+New error variant (code 50) added to the stable error namespace. Integrators should map this code per `docs/api/ERROR_CODE_CATALOG.md`.
+
+### Tests
+
+`contracts/vault/tests/access_control_test.rs` — covers all admin-only functions and the hardened emergency-action paths.
