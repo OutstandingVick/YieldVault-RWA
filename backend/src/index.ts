@@ -80,6 +80,7 @@ import {
   allowlistSize,
 } from './middleware/allowlist';
 import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/rbac';
+import { apiVersionMiddleware } from './middleware/versionNegotiation';
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
@@ -121,6 +122,7 @@ import {
   verifyWebhookSignature,
   listWebhookDeadLetters,
   retryWebhookDeadLetter,
+  initializeWebhookEndpoints,
   WEBHOOK_SCHEMA_VERSION,
 } from './webhookDelivery';
 import { webhookDeduplicationStore } from './webhookDeduplication';
@@ -579,6 +581,9 @@ app.use(correlationIdMiddleware);
 
 // Structured logging with correlation IDs
 app.use(structuredLoggingMiddleware);
+
+// API version negotiation & deprecation headers
+app.use(apiVersionMiddleware);
 
 // Global timeout middleware (30 seconds default)
 app.use(timeoutMiddleware());
@@ -4247,6 +4252,7 @@ const metricsInterval =
 
 if (process.env.NODE_ENV !== 'test') {
   pollVaultMetrics(); // Initial call
+  void initializeWebhookEndpoints();
 }
 
 // Start latency monitoring

@@ -57,6 +57,8 @@ export function getPrismaClient(): PrismaClient {
   return prismaClientInstance as PrismaClient;
 }
 
+import { getQueryBudget, triggerSlowQueryAlert } from './queryBudgets';
+
 function attachQueryInstrumentation(client: PrismaClient): void {
   if (queryInstrumentationAttached) {
     return;
@@ -74,7 +76,21 @@ function attachQueryInstrumentation(client: PrismaClient): void {
 
       observeDbQueryDuration(model, action, elapsedMs);
 
-      if (elapsedMs >= SLOW_QUERY_THRESHOLD_MS) {
+      const budgetMs = getQueryBudget(model, action);
+      if (elapsedMs >= budgetMs) {
+        logger.log('warn', 'Prisma query exceeded performance budget', {
+          model,
+          action,
+          durationMs: Math.round(elapsedMs * 100) / 100,
+          budgetMs,
+        });
+
+        void triggerSlowQueryAlert(model, action, elapsedMs, budgetMs).catch((err) => {
+          logger.log('error', 'Failed to trigger slow query alert', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      } else if (elapsedMs >= SLOW_QUERY_THRESHOLD_MS) {
         logger.log('warn', 'Slow Prisma query detected', {
           model,
           action,
