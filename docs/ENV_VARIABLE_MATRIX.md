@@ -135,6 +135,15 @@ See [Withdrawal Partial-Failure Recovery](../backend/docs/WITHDRAWAL_PARTIAL_FAI
 | `WITHDRAWAL_RECOVERY_MAX_PER_SWEEP` | `25` | ⬜ optional | `25` |
 | `WITHDRAWAL_RECOVERY_RETENTION` | `1000` | ⬜ optional | `1000` |
 
+### Transfer Orchestration
+
+See [Transfer Orchestration](../backend/docs/TRANSFER_ORCHESTRATION.md).
+
+| Variable | Default | Required | Production Recommendation |
+|---|---|---|---|
+| `TRANSFER_ORCHESTRATION_TIMEOUT_MS` | `45000` (45 s) | ⬜ optional | `45000` (a timeout is treated as in-doubt, never auto-retried) |
+| `TRANSFER_ORCHESTRATION_MAX_KEY_LENGTH` | `255` | ⬜ optional | `255` |
+
 ### OpenTelemetry (Tracing)
 
 | Variable | Default | Required | Production Recommendation |
