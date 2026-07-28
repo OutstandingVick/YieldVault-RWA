@@ -145,6 +145,15 @@ See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedu
 - **Q3**: Expand security review, run load and failure-mode validation, and prepare launch readiness.
 - **Q4**: Complete mainnet launch checklist, monitor production stability, and gather retrospective improvements.
 
+## Deployment
+
+For step-by-step deployment checklists covering both **Testnet** and **Mainnet** environments (smart contracts, backend, frontend, and infrastructure), see:
+
+- **[Deployment Checklist](./docs/DEPLOYMENT_CHECKLIST.md)** — Comprehensive deployment checklist with pre-deployment, deployment, post-deployment verification, and rollback procedures
+- **[Deployment & Operations Runbook](./docs/DEPLOYMENT.md)** — Smart contract deployment and upgrade procedures
+- **[Release Readiness Checklist](./docs/RELEASE_READINESS_CHECKLIST.md)** — Release readiness gate checklist
+- **[Release Verification Checklist](./docs/RELEASE_VERIFICATION_CHECKLIST.md)** — Release verification for backend, frontend, and contracts
+
 ```bash
 # Validate branch naming, PR description format, and contribution standards
 npm run validate:contribution-standards
