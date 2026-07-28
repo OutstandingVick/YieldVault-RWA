@@ -1155,6 +1155,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                             disabled={isBusy || (tab === "deposit" && isCapReached)}
                             error={showInlineError ? activeAmountError ?? undefined : undefined}
                             helperText={tab === "deposit" ? t("vaultDashboard.minDeposit").replace("{{amount}}", MIN_DEPOSIT_AMOUNT.toFixed(2)) : t("vaultDashboard.maxWithdraw").replace("{{amount}}", availableBalance.toFixed(2))}
+                            className={isValidAmount ? "input-valid" : ""}
                           />
 
                           <div className="flex justify-between items-center" style={{ margin: "16px 0 24px" }}>
@@ -1212,35 +1213,136 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           </div>
                         </div>
 
-                        <div
-                          className="glass-panel"
-                          style={{
-                            padding: "14px 16px",
-                            background: "rgba(0, 0, 0, 0.15)",
-                            marginBottom: "24px",
-                          }}
-                        >
-                          <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
-                            <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                              {t("vaultDashboard.estimatedProtocolFee")}
-                              <HelpIcon
-                                variant="popover"
-                                content={t("vaultDashboard.protocolFeeTooltip")}
+                        {/* Progressive Disclosure: Fee Breakdown */}
+                        {isValidAmount && (
+                          <div
+                            className="glass-panel animate-in fade-in duration-300"
+                            style={{
+                              padding: "14px 16px",
+                              background: "rgba(0, 0, 0, 0.15)",
+                              marginBottom: "16px",
+                              border: "1px solid rgba(0, 240, 255, 0.15)",
+                            }}
+                          >
+                            <div style={{ marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+                              <Check size={14} color="var(--accent-cyan)" />
+                              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                                Transaction Preview
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+                              <span style={{ color: "var(--text-secondary)", fontSize: "0.86rem", display: "flex", alignItems: "center", gap: "6px" }}>
+                                {t("vaultDashboard.estimatedProtocolFee")}
+                                <HelpIcon
+                                  variant="popover"
+                                  content={t("vaultDashboard.protocolFeeTooltip")}
+                                />
+                              </span>
+                              <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                                {estimatedFee.toFixed(4)} USDC
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center" style={{ marginBottom: "6px" }}>
+                              <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                                {tab === "deposit" ? t("vaultDashboard.estimatedNetDeposit") : t("vaultDashboard.estimatedNetWithdrawal")}
+                              </span>
+                              <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                                {estimatedNetAmount.toFixed(4)} USDC
+                              </span>
+                            </div>
+                            {tab === "deposit" && (
+                              <div className="flex justify-between items-center" style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--border-glass)" }}>
+                                <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "6px" }}>
+                                  Estimated Shares
+                                  <HelpIcon
+                                    variant="tooltip"
+                                    content="Approximate vault shares you'll receive based on current share price"
+                                  />
+                                </span>
+                                <span style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--accent-cyan)" }}>
+                                  ≈ {estimatedNetAmount.toFixed(2)} yvUSDC
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Early Warning: Approval Required */}
+                        {tab === "deposit" && isValidAmount && needsApproval(enteredAmount) && (
+                          <div
+                            className="glass-panel animate-in fade-in duration-300"
+                            style={{
+                              padding: "12px 16px",
+                              marginBottom: "16px",
+                              border: "1px solid rgba(255, 159, 10, 0.4)",
+                              background: "rgba(255, 159, 10, 0.05)",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                            }}
+                          >
+                            <AlertCircle size={16} color="rgba(255, 159, 10, 0.9)" />
+                            <div>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "2px" }}>
+                                Approval Required
+                              </div>
+                              <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                                You'll need to approve USDC spending before depositing
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Vault Capacity Visual Indicator */}
+                        {tab === "deposit" && (utilization > 0.7 || isCapReached) && (
+                          <div
+                            className="glass-panel animate-in fade-in duration-300"
+                            style={{
+                              padding: "12px 16px",
+                              marginBottom: "16px",
+                              border: `1px solid ${isCapReached ? "var(--text-error)" : "rgba(255, 159, 10, 0.4)"}`,
+                              background: isCapReached ? "rgba(255, 69, 58, 0.05)" : "rgba(255, 159, 10, 0.05)",
+                            }}
+                          >
+                            <div style={{ marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                                Vault Capacity
+                              </span>
+                              <span style={{ fontSize: "0.82rem", fontWeight: 600, color: isCapReached ? "var(--text-error)" : "var(--text-warning)" }}>
+                                {(utilization * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                width: "100%",
+                                height: "6px",
+                                borderRadius: "3px",
+                                background: "rgba(255, 255, 255, 0.1)",
+                                overflow: "hidden",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${Math.min(utilization * 100, 100)}%`,
+                                  height: "100%",
+                                  background: isCapReached
+                                    ? "linear-gradient(90deg, var(--text-error), rgba(255, 69, 58, 0.7))"
+                                    : utilization > 0.9
+                                      ? "linear-gradient(90deg, var(--text-warning), rgba(255, 159, 10, 0.7))"
+                                      : "linear-gradient(90deg, var(--accent-cyan), rgba(0, 240, 255, 0.7))",
+                                  borderRadius: "3px",
+                                  transition: "width 0.3s ease",
+                                }}
                               />
-                            </span>
-                            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                              {isValidAmount ? `${estimatedFee.toFixed(4)} USDC` : "0.0000 USDC"}
-                            </span>
+                            </div>
+                            {isCapReached && (
+                              <div style={{ marginTop: "8px", fontSize: "0.78rem", color: "var(--text-error)" }}>
+                                <AlertTriangle size={12} style={{ display: "inline", marginRight: "4px" }} />
+                                Deposits temporarily disabled
+                              </div>
+                            )}
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-                              {tab === "deposit" ? t("vaultDashboard.estimatedNetDeposit") : t("vaultDashboard.estimatedNetWithdrawal")}
-                            </span>
-                            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                              {isValidAmount ? `${estimatedNetAmount.toFixed(4)} USDC` : "0.0000 USDC"}
-                            </span>
-                          </div>
-                        </div>
+                        )}
 
                         <button
                           id={`vault-${tab}-review`}
@@ -1317,93 +1419,105 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                           </div>
 
                           {tab === "withdraw" && isValidAmount && (
-                            <div
-                              className="glass-panel"
+                            <details
+                              className="glass-panel animate-in fade-in duration-300"
                               style={{
                                 padding: "14px 16px",
                                 background: "rgba(0,0,0,0.15)",
                                 marginBottom: "16px",
+                                border: "1px solid var(--border-glass)",
                               }}
                             >
-                              <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "10px", fontWeight: 600 }}>
-                                {t("vaultDashboard.slippageTolerance")}
-                              </div>
-                              <div className="flex items-center gap-sm" style={{ flexWrap: "wrap" }}>
-                                {presets.map((p) => (
-                                  <button
-                                    key={p}
-                                    type="button"
-                                    onClick={() => { setSlippage(p); setCustomSlippage(""); }}
-                                    style={{
-                                      padding: "5px 12px",
-                                      borderRadius: "6px",
-                                      border: slippage === p && customSlippage === "" ? "1px solid var(--accent-cyan)" : "1px solid var(--border-glass)",
-                                      background: slippage === p && customSlippage === "" ? "rgba(0,240,255,0.1)" : "transparent",
-                                      color: slippage === p && customSlippage === "" ? "var(--accent-cyan)" : "var(--text-secondary)",
-                                      fontSize: "0.82rem",
-                                      cursor: "pointer",
-                                      fontWeight: 600,
+                              <summary
+                                style={{
+                                  cursor: "pointer",
+                                  fontSize: "0.85rem",
+                                  fontWeight: 600,
+                                  color: "var(--text-primary)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  userSelect: "none",
+                                }}
+                              >
+                                <span style={{ fontSize: "1.2em" }}>⚙️</span>
+                                Advanced Settings
+                                <span style={{ marginLeft: "auto", fontSize: "0.7rem", color: "var(--text-secondary)" }}>
+                                  Optional
+                                </span>
+                              </summary>
+                              <div style={{ marginTop: "16px", paddingTop: "12px", borderTop: "1px solid var(--border-glass)" }}>
+                                <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "10px", fontWeight: 600 }}>
+                                  {t("vaultDashboard.slippageTolerance")}
+                                  <HelpIcon
+                                    variant="popover"
+                                    content="Maximum price difference you'll accept between transaction submission and execution"
+                                    size="sm"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-sm" style={{ flexWrap: "wrap" }}>
+                                  {presets.map((p) => (
+                                    <button
+                                      key={p}
+                                      type="button"
+                                      onClick={() => { setSlippage(p); setCustomSlippage(""); }}
+                                      style={{
+                                        padding: "5px 12px",
+                                        borderRadius: "6px",
+                                        border: slippage === p && customSlippage === "" ? "1px solid var(--accent-cyan)" : "1px solid var(--border-glass)",
+                                        background: slippage === p && customSlippage === "" ? "rgba(0,240,255,0.1)" : "transparent",
+                                        color: slippage === p && customSlippage === "" ? "var(--accent-cyan)" : "var(--text-secondary)",
+                                        fontSize: "0.82rem",
+                                        cursor: "pointer",
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      {p}%
+                                    </button>
+                                  ))}
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="50"
+                                    step="0.1"
+                                    placeholder={t("vaultDashboard.customPlaceholder")}
+                                    value={customSlippage}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setCustomSlippage(v);
+                                      const n = parseFloat(v);
+                                      if (isFinite(n) && n >= 0) setSlippage(n);
                                     }}
-                                  >
-                                    {p}%
-                                  </button>
-                                ))}
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="50"
-                                  step="0.1"
-                                  placeholder={t("vaultDashboard.customPlaceholder")}
-                                  value={customSlippage}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    setCustomSlippage(v);
-                                    const n = parseFloat(v);
-                                    if (isFinite(n) && n >= 0) setSlippage(n);
-                                  }}
-                                  style={{
-                                    width: "80px",
-                                    padding: "5px 8px",
-                                    borderRadius: "6px",
-                                    border: customSlippage !== "" ? "1px solid var(--accent-cyan)" : "1px solid var(--border-glass)",
-                                    background: "transparent",
-                                    color: "var(--text-primary)",
-                                    fontSize: "0.82rem",
-                                    outline: "none",
-                                  }}
-                                  aria-label={t("vaultDashboard.customSlippageAria")}
-                                />
-                                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>%</span>
-                              </div>
-                              {isHighSlippage && (
-                                <div className="flex items-center gap-xs" style={{ marginTop: "8px" }}>
-                                  <AlertTriangle size={13} color="var(--text-warning, #f59e0b)" />
-                                  <span style={{ fontSize: "0.78rem", color: "var(--text-warning, #f59e0b)" }}>
-                                    {t("vaultDashboard.highSlippageWarning")}
+                                    style={{
+                                      width: "80px",
+                                      padding: "5px 8px",
+                                      borderRadius: "6px",
+                                      border: customSlippage !== "" ? "1px solid var(--accent-cyan)" : "1px solid var(--border-glass)",
+                                      background: "transparent",
+                                      color: "var(--text-primary)",
+                                      fontSize: "0.82rem",
+                                      outline: "none",
+                                    }}
+                                    aria-label={t("vaultDashboard.customSlippageAria")}
+                                  />
+                                  <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>%</span>
+                                </div>
+                                {isHighSlippage && (
+                                  <div className="flex items-center gap-xs animate-in fade-in duration-200" style={{ marginTop: "8px" }}>
+                                    <AlertTriangle size={13} color="var(--text-warning, #f59e0b)" />
+                                    <span style={{ fontSize: "0.78rem", color: "var(--text-warning, #f59e0b)" }}>
+                                      {t("vaultDashboard.highSlippageWarning")}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between" style={{ marginTop: "10px" }}>
+                                  <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{t("vaultDashboard.minimumReceived")}</span>
+                                  <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                                    {minReceived(estimatedNetAmount).toFixed(4)} USDC
                                   </span>
                                 </div>
-                              )}
-                              <div className="flex justify-between" style={{ marginTop: "10px" }}>
-                                <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{t("vaultDashboard.minimumReceived")}</span>
-                                <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
-                                  {minReceived(estimatedNetAmount).toFixed(4)} USDC
-                                </span>
                               </div>
-                              <div style={{ marginTop: "10px" }}>
-                                <Badge
-                                  variant="outline"
-                                  color={statsIsStale ? "warning" : "info"}
-                                  size="compact"
-                                  icon={<Clock3 size={10} />}
-                                >
-                                  {statsIsStale
-                                    ? t("vaultDashboard.apyQuoteStale").replace("{{age}}", statsAgeText).trim()
-                                    : statsAgeText
-                                      ? t("vaultDashboard.apyQuoteFresh").replace("{{age}}", statsAgeText)
-                                      : t("vaultDashboard.apyQuoteFreshPlain")}
-                                </Badge>
-                              </div>
-                            </div>
+                            </details>
                           )}
 
                           {isHighFee && (                            <div
