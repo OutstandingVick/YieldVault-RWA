@@ -154,6 +154,12 @@ Complete reference for all environment variables across the YieldVault RWA stack
 | `VITE_FF_ADVANCED_CHARTS` | `false` | ⬜ optional | `false` until stable |
 | `VITE_FF_DEBUG_MODE` | `false` | ⬜ optional | Must be `false` |
 
+### Role-Based Navigation
+
+| Variable | Default | Required | Production Recommendation |
+|---|---|---|---|
+| `VITE_ADMIN_WALLETS` | _(empty)_ | ⬜ optional | Comma-separated wallet addresses granted the admin nav link and `/admin` route. Not a security boundary — ships in the client bundle (see `frontend/src/lib/roles.ts`). |
+
 ### Sentry (Error Monitoring)
 
 | Variable | Default | Required | Production Recommendation |

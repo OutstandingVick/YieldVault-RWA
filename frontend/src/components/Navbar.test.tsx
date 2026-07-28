@@ -108,4 +108,74 @@ describe('Navbar', () => {
 
         expect(screen.getAllByText(/testnet|mainnet/i)[0]).toBeInTheDocument();
     });
+
+    it('does not show the Admin link by default (guest role)', () => {
+        render(
+            <MemoryRouter>
+                <QueryClientProvider client={queryClient}>
+                    <PreferencesProvider>
+                        <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={null}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
+            </MemoryRouter>
+        );
+
+        expect(screen.queryByText('Admin')).not.toBeInTheDocument();
+    });
+
+    it('shows the Admin link when role is admin', () => {
+        const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
+        render(
+            <MemoryRouter>
+                <QueryClientProvider client={queryClient}>
+                    <PreferencesProvider>
+                        <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={fullAddress}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                                role="admin"
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
+            </MemoryRouter>
+        );
+
+        expect(screen.getAllByText('Admin')[0]).toBeInTheDocument();
+    });
+
+    it('does not show the Admin link for a connected investor wallet', () => {
+        const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
+        render(
+            <MemoryRouter>
+                <QueryClientProvider client={queryClient}>
+                    <PreferencesProvider>
+                        <ToastProvider>
+                        <ThemeProvider>
+                            <Navbar
+                                walletAddress={fullAddress}
+                                onConnect={mockOnConnect}
+                                onDisconnect={mockOnDisconnect}
+                                role="investor"
+                            />
+                        </ThemeProvider>
+                    </ToastProvider>
+                </PreferencesProvider>
+            </QueryClientProvider>
+            </MemoryRouter>
+        );
+
+        expect(screen.queryByText('Admin')).not.toBeInTheDocument();
+    });
 });
