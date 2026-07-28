@@ -112,6 +112,19 @@ pub fn assert_share_price_invariants(
             );
         }
     }
+
+    // Invariant: Share price monotonicity under positive yield accrual
+    if total_shares > 0 && total_assets > 0 {
+        const SCALE: i128 = 1_000_000_000_000_000_000;
+        let price_before = total_assets.saturating_mul(SCALE) / total_shares;
+        if let Some(after_assets) = total_assets.checked_add(yield_amount) {
+            let price_after = after_assets.saturating_mul(SCALE) / total_shares;
+            assert!(
+                price_after >= price_before,
+                "share price non-monotonic under yield accrual: {price_after} < {price_before}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

@@ -33,6 +33,7 @@ import {
   LazySettings,
   LazyTransactionHistory,
   LazyUIPreview,
+  LazyVaultComparison,
   prefetchDashboardRoutes,
 } from "./lib/routePrefetch";
 import NetworkWarningBanner from "./components/NetworkWarningBanner";
@@ -41,7 +42,6 @@ import { useVault, VaultProvider } from "./context/VaultContext";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
-const VaultComparison = lazy(() => import("./pages/VaultComparison"));
 const TransactionReceipt = lazy(() => import("./pages/TransactionReceipt"));
 
 // Removed simple fallback in favor of components/ErrorFallback
@@ -184,6 +184,8 @@ function AppContent() {
                 />
                 <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
                 <Route path="/compare" element={<VaultComparison />} />
+                <Route path="/compare" element={<LazyVaultComparison />} />
+                <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
                 <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
                 <Route path="/settings" element={<LazySettings />} />
                 <Route path="/ui-kit" element={<LazyUIPreview />} />
