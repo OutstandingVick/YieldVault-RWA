@@ -336,7 +336,8 @@ fn test_benji_yield_uses_watermark_fee_accounting() {
     usdc_sa.mint(&benji_strategy, &100);
 
     vault.deposit(&user, &500);
-    vault.set_fee_bps(&1_000);
+    vault.queue_fee_bps_change(&1_000);
+    vault.execute_fee_bps_change();
 
     let proposal_id = vault.create_strategy_proposal(&admin, &benji_strategy);
     vault.vote_on_proposal(&admin, &proposal_id, &true, &1);
@@ -485,7 +486,8 @@ fn test_accrue_yield_fee_math_overflow_reverts_before_transfer() {
     env.mock_all_auths();
 
     let (vault, usdc, _, admin) = setup_vault(&env);
-    vault.set_fee_bps(&10_000);
+    vault.queue_fee_bps_change(&10_000);
+    vault.execute_fee_bps_change();
 
     let result = vault.try_accrue_yield(&i128::MAX);
     assert!(matches!(result, Err(Ok(VaultError::MathOverflow))));
@@ -502,7 +504,8 @@ fn test_accrue_yield_full_fee_accumulates_to_treasury_only() {
     let (vault, _, usdc_sa, admin) = setup_vault(&env);
     usdc_sa.mint(&admin, &250);
 
-    vault.set_fee_bps(&10_000);
+    vault.queue_fee_bps_change(&10_000);
+    vault.execute_fee_bps_change();
     vault.accrue_yield(&250);
 
     assert_eq!(vault.total_assets(), 0);
@@ -1072,7 +1075,8 @@ fn test_invariant_share_price_monotonic_after_accrue_yield() {
     vault.deposit(&user, &500);
     let price_before = vault.share_price();
 
-    vault.set_fee_bps(&1_000);
+    vault.queue_fee_bps_change(&1_000);
+    vault.execute_fee_bps_change();
     vault.accrue_yield(&100);
 
     let price_after = vault.share_price();
@@ -1092,7 +1096,8 @@ fn test_invariant_share_price_unchanged_by_full_fee_accrual() {
     usdc_sa.mint(&admin, &200);
 
     vault.deposit(&user, &500);
-    vault.set_fee_bps(&10_000);
+    vault.queue_fee_bps_change(&10_000);
+    vault.execute_fee_bps_change();
 
     let price_before = vault.share_price();
     vault.accrue_yield(&100);
@@ -2375,16 +2380,19 @@ fn test_admin_param_change_interval_blocks_rapid_updates() {
 
     let (vault, _usdc, _usdc_sa, _admin) = setup_vault(&env);
     vault.set_admin_param_change_interval(&60);
-    vault.set_fee_bps(&100);
+    vault.queue_fee_bps_change(&100);
+    vault.execute_fee_bps_change();
 
     // Immediate second change must fail with AdminParamChangeTooSoon
-    let second = vault.try_set_fee_bps(&200);
+    // (the interval gates queueing, not executing a change already queued)
+    let second = vault.try_queue_fee_bps_change(&200);
     assert_eq!(second, Err(Ok(VaultError::AdminParamChangeTooSoon)));
 
     // Fast-forward past the new 60s cooldown
     env.ledger().set_timestamp(103_662);
 
-    vault.set_fee_bps(&200);
+    vault.queue_fee_bps_change(&200);
+    vault.execute_fee_bps_change();
     assert_eq!(vault.fee_bps(), 200);
 }
 

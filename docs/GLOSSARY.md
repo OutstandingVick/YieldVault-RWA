@@ -616,7 +616,7 @@ Fee deducted from harvested yield (or any admin `accrue_yield` call) before bein
 One one-hundredth of one percent (0.01%). 100 bps = 1%. 10000 bps = 100%. Standard unit for fine-grained fee configuration.
 
 **FeeBps** (`FeeBps`)
-Storage slot holding the protocol fee rate. Valid range `0..=10_000`. Configurable by admin via `set_fee_bps()`. Zero means no fee is charged.
+Storage slot holding the protocol fee rate. Valid range `0..=10_000`. Configurable by admin via `queue_fee_bps_change()` / `execute_fee_bps_change()` (timelocked, see Issue #969). Zero means no fee is charged.
 
 **BPS_DENOMINATOR**
 Constant `10_000` used in fee calculation: `fee = amount × fee_bps / 10_000`. All integer floor-division.

@@ -123,7 +123,8 @@ fn test_oracle_config_functions() {
     assert_eq!(vault.oracle_heartbeat(), 3600);
 
     let oracle_addr = Address::generate(&env);
-    vault.set_price_oracle(&oracle_addr);
+    vault.queue_price_oracle_change(&oracle_addr);
+    vault.execute_price_oracle_change();
     assert_eq!(vault.price_oracle(), Some(oracle_addr));
 
     vault.set_oracle_enabled(&true);
@@ -153,7 +154,7 @@ fn test_oracle_setters_require_admin_auth() {
     let oracle_addr = Address::generate(&env);
 
     // Without admin authorization, oracle config mutations must fail.
-    assert!(vault.try_set_price_oracle(&oracle_addr).is_err());
+    assert!(vault.try_queue_price_oracle_change(&oracle_addr).is_err());
     assert!(vault.try_set_oracle_enabled(&true).is_err());
     assert!(vault.try_set_oracle_heartbeat(&7200).is_err());
     assert!(vault.price_oracle().is_none());
@@ -161,7 +162,8 @@ fn test_oracle_setters_require_admin_auth() {
     assert_eq!(vault.oracle_heartbeat(), 3600);
 
     env.mock_all_auths();
-    vault.set_price_oracle(&oracle_addr);
+    vault.queue_price_oracle_change(&oracle_addr);
+    vault.execute_price_oracle_change();
     vault.set_oracle_enabled(&true);
     vault.set_oracle_heartbeat(&7200);
 

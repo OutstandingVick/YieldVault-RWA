@@ -124,7 +124,8 @@ fn test_fee_accrual_event_emitted() {
     vault.initialize(&admin, &usdc.address);
 
     // 500 bps = 5% fee
-    vault.set_fee_bps(&500);
+    vault.queue_fee_bps_change(&500);
+    vault.execute_fee_bps_change();
     vault.accrue_yield(&1000);
 
     // fee = 1000 * 500 / 10000 = 50; net yield = 950
@@ -170,8 +171,10 @@ fn test_claim_fees_transfers_to_treasury() {
     vault.initialize(&admin, &usdc.address);
     vault.set_admin_param_change_interval(&0);
 
-    vault.set_fee_bps(&1000); // 10%
-    vault.set_treasury(&treasury);
+    vault.queue_fee_bps_change(&1000); // 10%
+    vault.execute_fee_bps_change();
+    vault.queue_treasury_change(&treasury);
+    vault.execute_treasury_change();
     vault.accrue_yield(&1000); // fee = 100
 
     assert_eq!(vault.treasury_balance(), 100);
@@ -196,7 +199,8 @@ fn test_claim_fees_returns_error_when_balance_zero() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
     vault.initialize(&admin, &usdc.address);
-    vault.set_treasury(&treasury);
+    vault.queue_treasury_change(&treasury);
+    vault.execute_treasury_change();
 
     let result = vault.try_claim_fees();
     assert_eq!(result, Err(Ok(VaultError::NoFeesToClaim)));
@@ -217,7 +221,8 @@ fn test_claim_fees_panics_when_no_treasury() {
     let vault_id = env.register(YieldVault, ());
     let vault = YieldVaultClient::new(&env, &vault_id);
     vault.initialize(&admin, &usdc.address);
-    vault.set_fee_bps(&500);
+    vault.queue_fee_bps_change(&500);
+    vault.execute_fee_bps_change();
     vault.accrue_yield(&1000); // accrues 50 in treasury balance
 
     vault.claim_fees(); // should panic — no treasury set
