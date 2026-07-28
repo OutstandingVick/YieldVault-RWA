@@ -19,7 +19,7 @@ import VaultPerformanceChart from "./VaultPerformanceChart";
 import { useToast } from "../context/ToastContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
 import { FormField } from "../forms";
-import { isValidationError } from "../lib/api";
+import { isApiError, isValidationError } from "../lib/api";
 import { useForm } from "../forms/useForm";
 import type { ValidationSchema } from "../forms/validate";
 import { useDepositMutation, useWithdrawMutation } from "../hooks/useVaultMutations";
@@ -62,6 +62,7 @@ import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
 import { t } from "../i18n";
 
 const FIRST_DEPOSIT_PREFIX = "yieldvault:first-deposit:";
+const MAX_TRANSACTION_RETRY_ATTEMPTS = 3;
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" &&
@@ -316,8 +317,11 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
   const [transactionResult, setTransactionResult] = useState<{
     success: boolean;
     message: string;
-    txHash?: string
+    txHash?: string;
+    retryable?: boolean;
+    actionType?: TransactionTab;
   } | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [activeConflict, setActiveConflict] = useState<{
     conflict: TransactionConflictDetails;
@@ -565,6 +569,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     dashboardUrl.setState({ step: "amount", amount: "" });
     clearVaultFormDraft();
     setTransactionResult(null);
+    setRetryCount(0);
     setActiveConflict(null);
     staleGuard.clearReviewSnapshot();
     clearVaultFormDraft();
@@ -592,7 +597,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const executeTransaction = async (
     actionType: TransactionTab,
-    options: { skipStaleCheck?: boolean } = {},
+    options: { skipStaleCheck?: boolean; isRetry?: boolean } = {},
   ) => {
     const value = Number(amount);
 
@@ -602,6 +607,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         description: t("vaultDashboard.toast.walletRequiredDesc"),
       });
       return;
+    }
+
+    if (!options.isRetry) {
+      setRetryCount(0);
     }
 
     if (!options.skipStaleCheck) {
@@ -682,6 +691,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
       transactionIntent.clearIntent();
       staleGuard.refreshSnapshot();
+      setRetryCount(0);
 
       setTransactionResult({
         success: true,
@@ -708,8 +718,9 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       }
 
       const mappedError = mapServerError(err);
+      const hasFieldErrors = mappedError.fieldErrors.length > 0;
 
-      if (mappedError.fieldErrors.length > 0) {
+      if (hasFieldErrors) {
         mappedError.fieldErrors.forEach(({ fieldName, message }) => {
           setFieldError(fieldName as keyof { amount: string }, message);
         });
@@ -726,9 +737,20 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         errorMessage = mappedError.generalError;
       }
 
+      // Field-level validation failures need corrected input, not a blind resubmit.
+      // Everything else (network hiccups, RPC timeouts, transient 5xx) is worth retrying.
+      const retryable =
+        !hasFieldErrors && !isValidationError(err) && (isApiError(err) ? err.retryable : true);
+
+      if (options.isRetry) {
+        setRetryCount((count) => count + 1);
+      }
+
       setTransactionResult({
         success: false,
         message: errorMessage,
+        retryable,
+        actionType,
       });
       dashboardUrl.setStep("result");
 
@@ -783,6 +805,19 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
 
   const handleTransaction = async (actionType: TransactionTab) => {
     await executeTransaction(actionType);
+  };
+
+  const canRetryTransaction =
+    transactionResult?.success === false &&
+    transactionResult.retryable !== false &&
+    retryCount < MAX_TRANSACTION_RETRY_ATTEMPTS;
+
+  const retryTransaction = async () => {
+    if (!transactionResult || retryCount >= MAX_TRANSACTION_RETRY_ATTEMPTS) {
+      return;
+    }
+    const actionType = transactionResult.actionType ?? dashboardUrl.state.tab;
+    await executeTransaction(actionType, { skipStaleCheck: true, isRetry: true });
   };
 
   return (
@@ -1558,18 +1593,53 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                         <h3 style={{ marginBottom: "12px" }}>
                           {transactionResult.success ? t("vaultDashboard.transactionSuccessful") : t("vaultDashboard.transactionFailed")}
                         </h3>
-                        <p style={{ color: "var(--text-secondary)", marginBottom: "32px", maxWidth: "300px" }}>
+                        <p style={{ color: "var(--text-secondary)", marginBottom: "8px", maxWidth: "300px" }}>
                           {transactionResult.message}
                         </p>
-                        
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ width: "100%", padding: "16px" }}
-                          onClick={resetWizard}
-                        >
-                          {transactionResult.success ? t("vaultDashboard.done") : t("vaultDashboard.tryAgain")}
-                        </button>
+
+                        {!transactionResult.success && retryCount >= MAX_TRANSACTION_RETRY_ATTEMPTS && (
+                          <p
+                            role="alert"
+                            style={{ color: "var(--text-warning, #f59e0b)", marginBottom: "24px", maxWidth: "300px", fontSize: "0.85rem" }}
+                          >
+                            {t("vaultDashboard.retryLimitReached")}
+                          </p>
+                        )}
+
+                        {transactionResult.success ? (
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ width: "100%", padding: "16px" }}
+                            onClick={resetWizard}
+                          >
+                            {t("vaultDashboard.done")}
+                          </button>
+                        ) : (
+                          <div className="flex flex-col gap-sm" style={{ width: "100%", marginTop: "24px" }}>
+                            {canRetryTransaction && (
+                              <Button
+                                type="button"
+                                variant="primary"
+                                style={{ width: "100%", padding: "16px" }}
+                                status={isBusy ? "pending" : "idle"}
+                                loadingLabel={t("vaultDashboard.processing")}
+                                onClick={() => void retryTransaction()}
+                              >
+                                {t("vaultDashboard.retryTransaction")}
+                              </Button>
+                            )}
+                            <button
+                              type="button"
+                              className={canRetryTransaction ? "btn btn-outline" : "btn btn-primary"}
+                              style={{ width: "100%", padding: "16px" }}
+                              onClick={resetWizard}
+                              disabled={isBusy}
+                            >
+                              {t("vaultDashboard.startOver")}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
