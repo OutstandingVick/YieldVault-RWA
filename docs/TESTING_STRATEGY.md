@@ -100,6 +100,10 @@ Use E2E tests only for user journeys that must prove the app works in a real bro
 - Browser-only flows have at least one Playwright test.
 - New feature work adds coverage in the layer that owns the behavior, not just in the widest suite.
 
+## Repository Enforcement
+
+This strategy is enforced with the repository validator at `npm run validate:testing-strategy`. The command checks that the strategy document still covers the required testing layers, layer-specific guidance, recommended commands, and Playwright-based E2E coverage expectations.
+
 ## Core Playwright User Flows
 
 Canonical browser journeys live under `frontend/e2e/` and run with `cd frontend && npm run test:e2e` (CI: `.github/workflows/e2e.yml`).
@@ -114,3 +118,28 @@ Canonical browser journeys live under `frontend/e2e/` and run with `cd frontend 
 | Settings | `settings.spec.ts` | Preference surface and theme toggle |
 
 Shared stubs and Freighter mocking belong in `frontend/e2e/fixtures.ts` so every core flow stays deterministic without a live backend.
+
+---
+
+## Property-Based Tests for Deposit/Withdraw Math (Issue #962)
+
+File: `contracts/vault/src/deposit_withdraw_props.rs`
+
+These proptest suites extend the existing `fuzz_math.rs` coverage with higher-level vault invariants:
+
+| Property | What it verifies |
+|---|---|
+| `prop_two_user_deposit_share_sum` | `sum(user_shares) == total_shares` after two deposits |
+| `prop_three_user_share_sum` | Individual balances sum to `total_shares` for three users |
+| `prop_partial_withdrawal_shares_consistent` | Remaining shares == deposited - withdrawn, never negative |
+| `prop_yield_accrual_monotone_share_price` | `share_price` never decreases after `accrue_yield` |
+| `prop_share_price_positive_after_deposit` | `share_price > 0` after any deposit |
+| `prop_fee_extraction_does_not_touch_principal` | `treasury_balance <= expected_fee`, resets to 0 after `claim_fees` |
+| `prop_batch_deposit_matches_individual_deposits` | Batch deposit produces same shares as individual deposits |
+| `prop_withdrawal_cooldown_enforced` | Withdrawal within cooldown window returns `WithdrawalCooldownActive` |
+
+Run with:
+
+```bash
+cargo test deposit_withdraw_props -- --nocapture
+```

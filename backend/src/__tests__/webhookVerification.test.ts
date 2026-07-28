@@ -3,6 +3,9 @@ import {
   verifyWebhookEndpoint,
   resetWebhookState,
   emitTransactionEvent,
+  buildWebhookSignedEnvelope,
+  createWebhookSignature,
+  markWebhookDeliverySeen,
 } from '../webhookDelivery';
 
 describe('Webhook endpoint verification handshake', () => {
@@ -58,5 +61,36 @@ describe('Webhook endpoint verification handshake', () => {
     });
 
     expect(deliveredCount).toBe(0);
+  });
+
+  it('signs webhook deliveries with a timestamped envelope and rejects replays', () => {
+    const endpoint = registerWebhookEndpoint({ url: 'https://example.com/hook', enabled: true });
+    const delivery = {
+      id: 'whd_test_delivery',
+      endpointId: endpoint.id,
+      endpointUrl: endpoint.url,
+      eventType: 'transaction.deposit.created' as const,
+      status: 'pending' as const,
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const payload = {
+      transactionId: 'tx-replay-1',
+      amount: '100',
+      asset: 'USDC',
+      walletAddress: `G${'A'.repeat(55)}`,
+      transactionHash: '0xabc',
+      status: 'pending',
+      timestamp: new Date().toISOString(),
+    };
+
+    const envelope = buildWebhookSignedEnvelope(delivery, payload);
+    const signature = createWebhookSignature('shared-secret', envelope);
+
+    expect(signature).toHaveLength(64);
+    expect(markWebhookDeliverySeen(delivery.endpointId, delivery.id, envelope.sentAt)).toBe(true);
+    expect(markWebhookDeliverySeen(delivery.endpointId, delivery.id, envelope.sentAt)).toBe(false);
   });
 });

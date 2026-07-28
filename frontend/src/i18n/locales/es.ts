@@ -552,6 +552,40 @@ export const es = {
       reachedDesc: "Esta bóveda ha alcanzado su límite máximo de depósito del {{percent}}%. Los depósitos están temporalmente deshabilitados.",
       nearDesc: "Esta bóveda está al {{percent}}% de su capacidad. Los nuevos depósitos podrían restringirse pronto.",
     },
+    riskSummary: {
+      title: "Resumen de riesgo de la cuenta",
+      subtitle: "Las advertencias se priorizan según lo que puedes hacer a continuación.",
+      allClear: "Todo en orden",
+      warningCount: "{{count}} advertencias",
+      warningCountOne: "1 advertencia",
+      healthyMessage: "Tu billetera está en un rango operativo saludable. Compara estrategias para revisar otras opciones de asignación antes de mover capital.",
+      healthyCta: "Comparar estrategias",
+      wallet: {
+        title: "Conecta tu billetera",
+        desc: "Las verificaciones de riesgo personalizadas y las acciones de transacción solo están disponibles después de conectar una billetera.",
+        cta: "Conectar billetera",
+      },
+      capReached: {
+        title: "Capacidad de la bóveda alcanzada",
+        desc: "Los depósitos están temporalmente restringidos. Compara bóvedas antes de agregar más capital.",
+        cta: "Comparar bóvedas",
+      },
+      capWarning: {
+        title: "La bóveda está cerca de su capacidad",
+        desc: "La bóveda está cerca de su límite de depósito. Revisa estrategias alternativas antes de enviar una transferencia mayor.",
+        cta: "Comparar bóvedas",
+      },
+      xlmFee: {
+        title: "XLM insuficiente para tarifas de red",
+        desc: "Necesitas más XLM para cubrir la tarifa de red estimada de la próxima transacción.",
+        cta: "Revisar depósito",
+      },
+      paused: {
+        title: "Las operaciones de la bóveda están pausadas",
+        desc: "Los depósitos y retiros están bloqueados hasta que la bóveda se vuelva a habilitar.",
+        cta: "Actualizar estado",
+      },
+    },
     toast: {
       validationErrorTitle: "Por favor corrige los errores de validación",
       invalidAmount: "Por favor ingresa un monto válido",
