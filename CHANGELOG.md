@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
+- Add journalled partial-failure recovery for multi-step withdrawals: resume-forward retries, reverse-order compensation, an operator escalation queue with admin endpoints, and a background sweeper for crashed or backed-off sagas (#954)
 - Add deterministic admin proposal nonces with replay rejection for admin rotation (#736)
 - Add empty-state deposit and withdraw intent actions across dashboard pages (#734)
 - CORS configuration for cross-origin API access
@@ -20,6 +21,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add deterministic request ID propagation across HTTP handlers, queued jobs, and worker logs using AsyncLocalStorage (#700)
 
 ### Bug Fixes
+- Restore the backend Express app export and remove a duplicated `AsyncMutex` declaration in `walletNonce.ts` that made the backend test suite fail to load
 - Vault performance dynamic date filter
 
 ### Documentation
