@@ -2271,6 +2271,32 @@ fn test_rebalance_blocks_when_target_strategy_heartbeat_expired() {
 }
 
 #[test]
+fn test_rebalance_rejects_same_strategy_and_negative_bounds() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+    let benji_token = create_token(&env, &token_admin);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    let strategy_id = env.register(BenjiStrategy, ());
+    let strategy = BenjiStrategyClient::new(&env, &strategy_id);
+
+    vault.initialize(&admin, &usdc.address);
+    strategy.initialize(&vault_id, &usdc.address, &benji_token.address);
+    vault.register_strategy(&strategy_id);
+    vault.activate_strategy_registration(&strategy_id);
+    vault.whitelist_strategy(&strategy_id, &true);
+    vault.set_strategy(&strategy_id);
+
+    let blocked = vault.try_rebalance(&strategy_id, &strategy_id, &10, &0, &-1);
+    assert_eq!(blocked, Err(Ok(VaultError::InvalidAmount)));
+}
+
+#[test]
 fn test_record_strategy_heartbeat_requires_whitelist() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();

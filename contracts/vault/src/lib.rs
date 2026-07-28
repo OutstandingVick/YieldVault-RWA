@@ -2774,6 +2774,12 @@ impl YieldVault {
         if amount <= 0 {
             return Err(VaultError::InvalidAmount);
         }
+        if from_strategy == to_strategy {
+            return Err(VaultError::InvalidAmount);
+        }
+        if min_divest_value < 0 || min_invest_value < 0 {
+            return Err(VaultError::InvalidAmount);
+        }
 
         strategy_registration::require_active_registration(&env, &from_strategy)
             .map_err(Self::map_registration_error)?;
