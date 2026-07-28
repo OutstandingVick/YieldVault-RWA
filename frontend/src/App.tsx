@@ -38,6 +38,7 @@ import {
 } from "./lib/routePrefetch";
 import NetworkWarningBanner from "./components/NetworkWarningBanner";
 import OfflineBanner from "./components/OfflineBanner";
+import HighLatencyBanner from "./components/HighLatencyBanner";
 import { useVault, VaultProvider } from "./context/VaultContext";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
@@ -147,6 +148,7 @@ function AppContent() {
         <OfflineBanner lastKnownTvl={tvl} lastKnownBalance={usdcBalance} />
         <div className="app-container">
           <NetworkWarningBanner walletAddress={walletAddress} />
+          <HighLatencyBanner />
           <Navbar
             walletAddress={walletAddress}
             usdcBalance={usdcBalance}
@@ -183,9 +185,7 @@ function AppContent() {
                   }
                 />
                 <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
-                <Route path="/compare" element={<VaultComparison />} />
                 <Route path="/compare" element={<LazyVaultComparison />} />
-                <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
                 <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
                 <Route path="/settings" element={<LazySettings />} />
                 <Route path="/ui-kit" element={<LazyUIPreview />} />

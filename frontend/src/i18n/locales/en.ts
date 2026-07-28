@@ -149,6 +149,18 @@ export const en = {
     ariaLabel: "Transaction status timeline",
     viewOnExplorer: "View on Stellar Explorer",
     steps: {
+      preparing: {
+        label: "Preparing",
+        desc: "Constructing transaction data.",
+      },
+      signing: {
+        label: "Signing",
+        desc: "Awaiting wallet signature.",
+      },
+      submitting: {
+        label: "Submitting",
+        desc: "Sending to the network.",
+      },
       pending: {
         label: "Submitted",
         desc: "Transaction sent to the Stellar network.",

@@ -173,7 +173,7 @@ describe("VaultDashboard Wizard", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Transaction Successful")).toBeInTheDocument();
+      expect(screen.getByText("Finalized")).toBeInTheDocument();
     });
 
     const doneBtn = screen.getByText("Done");
