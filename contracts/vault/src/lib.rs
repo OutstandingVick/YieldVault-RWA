@@ -80,6 +80,8 @@ pub mod storage_registry;
 pub mod strategy;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod formal_verification_tests;
 pub mod upgrade;
 pub mod withdrawal_queue_safety;
 
@@ -235,6 +237,7 @@ pub enum DataKey {
     BenjiStrategy,
     KoreanDebtStrategy,
     PauseReason,
+    Pauser,
     EmergencyApprovers,
     Emergency(EmergencyStorageKey),
     EmergencyProposalNonce,
@@ -797,6 +800,62 @@ impl YieldVault {
     /// Read the active strategy address.
     pub fn strategy(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Strategy)
+    }
+
+    /// Configures the designated pauser role address.
+    /// Only the admin can call this.
+    pub fn set_pauser(env: Env, pauser: Option<Address>) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        if let Some(ref p) = pauser {
+            env.storage().instance().set(&DataKey::Pauser, p);
+        } else {
+            env.storage().instance().remove(&DataKey::Pauser);
+        }
+        env.events()
+            .publish((symbol_short!("setpauser"),), (pauser.clone(),));
+        Ok(())
+    }
+
+    /// Returns the currently configured pauser role address, if any.
+    pub fn pauser(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Pauser)
+    }
+
+    /// Pauses the contract with role-restricted authorization.
+    /// Caller must be either the Admin or the assigned Pauser role address.
+    pub fn pause_with_role(
+        env: Env,
+        caller: Address,
+        reason: PauseReason,
+    ) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        let pauser_addr = Self::pauser(env.clone());
+        permissions::require_pauser_or_admin_auth(&caller, &admin, pauser_addr.as_ref());
+
+        let mut state = Self::get_state(&env);
+        state.is_paused = true;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+        env.events()
+            .publish((symbol_short!("paused"),), (reason as u32,));
+        Ok(())
+    }
+
+    /// Unpauses the contract with role-restricted authorization.
+    /// Caller must be either the Admin or the assigned Pauser role address.
+    pub fn unpause_with_role(env: Env, caller: Address) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        let pauser_addr = Self::pauser(env.clone());
+        permissions::require_pauser_or_admin_auth(&caller, &admin, pauser_addr.as_ref());
+
+        let mut state = Self::get_state(&env);
+        state.is_paused = false;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().remove(&DataKey::PauseReason);
+        env.events().publish((symbol_short!("unpaused"),), ());
+        Ok(())
     }
 
     pub fn pause(env: Env, reason: PauseReason) {

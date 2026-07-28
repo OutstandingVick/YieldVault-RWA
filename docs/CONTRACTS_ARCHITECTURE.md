@@ -632,6 +632,7 @@ See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK
 - **ERC-4626 Standard:** https://eips.ethereum.org/EIPS/eip-4626
 - **Stellar Docs:** https://developers.stellar.org/
 - **Threat Model:** `docs/THREAT_MODEL.md`
+- **Formal Verification Notes:** `docs/FORMAL_VERIFICATION_ACCOUNTING.md`
 - **Deployment Guide:** `contracts/vault/DEPLOYMENT.md`
 - **Security Checklist:** `docs/SECURITY_CHECKLIST.md`
 - **False Positives:** `contracts/.false-positives.md`
