@@ -183,6 +183,7 @@ function AppContent() {
                   }
                 />
                 <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/compare" element={<VaultComparison />} />
                 <Route path="/compare" element={<LazyVaultComparison />} />
                 <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
                 <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
