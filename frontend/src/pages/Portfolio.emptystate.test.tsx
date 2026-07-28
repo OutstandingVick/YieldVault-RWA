@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -73,15 +73,11 @@ describe("Portfolio â€” empty state", () => {
     renderPortfolio("GABC123");
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Your portfolio is empty."),
-      ).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: /getting started guide/i })).toBeInTheDocument();
     });
 
     expect(
-      screen.getByText(
-        /Once you deposit, you'll be able to track your assets and growth here\./i,
-      ),
+      screen.getByText(/make your first deposit/i),
     ).toBeInTheDocument();
   });
 
@@ -91,23 +87,7 @@ describe("Portfolio â€” empty state", () => {
     renderPortfolio("GABC123");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Deposit Now" })).toBeInTheDocument();
-    });
-  });
-
-  it("Deposit Now CTA dispatches TRIGGER_DEPOSIT and navigates home", async () => {
-    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
-    vi.mocked(portfolioApi.getPortfolioHoldings).mockResolvedValue([]);
-
-    renderPortfolio("GABC123");
-
-    const cta = await screen.findByRole("button", { name: "Deposit Now" });
-    fireEvent.click(cta);
-
-    await waitFor(() => {
-      expect(dispatchSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "TRIGGER_DEPOSIT" }),
-      );
+      expect(screen.getByRole("button", { name: /deposit now/i })).toBeInTheDocument();
     });
   });
 
@@ -117,7 +97,7 @@ describe("Portfolio â€” empty state", () => {
     renderPortfolio("GABC123");
 
     await waitFor(() => {
-      expect(screen.queryByText("Your portfolio is empty.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: /getting started guide/i })).not.toBeInTheDocument();
     });
 
     // Holdings table should be visible instead

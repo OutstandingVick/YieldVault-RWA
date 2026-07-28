@@ -406,3 +406,73 @@ fn test_invariant_suite_full_exit_zeroes_accounting_after_strategy_ops() {
     assert_eq!(vault.share_price(), 0);
     assert_vault_invariants(&vault, &users);
 }
+
+#[test]
+fn test_invariant_share_price_monotonicity_under_yield_accrual() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    let users = [user_a.clone(), user_b.clone()];
+
+    usdc_sa.mint(&user_a, &10_000);
+    usdc_sa.mint(&user_b, &10_000);
+    usdc_sa.mint(&admin, &5_000);
+
+    vault.deposit(&user_a, &2_000);
+    vault.deposit(&user_b, &3_000);
+
+    let price_0 = vault.share_price();
+    assert!(price_0 > 0);
+
+    vault.accrue_yield(&500);
+    let price_1 = vault.share_price();
+    assert!(price_1 >= price_0, "share price must not decrease on yield accrual");
+
+    vault.accrue_yield(&1_200);
+    let price_2 = vault.share_price();
+    assert!(price_2 >= price_1, "share price must not decrease on subsequent yield accrual");
+
+    assert_vault_invariants(&vault, &users);
+}
+
+#[test]
+fn test_invariant_share_price_monotonicity_under_deposits_and_withdrawals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (vault, _, usdc_sa, admin) = setup_vault(&env);
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    let users = [user_a.clone(), user_b.clone()];
+
+    usdc_sa.mint(&user_a, &20_000);
+    usdc_sa.mint(&user_b, &20_000);
+    usdc_sa.mint(&admin, &5_000);
+
+    vault.deposit(&user_a, &5_000);
+    let price_after_dep_1 = vault.share_price();
+
+    vault.deposit(&user_b, &5_000);
+    let price_after_dep_2 = vault.share_price();
+    assert!(
+        price_after_dep_2 >= price_after_dep_1 - 1,
+        "deposit at current exchange rate must preserve share price"
+    );
+
+    vault.accrue_yield(&1_000);
+    let price_after_yield = vault.share_price();
+    assert!(price_after_yield >= price_after_dep_2);
+
+    let withdraw_shares = vault.balance(&user_a) / 2;
+    vault.withdraw(&user_a, &withdraw_shares);
+    let price_after_withdraw = vault.share_price();
+    assert!(
+        price_after_withdraw >= price_after_yield - 1,
+        "withdrawal at current exchange rate must preserve share price"
+    );
+
+    assert_vault_invariants(&vault, &users);
+}

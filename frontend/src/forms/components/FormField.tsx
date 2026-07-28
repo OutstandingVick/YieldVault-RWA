@@ -16,6 +16,7 @@ const FormField: React.FC<FormFieldProps> = ({
   disabled,
   type = "text",
   id,
+  className,
   ...props
 }) => {
   const inputId = id ?? name;
@@ -25,13 +26,13 @@ const FormField: React.FC<FormFieldProps> = ({
   return (
     <div className="form-control">
       <label className="form-label" htmlFor={inputId}>{label}</label>
-      <div className={`input-wrapper ${error ? "input-wrapper-error" : ""}`}>
+      <div className={`input-wrapper ${error ? "input-wrapper-error" : ""} ${className ?? ""}`.trim()}>
         <input
           {...props}
           id={inputId}
           type={type}
           name={name}
-          className={`input-field ${props.className ?? ""}`.trim()}
+          className="input-field"
           disabled={disabled}
           aria-invalid={error ? "true" : undefined}
           aria-describedby={
