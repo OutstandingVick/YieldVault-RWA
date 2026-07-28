@@ -145,6 +145,22 @@ See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedu
 - **Q3**: Expand security review, run load and failure-mode validation, and prepare launch readiness.
 - **Q4**: Complete mainnet launch checklist, monitor production stability, and gather retrospective improvements.
 
+```bash
+# Validate branch naming, PR description format, and contribution standards
+npm run validate:contribution-standards
+
+# Validate the testing strategy document for unit, integration, and E2E coverage guidance
+npm run validate:testing-strategy
+
+# Validate sprint label formats and issue triage taxonomy
+npm run validate:sprint-and-triage
+
+# Validate release notes template and cliff config
+npm run validate:release-notes
+
+# Validate NFR baselines (SLO, RTO, RPO)
+npm run validate:nfr-baselines
+```
 ## 🤝 Contributing
 
 Fork the repository and clone it to your local machine

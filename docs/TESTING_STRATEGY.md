@@ -100,6 +100,10 @@ Use E2E tests only for user journeys that must prove the app works in a real bro
 - Browser-only flows have at least one Playwright test.
 - New feature work adds coverage in the layer that owns the behavior, not just in the widest suite.
 
+## Repository Enforcement
+
+This strategy is enforced with the repository validator at `npm run validate:testing-strategy`. The command checks that the strategy document still covers the required testing layers, layer-specific guidance, recommended commands, and Playwright-based E2E coverage expectations.
+
 ## Core Playwright User Flows
 
 Canonical browser journeys live under `frontend/e2e/` and run with `cd frontend && npm run test:e2e` (CI: `.github/workflows/e2e.yml`).
