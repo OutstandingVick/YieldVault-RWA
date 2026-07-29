@@ -131,3 +131,185 @@ describe("TransactionFilterPanel", () => {
     expect(screen.getByRole("group", { name: /Filter controls/i })).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Date range presets
+// ---------------------------------------------------------------------------
+
+describe("TransactionFilterPanel — date presets", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers the relative range shortcuts", () => {
+    renderPanel({}, { onDatePreset: vi.fn() });
+
+    const group = screen.getByRole("group", { name: /Date range presets/i });
+    expect(
+      within(group).getByRole("button", { name: "Last 7 days" }),
+    ).toBeInTheDocument();
+    expect(
+      within(group).getByRole("button", { name: "Last 30 days" }),
+    ).toBeInTheDocument();
+    expect(
+      within(group).getByRole("button", { name: "Last 90 days" }),
+    ).toBeInTheDocument();
+    expect(
+      within(group).getByRole("button", { name: "Year to date" }),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the preset row when the page does not supply a handler", () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole("group", { name: /Date range presets/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reports the chosen preset", () => {
+    const onDatePreset = vi.fn();
+    renderPanel({}, { onDatePreset });
+
+    fireEvent.click(screen.getByRole("button", { name: "Last 30 days" }));
+
+    expect(onDatePreset).toHaveBeenCalledWith("30d");
+  });
+
+  it("marks the preset the current range matches as pressed", () => {
+    renderPanel({}, { onDatePreset: vi.fn(), activeDatePreset: "90d" });
+
+    expect(screen.getByRole("button", { name: "Last 90 days" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Last 7 days" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("offers to clear the dates only once a range is set", () => {
+    renderPanel({}, { onDatePreset: vi.fn(), onClearDateRange: vi.fn() });
+    expect(
+      screen.queryByRole("button", { name: /Clear dates/i }),
+    ).not.toBeInTheDocument();
+
+    const onClearDateRange = vi.fn();
+    renderPanel(
+      { dateFrom: "2026-01-01" },
+      { onDatePreset: vi.fn(), onClearDateRange },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Clear dates/i }));
+    expect(onClearDateRange).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Range validation
+// ---------------------------------------------------------------------------
+
+describe("TransactionFilterPanel — contradictory ranges", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("explains an inverted date range and marks both inputs invalid", () => {
+    renderPanel(
+      { dateFrom: "2026-06-01", dateTo: "2026-01-01" },
+      { issues: [{ range: "date", code: "dateRangeInverted" }] },
+    );
+
+    const message = screen.getByText(/from date is after the to date/i);
+    expect(message).toBeInTheDocument();
+
+    const from = screen.getByLabelText(/Filter from date/i);
+    const to = screen.getByLabelText(/Filter to date/i);
+    expect(from).toHaveAttribute("aria-invalid", "true");
+    expect(to).toHaveAttribute("aria-invalid", "true");
+    // The message is announced, and reachable from either input.
+    expect(from).toHaveAttribute("aria-describedby", message.id);
+    expect(to).toHaveAttribute("aria-describedby", message.id);
+  });
+
+  it("explains an inverted amount range and marks both inputs invalid", () => {
+    renderPanel(
+      { amountMin: "500", amountMax: "10" },
+      { issues: [{ range: "amount", code: "amountRangeInverted" }] },
+    );
+
+    const message = screen.getByText(/minimum amount is above the maximum/i);
+    expect(message).toBeInTheDocument();
+    expect(screen.getByLabelText(/Minimum transaction amount/i)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByLabelText(/Maximum transaction amount/i)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+  });
+
+  it("says nothing and marks nothing invalid for a coherent range", () => {
+    renderPanel({ dateFrom: "2026-01-01", dateTo: "2026-06-01" });
+
+    expect(
+      screen.queryByText(/from date is after the to date/i),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Filter from date/i)).not.toHaveAttribute(
+      "aria-invalid",
+    );
+  });
+
+  it("leaves the date inputs unbounded so either end can be moved past the other", () => {
+    // Bounding each input by the other blocks a range from being shifted and
+    // gives no explanation; the inline message above covers that case instead.
+    renderPanel({ dateFrom: "2026-03-01", dateTo: "2026-04-01" });
+
+    expect(screen.getByLabelText(/Filter from date/i)).not.toHaveAttribute("max");
+    expect(screen.getByLabelText(/Filter to date/i)).not.toHaveAttribute("min");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Active filter chips
+// ---------------------------------------------------------------------------
+
+describe("TransactionFilterPanel — active filter chips", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("keeps the chips visible while the panel is collapsed", () => {
+    renderPanel(
+      { asset: "USDC" },
+      {
+        hasActiveFilters: true,
+        onRemoveFilter: vi.fn(),
+        activeFilterChips: [{ id: "asset", kind: "asset", value: "USDC" }],
+      },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Collapse filters/i }));
+
+    expect(
+      screen.queryByRole("group", { name: /Filter controls/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Asset: USDC")).toBeInTheDocument();
+  });
+
+  it("forwards a chip removal", () => {
+    const onRemoveFilter = vi.fn();
+    const chip = { id: "asset", kind: "asset" as const, value: "USDC" };
+    renderPanel(
+      { asset: "USDC" },
+      { hasActiveFilters: true, onRemoveFilter, activeFilterChips: [chip] },
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Asset: USDC, remove this filter/i }),
+    );
+
+    expect(onRemoveFilter).toHaveBeenCalledWith(chip);
+  });
+});

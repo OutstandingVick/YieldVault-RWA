@@ -405,6 +405,24 @@ export const es = {
     resetAmountMinAria: "Restablecer monto mínimo",
     resetAmountMaxAria: "Restablecer monto máximo",
     filterByAria: "Filtrar por {{group}} {{option}}",
+    activeFiltersLabel: "Filtrando por",
+    activeFiltersAria: "Filtros activos",
+    removeFilterAria: "quitar este filtro",
+    presetsLabel: "Rango rápido",
+    presetsAria: "Rangos de fecha predefinidos",
+    preset: {
+      last7Days: "Últimos 7 días",
+      last30Days: "Últimos 30 días",
+      last90Days: "Últimos 90 días",
+      yearToDate: "Año en curso",
+      clearRange: "Limpiar fechas",
+    },
+    error: {
+      dateRangeInverted:
+        "La fecha inicial es posterior a la final, por lo que ninguna transacción puede coincidir. El rango de fechas se ignora hasta que lo corrijas.",
+      amountRangeInverted:
+        "El monto mínimo es mayor que el máximo, por lo que ninguna transacción puede coincidir. El rango de montos se ignora hasta que lo corrijas.",
+    },
     type: {
       deposit: "Depósito",
       withdrawal: "Retiro",
@@ -470,6 +488,27 @@ export const es = {
       button: "Columnas",
       toggle: "Personalizar columnas visibles de la tabla de transacciones",
     },
+  },
+  txSort: {
+    title: "Orden",
+    button: "Orden",
+    toggleAria: "Editar el orden de la tabla de transacciones",
+    reset: "Restablecer orden",
+    resetAria: "Volver al orden predeterminado",
+    defaultOrder: "Ordenado por fecha, más reciente primero.",
+    ascending: "Ascendente",
+    descending: "Descendente",
+    flipAria: "Invertir esta dirección",
+    moveUpAria: "Aumentar la prioridad de orden de",
+    moveDownAria: "Reducir la prioridad de orden de",
+    removeAria: "Dejar de ordenar por",
+    addLabel: "Añadir un criterio de desempate",
+    addPlaceholder: "Elige una columna…",
+    maxReached: "Máximo de 3 columnas",
+    hint: "Mayús + clic en un encabezado para añadirlo como desempate.",
+    announcePrefix: "Tabla ordenada por",
+    maxReachedAnnouncement:
+      "No se puede añadir otra columna de orden. Quita una de las tres primero.",
   },
   txDetail: {
     title: "Detalles de la transacción",

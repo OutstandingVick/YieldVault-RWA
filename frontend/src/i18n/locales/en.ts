@@ -431,6 +431,24 @@ export const en = {
     resetAmountMinAria: "Reset min amount",
     resetAmountMaxAria: "Reset max amount",
     filterByAria: "Filter by {{group}} {{option}}",
+    activeFiltersLabel: "Filtering by",
+    activeFiltersAria: "Active filters",
+    removeFilterAria: "remove this filter",
+    presetsLabel: "Quick range",
+    presetsAria: "Date range presets",
+    preset: {
+      last7Days: "Last 7 days",
+      last30Days: "Last 30 days",
+      last90Days: "Last 90 days",
+      yearToDate: "Year to date",
+      clearRange: "Clear dates",
+    },
+    error: {
+      dateRangeInverted:
+        "The from date is after the to date, so no transaction can match. The date range is being ignored until you fix it.",
+      amountRangeInverted:
+        "The minimum amount is above the maximum, so no transaction can match. The amount range is being ignored until you fix it.",
+    },
     type: {
       deposit: "Deposit",
       withdrawal: "Withdrawal",
@@ -496,6 +514,27 @@ export const en = {
       button: "Columns",
       toggle: "Customize visible transaction table columns",
     },
+  },
+  txSort: {
+    title: "Sort",
+    button: "Sort",
+    toggleAria: "Edit how the transaction table is sorted",
+    reset: "Reset sort",
+    resetAria: "Reset to the default sort order",
+    defaultOrder: "Sorted by date, newest first.",
+    ascending: "Ascending",
+    descending: "Descending",
+    flipAria: "Reverse this direction",
+    moveUpAria: "Increase sort priority of",
+    moveDownAria: "Decrease sort priority of",
+    removeAria: "Stop sorting by",
+    addLabel: "Add a tiebreaker",
+    addPlaceholder: "Choose a column…",
+    maxReached: "Maximum of 3 columns",
+    hint: "Shift-click a column header to add it as a tiebreaker.",
+    announcePrefix: "Table sorted by",
+    maxReachedAnnouncement:
+      "Cannot add another sort column. Remove one of the three first.",
   },
   txDetail: {
     title: "Transaction Details",

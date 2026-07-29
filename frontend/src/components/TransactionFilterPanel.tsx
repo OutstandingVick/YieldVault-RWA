@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useCallback, useId } from "react";
 import type { TransactionFilters, TxType, TxStatus } from "../hooks/useTransactionFilters";
 import { VALID_TX_TYPES, VALID_TX_STATUSES } from "../hooks/useTransactionFilters";
+import { DATE_PRESET_IDS } from "../lib/transactionQuery";
+import type {
+  ActiveFilterDescriptor,
+  DatePresetId,
+  FilterIssue,
+} from "../lib/transactionQuery";
+import TransactionFilterChips from "./TransactionFilterChips";
 import { useTranslation, t as tStatic } from "../i18n";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +37,13 @@ const STATUS_COLORS: Record<TxStatus, string> = {
   failed: "var(--text-error)",
 };
 
+const DATE_PRESET_LABEL_KEY: Record<DatePresetId, string> = {
+  "7d": "txFilter.preset.last7Days",
+  "30d": "txFilter.preset.last30Days",
+  "90d": "txFilter.preset.last90Days",
+  ytd: "txFilter.preset.yearToDate",
+};
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -48,6 +62,18 @@ export interface TransactionFilterPanelProps {
   onAmountMaxChange: (value: string) => void;
   onClearAll: () => void;
   hasActiveFilters: boolean;
+  /**
+   * Contradictory ranges reported by `validateTransactionFilters`. Rendered as
+   * inline messages next to the range they concern.
+   */
+  issues?: readonly FilterIssue[];
+  /** Preset the current date range matches, for highlighting its button. */
+  activeDatePreset?: DatePresetId | null;
+  onDatePreset?: (preset: DatePresetId) => void;
+  onClearDateRange?: () => void;
+  /** Applied filters, each removable on its own. */
+  activeFilterChips?: readonly ActiveFilterDescriptor[];
+  onRemoveFilter?: (chip: ActiveFilterDescriptor) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,10 +159,25 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
   onAmountMaxChange,
   onClearAll,
   hasActiveFilters,
+  issues = [],
+  activeDatePreset = null,
+  onDatePreset,
+  onClearDateRange,
+  activeFilterChips = [],
+  onRemoveFilter,
 }) => {
   const uid = useId();
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(true);
+
+  const hasDateRangeIssue = issues.some(
+    (issue) => issue.code === "dateRangeInverted",
+  );
+  const hasAmountRangeIssue = issues.some(
+    (issue) => issue.code === "amountRangeInverted",
+  );
+  const dateErrorId = `${uid}-date-error`;
+  const amountErrorId = `${uid}-amount-error`;
 
   // ---------------------------------------------------------------------------
   // Local controlled state for debounced inputs
@@ -255,6 +296,17 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
         </div>
       </div>
 
+      {/*
+        Chips sit outside the collapsible body on purpose: collapsing the panel
+        must not hide the fact that rows are being filtered out.
+      */}
+      {onRemoveFilter && (
+        <TransactionFilterChips
+          chips={activeFilterChips}
+          onRemove={onRemoveFilter}
+        />
+      )}
+
       {/* ── Panel body ───────────────────────────────────────────── */}
       {isExpanded && (
         <div
@@ -328,9 +380,12 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                   type="date"
                   className="tx-filter-input"
                   value={filters.dateFrom}
-                  max={filters.dateTo || undefined}
                   onChange={(e) => onDateFromChange(e.target.value)}
                   aria-label="Filter from date"
+                  aria-invalid={hasDateRangeIssue || undefined}
+                  aria-describedby={
+                    hasDateRangeIssue ? dateErrorId : undefined
+                  }
                 />
               </div>
             </div>
@@ -357,13 +412,70 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                   type="date"
                   className="tx-filter-input"
                   value={filters.dateTo}
-                  min={filters.dateFrom || undefined}
                   onChange={(e) => onDateToChange(e.target.value)}
                   aria-label="Filter to date"
+                  aria-invalid={hasDateRangeIssue || undefined}
+                  aria-describedby={
+                    hasDateRangeIssue ? dateErrorId : undefined
+                  }
                 />
               </div>
             </div>
           </div>
+
+          {/*
+            The date inputs carry no native min/max bounds. Bounding each input
+            by the other blocks a range from being moved earlier or later
+            without explanation, and leaves a contradictory range — which can
+            still arrive from a shared URL — undiagnosed. An explicit message
+            covers both cases.
+          */}
+          {hasDateRangeIssue && (
+            <p
+              id={dateErrorId}
+              className="tx-filter-error"
+              role="status"
+              aria-live="polite"
+            >
+              {t("txFilter.error.dateRangeInverted")}
+            </p>
+          )}
+
+          {/* Row 1b: relative date shortcuts */}
+          {onDatePreset && (
+            <div
+              className="tx-filter-presets"
+              role="group"
+              aria-label={t("txFilter.presetsAria")}
+            >
+              <span className="tx-filter-presets-label text-body-sm">
+                {t("txFilter.presetsLabel")}
+              </span>
+              {DATE_PRESET_IDS.map((preset) => {
+                const isActive = activeDatePreset === preset;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`tx-filter-preset${isActive ? " tx-filter-preset--active" : ""}`}
+                    aria-pressed={isActive}
+                    onClick={() => onDatePreset(preset)}
+                  >
+                    {t(DATE_PRESET_LABEL_KEY[preset])}
+                  </button>
+                );
+              })}
+              {(filters.dateFrom || filters.dateTo) && onClearDateRange && (
+                <button
+                  type="button"
+                  className="tx-filter-preset tx-filter-preset--clear"
+                  onClick={onClearDateRange}
+                >
+                  {t("txFilter.preset.clearRange")}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Row 2: Amount range */}
           <div className="tx-filter-row">
@@ -421,6 +533,10 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                   value={localAmountMin}
                   onChange={(e) => setLocalAmountMin(e.target.value)}
                   aria-label="Minimum transaction amount"
+                  aria-invalid={hasAmountRangeIssue || undefined}
+                  aria-describedby={
+                    hasAmountRangeIssue ? amountErrorId : undefined
+                  }
                 />
               </div>
             </div>
@@ -452,10 +568,25 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
                   value={localAmountMax}
                   onChange={(e) => setLocalAmountMax(e.target.value)}
                   aria-label="Maximum transaction amount"
+                  aria-invalid={hasAmountRangeIssue || undefined}
+                  aria-describedby={
+                    hasAmountRangeIssue ? amountErrorId : undefined
+                  }
                 />
               </div>
             </div>
           </div>
+
+          {hasAmountRangeIssue && (
+            <p
+              id={amountErrorId}
+              className="tx-filter-error"
+              role="status"
+              aria-live="polite"
+            >
+              {t("txFilter.error.amountRangeInverted")}
+            </p>
+          )}
 
           {/* Row 3: Type + Status multi-select */}
           <div className="tx-filter-row tx-filter-row--checks">

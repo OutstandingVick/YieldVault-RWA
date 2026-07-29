@@ -9,6 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
+- Add advanced filter and sort to the transaction history table: multi-column sort (up to three keys) with shift-click tiebreakers, a keyboard-reachable sort panel, URL-shareable ordering with legacy single-column links still honoured, relative date presets, removable active-filter chips, and inline reporting of contradictory ranges (#1035)
 - Harden the transfer orchestration service to be idempotent and retry-safe: wallet-scoped idempotency keys, request validation and canonicalisation, submission-boundary failure classification that never blindly resubmits a transfer whose outcome is unknown, stored terminal rejections, circuit-breaker fail-fast, a submission timeout, and an operator reconciliation queue with metrics (#1043)
 - Harden the vault comparison screen for multi-strategy selection: numeric strategy catalog with locale-aware formatting, URL-synced shareable selection and column ordering, best-in-class marking with non-colour cues, and screen-reader announcements for selection and sort changes (#1036)
 - Add journalled partial-failure recovery for multi-step withdrawals: resume-forward retries, reverse-order compensation, an operator escalation queue with admin endpoints, and a background sweeper for crashed or backed-off sagas (#954)

@@ -1284,6 +1284,23 @@ details summary:hover {
   font-size: 0.95rem;
 }
 
+/* Priority number shown when several columns are sorted at once. */
+.data-table-sort-priority {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: var(--accent-cyan);
+  color: var(--bg-base, #05070d);
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .data-table-empty {
   text-align: center;
   color: var(--text-secondary);
@@ -3475,11 +3492,302 @@ details summary:hover {
   border-color: rgba(2, 132, 199, 0.25);
 }
 
+/* ── Active filter chips ────────────────────────────────────────────────── */
+
+.tx-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0 2px;
+}
+
+.tx-filter-chips-label {
+  color: var(--text-secondary);
+}
+
+.tx-filter-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tx-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 999px;
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--accent-cyan);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+}
+
+.tx-filter-chip-text {
+  white-space: nowrap;
+}
+
+.tx-filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.tx-filter-chip-remove:hover {
+  background: rgba(0, 240, 255, 0.2);
+}
+
+.tx-filter-chips-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  text-decoration: underline;
+}
+
+.tx-filter-chips-clear:hover {
+  color: var(--text-primary);
+}
+
+/* ── Date range presets ─────────────────────────────────────────────────── */
+
+.tx-filter-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tx-filter-presets-label {
+  margin-right: 2px;
+  color: var(--text-secondary);
+}
+
+.tx-filter-preset {
+  padding: 5px 12px;
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.tx-filter-preset:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.tx-filter-preset--active {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--accent-cyan);
+}
+
+.tx-filter-preset--clear {
+  text-decoration: underline;
+}
+
+/* ── Range validation message ───────────────────────────────────────────── */
+
+.tx-filter-error {
+  margin: 6px 0 0;
+  color: var(--text-error);
+  font-size: var(--text-xs);
+}
+
+/* ── Multi-column sort control ──────────────────────────────────────────── */
+
+.tx-sort-control {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 260px;
+}
+
+.tx-sort-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tx-sort-title {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.tx-sort-reset,
+.tx-sort-count {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  text-decoration: underline;
+}
+
+.tx-sort-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--accent-cyan);
+  color: var(--bg-base, #05070d);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.tx-sort-empty,
+.tx-sort-hint {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.tx-sort-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tx-sort-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tx-sort-priority {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--accent-cyan);
+  color: var(--bg-base, #05070d);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.tx-sort-field {
+  flex: 1 1 auto;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+}
+
+.tx-sort-direction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.tx-sort-direction:hover {
+  color: var(--text-primary);
+}
+
+.tx-sort-item-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.tx-sort-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.6rem;
+}
+
+.tx-sort-icon-btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.tx-sort-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.tx-sort-icon-btn--remove:hover:not(:disabled) {
+  color: var(--text-error);
+}
+
+.tx-sort-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tx-sort-add-label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.tx-sort-add-select {
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+}
+
+.tx-sort-add-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
   .tx-filter-panel {
     padding: 16px;
+  }
+
+  .tx-sort-direction-text {
+    display: none;
   }
 
   .tx-filter-field {

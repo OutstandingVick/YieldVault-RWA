@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import ApiStatusBanner from "../components/ApiStatusBanner";
 import Badge from "../components/Badge";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -10,10 +10,17 @@ import {
 import PageHeader from "../components/PageHeader";
 import { SkeletonText } from "../components/Skeleton";
 import TransactionFilterPanel from "../components/TransactionFilterPanel";
+import TransactionSortControl from "../components/TransactionSortControl";
 import TransactionDetailDrawer from "../components/TransactionDetailDrawer";
 import EmptyState from "../components/ui/EmptyState";
 import { Popover } from "../components/ui/Popover";
-import { Activity, Loader2, Wallet, Columns3 } from "../components/icons";
+import {
+  Activity,
+  ArrowUpDown,
+  Loader2,
+  Wallet,
+  Columns3,
+} from "../components/icons";
 import {
   normalizeApiError,
   isValidationError,
@@ -24,11 +31,23 @@ import {
   truncateHash,
   type Transaction,
 } from "../lib/transactionApi";
-import { useClientDataTable } from "../hooks/useClientDataTable";
 import { useDataTableState } from "../hooks/useDataTableState";
 import { useInfiniteScroll } from "../hooks/useInfiniteScroll";
 import { useTransactionFilters } from "../hooks/useTransactionFilters";
+import { useTransactionSort } from "../hooks/useTransactionSort";
 import { useTransactionHistory } from "../hooks/useTransactionData";
+import {
+  describeActiveFilters,
+  filterTransactions,
+  isSortField,
+  matchDatePreset,
+  paginateRows,
+  serializeSortParam,
+  sortTransactions,
+  validateTransactionFilters,
+  type SortKey,
+} from "../lib/transactionQuery";
+import { SORT_FIELD_LABEL_KEY } from "../lib/transactionSortLabels";
 import { getStellarExplorerUrl } from "../lib/security";
 import { networkConfig } from "../config/network";
 
@@ -177,14 +196,14 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const [hasMoreItems, setHasMoreItems] = useState(true);
   const loadMoreLockRef = useRef(false);
 
-  // ── Sort / pagination state (URL-synced via useDataTableState) ──────────
-  const { state, setSearch, setSort, setPage, setPageSize } = useDataTableState(
-    {
-      defaultSortBy: "date",
-      defaultSortDirection: "desc",
-      defaultPageSize: preferredPageSize,
-    },
-  );
+  // ── Pagination state (URL-synced via useDataTableState) ─────────────────
+  // Ordering is owned by useTransactionSort, which supports several sort keys;
+  // this hook keeps page and page size in the URL.
+  const { state, setPage, setPageSize } = useDataTableState({
+    defaultSortBy: "date",
+    defaultSortDirection: "desc",
+    defaultPageSize: preferredPageSize,
+  });
 
   // ── Multi-filter state (URL-synced via useTransactionFilters) ───────────
   const {
@@ -197,89 +216,101 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     setDateTo,
     setAmountMin,
     setAmountMax,
+    applyDatePreset,
+    clearDateRange,
+    removeFilter,
     clearAll,
     setAsset,
   } = useTransactionFilters();
 
-  // Keep useDataTableState's search in sync with the filter panel's search
-  // so that useClientDataTable's text-search logic still runs correctly.
-  const [searchParams] = useSearchParams();
+  // ── Multi-column sort state (URL-synced via useTransactionSort) ─────────
+  const {
+    sortKeys,
+    effectiveSortKeys,
+    toggleSort,
+    setSortDirection,
+    removeSort,
+    moveSort,
+    clearSort,
+  } = useTransactionSort();
+
+  // ── Filter → sort → paginate ────────────────────────────────────────────
+  // All three steps are pure functions from `lib/transactionQuery`, so the
+  // table's behaviour is unit-tested there rather than only through the DOM.
+  const filterIssues = React.useMemo(
+    () => validateTransactionFilters(filters),
+    [filters],
+  );
+
+  const filteredRows = React.useMemo(
+    () => filterTransactions(transactions, filters),
+    [transactions, filters],
+  );
+
+  const sortedRows = React.useMemo(
+    () => sortTransactions(filteredRows, effectiveSortKeys),
+    [filteredRows, effectiveSortKeys],
+  );
+
+  const { rows, page, totalItems, totalPages } = React.useMemo(
+    () => paginateRows(sortedRows, state.page, state.pageSize),
+    [sortedRows, state.page, state.pageSize],
+  );
+
+  const activeFilterChips = React.useMemo(
+    () => describeActiveFilters(filters),
+    [filters],
+  );
+
+  // Presets store the absolute dates they resolve to, so the matching button is
+  // highlighted by comparing the range back against "now" rather than by a
+  // second copy of the state.
+  const activeDatePreset = React.useMemo(
+    () => matchDatePreset(filters, new Date()),
+    [filters],
+  );
+
+  // ── Sort announcements ──────────────────────────────────────────────────
+  // The header row conveys sort state visually through arrows and priority
+  // numbers, and to assistive technology through aria-sort — but aria-sort on a
+  // header that is not focused is not announced when the ordering changes. This
+  // live region states the new ordering, and is also where a refused sort
+  // request is explained instead of appearing to do nothing.
+  const [sortAnnouncement, setSortAnnouncement] = useState("");
+
+  const describeSortKeys = useCallback(
+    (keys: readonly SortKey[]) =>
+      keys
+        .map((key) => {
+          const direction =
+            key.direction === "asc" ? t("txSort.ascending") : t("txSort.descending");
+          return `${t(SORT_FIELD_LABEL_KEY[key.field])} ${direction}`;
+        })
+        .join(", "),
+    [t],
+  );
+
+  const sortSignature = serializeSortParam(effectiveSortKeys);
+  const previousSortSignature = useRef(sortSignature);
+
   useEffect(() => {
-    const urlSearch = searchParams.get("search") ?? "";
-    if (urlSearch !== state.search) {
-      setSearch(urlSearch);
-    }
-  }, [searchParams, state.search, setSearch]);
+    if (previousSortSignature.current === sortSignature) return;
+    previousSortSignature.current = sortSignature;
+    setSortAnnouncement(
+      `${t("txSort.announcePrefix")} ${describeSortKeys(effectiveSortKeys)}`,
+    );
+  }, [describeSortKeys, effectiveSortKeys, sortSignature, t]);
 
-  // Client-side filtering is handled by useClientDataTable.
+  const handleSortToggle = useCallback(
+    (columnId: string, additive: boolean) => {
+      // Column ids come from the shared table component as plain strings.
+      if (!isSortField(columnId)) return;
 
-  // ── Client-side filtering ───────────────────────────────────────────────
-  const { rows, sortedRows, page, totalItems, totalPages } = useClientDataTable(
-    {
-      rows: transactions,
-      state,
-      getSearchValue: (row) =>
-        `${row.type} ${row.asset ?? ""} ${row.transactionHash}`,
-      getSortValue: (row, columnId) => {
-        switch (columnId) {
-          case "type":
-            return row.type;
-          case "status":
-            return row.status;
-          case "amount":
-            return row.amount !== null ? parseFloat(row.amount) : 0;
-          case "date":
-            return row.timestamp;
-          default:
-            return row.timestamp;
-        }
-      },
-      filterRow: (row) => {
-        // Multi-type filter (client-side)
-        if (filters.types.length > 0 && !filters.types.includes(row.type)) {
-          return false;
-        }
-
-        // Status filter (client-side)
-        if (
-          filters.statuses.length > 0 &&
-          !filters.statuses.includes(row.status)
-        ) {
-          return false;
-        }
-
-        // Date range
-        if (filters.dateFrom) {
-          const from = new Date(filters.dateFrom);
-          from.setHours(0, 0, 0, 0);
-          if (new Date(row.timestamp) < from) return false;
-        }
-        if (filters.dateTo) {
-          const to = new Date(filters.dateTo);
-          to.setHours(23, 59, 59, 999);
-          if (new Date(row.timestamp) > to) return false;
-        }
-
-        // Amount range (numeric)
-        if (filters.amountMin !== "" && row.amount !== null) {
-          const min = parseFloat(filters.amountMin);
-          const amt = parseFloat(row.amount);
-          if (!isNaN(min) && !isNaN(amt) && amt < min) return false;
-        }
-        if (filters.amountMax !== "" && row.amount !== null) {
-          const max = parseFloat(filters.amountMax);
-          const amt = parseFloat(row.amount);
-          if (!isNaN(max) && !isNaN(amt) && amt > max) return false;
-        }
-
-        // Asset filter (exact match, case-sensitive as stored)
-        if (filters.asset && row.asset !== filters.asset) {
-          return false;
-        }
-
-        return true;
-      },
+      if (!toggleSort(columnId, additive)) {
+        setSortAnnouncement(t("txSort.maxReachedAnnouncement"));
+      }
     },
+    [t, toggleSort],
   );
 
   // Available assets for the asset filter (unique, non-empty)
@@ -305,9 +336,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   useEffect(() => {
     queueMicrotask(() => setVisibleCount(INFINITE_SCROLL_BATCH_SIZE));
   }, [
-    state.search,
-    state.sortBy,
-    state.sortDirection,
+    filters.search,
+    sortSignature,
     filters.types,
     filters.dateFrom,
     filters.dateTo,
@@ -454,9 +484,8 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     emptyMessage,
     isLoading: delayedLoading,
     skeletonRows: state.pageSize,
-    sortBy: state.sortBy,
-    sortDirection: state.sortDirection,
-    onSortChange: setSort,
+    sortKeys: effectiveSortKeys,
+    onSortToggle: handleSortToggle,
     onRowClick: handleRowSelect,
     selectedRowKey: selectedTransaction?.id,
   } as const;
@@ -517,6 +546,12 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             onAmountMaxChange={setAmountMax}
             onClearAll={clearAll}
             hasActiveFilters={hasActiveFilters}
+            issues={filterIssues}
+            activeDatePreset={activeDatePreset}
+            onDatePreset={applyDatePreset}
+            onClearDateRange={clearDateRange}
+            activeFilterChips={activeFilterChips}
+            onRemoveFilter={removeFilter}
           />
 
           {/* ── Data table ────────────────────────────────────────── */}
@@ -599,6 +634,35 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                 </div>
 
                 <Popover
+                  title={t("txSort.title")}
+                  content={
+                    <TransactionSortControl
+                      sortKeys={sortKeys}
+                      onAdd={(field) => toggleSort(field, true)}
+                      onRemove={removeSort}
+                      onDirectionChange={setSortDirection}
+                      onMove={moveSort}
+                      onClear={clearSort}
+                    />
+                  }
+                >
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ alignSelf: "flex-end", height: "42px", display: "flex", gap: "8px" }}
+                    aria-label={t("txSort.toggleAria")}
+                  >
+                    <ArrowUpDown size={16} />
+                    {t("txSort.button")}
+                    {sortKeys.length > 1 && (
+                      <span className="tx-sort-count" aria-hidden="true">
+                        {sortKeys.length}
+                      </span>
+                    )}
+                  </button>
+                </Popover>
+
+                <Popover
                   title={t("txHistory.columns.title")}
                   content={
                     <div className="flex flex-col gap-sm" role="group" aria-label={t("txHistory.columns.title")}>
@@ -659,6 +723,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                   ? `Showing ${infiniteScrollRows.length} of ${sortedRows.length} transactions`
                   : `${totalItems} transactions found`}
             </div>
+
+            <p className="sr-only" role="status" aria-live="polite">
+              {sortAnnouncement}
+            </p>
 
             {viewMode === "infinite" ? (
               /* Infinite Scroll View */

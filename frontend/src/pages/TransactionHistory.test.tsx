@@ -1019,3 +1019,587 @@ describe("TransactionHistory — detail drawer", () => {
     expect(row).toHaveClass("data-table-row--selected");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Advanced sort — multi-column ordering, URL sync, announcements
+// ---------------------------------------------------------------------------
+
+/** Rows that tie on status so a secondary key has something to break. */
+function makeSortFixtures(): Transaction[] {
+  return [
+    makeTransaction({
+      id: "a",
+      status: "completed",
+      amount: "10",
+      timestamp: "2026-01-01T00:00:00Z",
+      transactionHash: "aaa0000000000000000000000000000000000000",
+    }),
+    makeTransaction({
+      id: "b",
+      status: "pending",
+      amount: "5",
+      timestamp: "2026-02-01T00:00:00Z",
+      transactionHash: "bbb0000000000000000000000000000000000000",
+    }),
+    makeTransaction({
+      id: "c",
+      status: "completed",
+      amount: "50",
+      timestamp: "2026-03-01T00:00:00Z",
+      transactionHash: "ccc0000000000000000000000000000000000000",
+    }),
+    makeTransaction({
+      id: "d",
+      status: "pending",
+      amount: "80",
+      timestamp: "2026-04-01T00:00:00Z",
+      transactionHash: "ddd0000000000000000000000000000000000000",
+    }),
+  ];
+}
+
+/** Hash cell text, in the order the table renders it. */
+function renderedHashPrefixes(): string[] {
+  const table = screen.getByRole("table");
+  return within(table)
+    .getAllByRole("link")
+    .map((link) => link.getAttribute("title")?.slice(0, 3) ?? "");
+}
+
+function renderAt(initialEntries: string[], walletAddress = WALLET) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ToastProvider>
+          <TransactionHistory walletAddress={walletAddress} />
+        </ToastProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("TransactionHistory — advanced sort", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("defaults to newest first", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/"]);
+
+    await screen.findByRole("table");
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["ddd", "ccc", "bbb", "aaa"]),
+    );
+  });
+
+  it("restores a multi-column ordering from the URL", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=status:asc,amount:desc"]);
+
+    await screen.findByRole("table");
+    // pending before completed (lifecycle order), each group by amount descending
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["ddd", "bbb", "ccc", "aaa"]),
+    );
+  });
+
+  it("still honours the legacy single-column sort params", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sortBy=amount&direction=asc"]);
+
+    await screen.findByRole("table");
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["bbb", "aaa", "ccc", "ddd"]),
+    );
+  });
+
+  it("sorts amounts numerically rather than as text", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "1",
+        amount: "9",
+        transactionHash: "aaa0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "2",
+        amount: "100",
+        transactionHash: "bbb0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        amount: "20",
+        transactionHash: "ccc0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    renderAt(["/?sort=amount:asc"]);
+
+    await screen.findByRole("table");
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["aaa", "ccc", "bbb"]),
+    );
+  });
+
+  it("marks the sorted column with aria-sort and leaves the others unsorted", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=amount:asc"]);
+
+    await screen.findByRole("table");
+    expect(
+      screen.getByRole("columnheader", { name: /^Amount$/i }),
+    ).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByRole("columnheader", { name: /^Type$/i })).toHaveAttribute(
+      "aria-sort",
+      "none",
+    );
+  });
+
+  it("replaces the sort when a header is clicked without a modifier", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=status:asc"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Amount/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("columnheader", { name: /^Amount$/i }),
+      ).toHaveAttribute("aria-sort", "descending"),
+    );
+    expect(screen.getByRole("columnheader", { name: /^Status$/i })).toHaveAttribute(
+      "aria-sort",
+      "none",
+    );
+  });
+
+  it("adds a tiebreaker when a header is shift-clicked, keeping the first key", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=status:asc"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Amount/i }), {
+      shiftKey: true,
+    });
+
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["ddd", "bbb", "ccc", "aaa"]),
+    );
+    expect(screen.getByRole("columnheader", { name: /^Status$/i })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(screen.getByRole("columnheader", { name: /^Amount$/i })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+  });
+
+  it("shows sort priority numbers only while more than one column is sorted", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=status:asc,amount:desc"]);
+
+    await screen.findByRole("table");
+    const statusHeader = screen.getByRole("columnheader", { name: /^Status$/i });
+    const amountHeader = screen.getByRole("columnheader", { name: /^Amount$/i });
+    expect(
+      statusHeader.querySelector(".data-table-sort-priority"),
+    ).toHaveTextContent("1");
+    expect(
+      amountHeader.querySelector(".data-table-sort-priority"),
+    ).toHaveTextContent("2");
+
+    // Dropping back to a single key removes the now-meaningless "1".
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Type/i }));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("columnheader", { name: /^Type$/i })
+          .querySelector(".data-table-sort-priority"),
+      ).toBeNull(),
+    );
+  });
+
+  it("announces the new ordering, which aria-sort alone does not do", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Amount/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Table sorted by Amount Descending/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("explains a refused sort instead of appearing to ignore the click", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=date:desc,amount:desc,type:asc"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Status/i }), {
+      shiftKey: true,
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Cannot add another sort column/i),
+      ).toBeInTheDocument(),
+    );
+    // The existing three keys are untouched.
+    expect(screen.getByRole("columnheader", { name: /^Status$/i })).toHaveAttribute(
+      "aria-sort",
+      "none",
+    );
+  });
+
+  it("returns to page 1 when the ordering changes", async () => {
+    mockGetTransactions.mockResolvedValue(makeManyTransactions(15));
+
+    renderAt(["/?page=2&pageSize=10"]);
+
+    await screen.findByRole("table");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { current: "page", name: /Go to page 2/i }),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Amount/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { current: "page", name: /Go to page 1/i }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("orders rows with no amount last, in both directions", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "1",
+        amount: null,
+        transactionHash: "aaa0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "2",
+        amount: "5",
+        transactionHash: "bbb0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        amount: "500",
+        transactionHash: "ccc0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    const view = renderAt(["/?sort=amount:asc"]);
+    await screen.findByRole("table");
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["bbb", "ccc", "aaa"]),
+    );
+    view.unmount();
+
+    renderAt(["/?sort=amount:desc"]);
+    await screen.findByRole("table");
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["ccc", "bbb", "aaa"]),
+    );
+  });
+
+  it("edits the ordering through the sort panel", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=status:asc,amount:desc"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /Edit how the transaction table is sorted/i }));
+
+    // Promoting amount above status flips which key groups the rows.
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Increase sort priority of Amount/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["ddd", "ccc", "aaa", "bbb"]),
+    );
+  });
+
+  it("resets to the default ordering from the sort panel", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=amount:asc"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: /Edit how the transaction table is sorted/i }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Reset to the default sort order/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(renderedHashPrefixes()).toEqual(["ddd", "ccc", "bbb", "aaa"]),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Advanced filters — presets, chips, contradictory ranges
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — advanced filters", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("summarises the applied filters as removable chips", async () => {
+    mockGetTransactions.mockResolvedValue([makeTransaction()]);
+
+    renderAt(["/?types=deposit&statuses=completed&asset=USDC"]);
+
+    await screen.findByRole("table");
+    const group = screen.getByRole("group", { name: /Active filters/i });
+    expect(within(group).getByText("Type: Deposit")).toBeInTheDocument();
+    expect(within(group).getByText("Status: Completed")).toBeInTheDocument();
+    expect(within(group).getByText("Asset: USDC")).toBeInTheDocument();
+  });
+
+  it("lifts one filter from a chip and leaves the rest applied", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", type: "deposit", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        type: "withdrawal",
+        asset: "XLM",
+        transactionHash: "xlm0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    renderAt(["/?types=deposit&asset=USDC"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Asset: USDC, remove this filter/i }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("Asset: USDC")).not.toBeInTheDocument(),
+    );
+    // The type filter survives, so the withdrawal stays hidden.
+    expect(screen.getByText("Type: Deposit")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).queryAllByText("XLM")).toHaveLength(0);
+  });
+
+  it("removes only the clicked value from a multi-value filter", async () => {
+    mockGetTransactions.mockResolvedValue([makeTransaction()]);
+
+    renderAt(["/?types=deposit,withdrawal"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Type: Deposit, remove this filter/i }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("Type: Deposit")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Type: Withdrawal")).toBeInTheDocument();
+  });
+
+  it("applies a relative date range as absolute dates, so a shared link cannot drift", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-28T09:30:00Z"));
+    mockGetTransactions.mockResolvedValue([makeTransaction()]);
+
+    renderAt(["/"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 days" }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Filter from date/i)).toHaveValue("2026-07-22"),
+    );
+    expect(screen.getByLabelText(/Filter to date/i)).toHaveValue("2026-07-28");
+  });
+
+  it("marks the preset that the current range corresponds to", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-28T09:30:00Z"));
+    mockGetTransactions.mockResolvedValue([makeTransaction()]);
+
+    renderAt(["/?dateFrom=2026-06-29&dateTo=2026-07-28"]);
+
+    await screen.findByRole("table");
+    expect(screen.getByRole("button", { name: "Last 30 days" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("filters by a date range on inclusive UTC day boundaries", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "1",
+        timestamp: "2026-03-15T00:00:00Z",
+        transactionHash: "aaa0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "2",
+        timestamp: "2026-03-15T23:59:59Z",
+        transactionHash: "bbb0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        timestamp: "2026-03-16T00:00:01Z",
+        transactionHash: "ccc0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    renderAt(["/?dateFrom=2026-03-15&dateTo=2026-03-15&sort=date:asc"]);
+
+    await screen.findByRole("table");
+    await waitFor(() => expect(renderedHashPrefixes()).toEqual(["aaa", "bbb"]));
+  });
+
+  it("excludes rows with no amount once an amount bound is set", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "1",
+        amount: null,
+        transactionHash: "aaa0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "2",
+        amount: "500",
+        transactionHash: "bbb0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    renderAt(["/?amountMin=100"]);
+
+    await screen.findByRole("table");
+    await waitFor(() => expect(renderedHashPrefixes()).toEqual(["bbb"]));
+  });
+
+  it("explains a contradictory date range and keeps showing the rows", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", asset: "USDC" }),
+    ]);
+
+    renderAt(["/?dateFrom=2026-06-01&dateTo=2026-01-01"]);
+
+    await screen.findByRole("table");
+    expect(
+      screen.getByText(/from date is after the to date/i),
+    ).toBeInTheDocument();
+    // An empty table here would read as "you have no transactions".
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("USDC")).toBeInTheDocument();
+  });
+
+  it("explains a contradictory amount range and keeps showing the rows", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", asset: "USDC", amount: "100" }),
+    ]);
+
+    renderAt(["/?amountMin=500&amountMax=10"]);
+
+    await screen.findByRole("table");
+    expect(
+      screen.getByText(/minimum amount is above the maximum/i),
+    ).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("USDC")).toBeInTheDocument();
+  });
+
+  it("narrows rather than widens when the search has several terms", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({
+        id: "1",
+        type: "deposit",
+        asset: "USDC",
+        transactionHash: "aaa0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "2",
+        type: "withdrawal",
+        asset: "XLM",
+        transactionHash: "bbb0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    renderAt(["/?search=xlm+withdrawal"]);
+
+    await screen.findByRole("table");
+    await waitFor(() => expect(renderedHashPrefixes()).toEqual(["bbb"]));
+  });
+
+  it("matches the asset filter regardless of case", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        asset: "XLM",
+        transactionHash: "xlm0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    renderAt(["/?asset=usdc"]);
+
+    await screen.findByRole("table");
+    const table = screen.getByRole("table");
+    await waitFor(() =>
+      expect(within(table).getByText("USDC")).toBeInTheDocument(),
+    );
+    expect(within(table).queryAllByText("XLM")).toHaveLength(0);
+  });
+
+  it("keeps the ordering when a filter changes", async () => {
+    mockGetTransactions.mockResolvedValue(makeSortFixtures());
+
+    renderAt(["/?sort=amount:asc"]);
+
+    await screen.findByRole("table");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Filter by Status Completed/i }),
+    );
+
+    await waitFor(() => expect(renderedHashPrefixes()).toEqual(["aaa", "ccc"]));
+    expect(
+      screen.getByRole("columnheader", { name: /^Amount$/i }),
+    ).toHaveAttribute("aria-sort", "ascending");
+  });
+});
