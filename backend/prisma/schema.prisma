@@ -21,6 +21,7 @@ model VaultState {
   id          Int      @id @default(1)
   totalAssets String
   totalShares String
+  version     Int      @default(1)
   updatedAt   DateTime @updatedAt
 }
 
@@ -138,6 +139,7 @@ model BulkExportJob {
   errorRows     Int      @default(0)
   artifactId    String?
   errorMessage  String?
+  version       Int      @default(1)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   completedAt   DateTime?
@@ -458,4 +460,30 @@ model ApiKey {
 
   @@index([tenantId])
   @@index([role])
+}
+
+// Durable write-ahead audit log for admin configuration changes (Issue #707).
+// Replaces the process-local in-memory store (issue #856) so entries survive
+// process restarts and are visible to every backend instance in multi-pod
+// deployments, letting operators reconstruct partial config changes that
+// were prepared but never committed/rolled back before a crash.
+model WriteAheadAuditEntry {
+  id                 String    @id
+  configType         String
+  action             String
+  actor              String
+  ipAddress          String?
+  userAgent          String?
+  preChangeSnapshot  String
+  postChangeSnapshot String?
+  metadata           String
+  status             String    @default("pending")
+  requestId          String?
+  createdAt          DateTime  @default(now())
+  committedAt        DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([configType])
+  @@index([actor])
 }

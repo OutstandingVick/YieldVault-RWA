@@ -1,23 +1,9 @@
 import crypto from 'crypto';
 import { prisma } from './prisma';
-import {
-  webhookDeduplicationStore,
-  WebhookDeduplicationStore,
-} from './webhookDeduplication';
-import { getActiveCorrelationId, getActiveRequestId } from './requestContext';
 
 export type TransactionEventType =
   | 'transaction.deposit.created'
   | 'transaction.withdrawal.created';
-
-/**
- * Monotonically increasing schema version for the outbound webhook envelope.
- * Increment this when the envelope shape changes in a breaking way so consumers
- * can gate on `schemaVersion` for forward-compatibility handling.
- *
- * v1 – initial shape: { schemaVersion, eventType, sentAt, payload }
- */
-export const WEBHOOK_SCHEMA_VERSION = 1;
 
 export interface TransactionEventPayload {
   transactionId: string;
@@ -27,14 +13,6 @@ export interface TransactionEventPayload {
   transactionHash: string;
   status: string;
   timestamp: string;
-}
-
-/** The full outbound envelope written to the wire and stored in dead-letter records. */
-export interface WebhookEnvelope {
-  schemaVersion: number;
-  eventType: TransactionEventType;
-  sentAt: string;
-  payload: TransactionEventPayload;
 }
 
 export type WebhookVerificationStatus = 'pending' | 'verified' | 'failed';
@@ -110,6 +88,7 @@ export interface WebhookDeadLetterRecord {
 }
 
 const deadLetters: WebhookDeadLetterRecord[] = [];
+const webhookReplayCache = new Map<string, number>();
 
 interface RegisterWebhookInput {
   url: string;
@@ -137,6 +116,7 @@ const jitterMaxMs = parseInt(process.env.WEBHOOK_JITTER_MAX_MS || '30000', 10);
 
 const verificationTimeoutMs = parseInt(process.env.WEBHOOK_VERIFICATION_TIMEOUT_MS || '5000', 10);
 const challengeTtlMs = parseInt(process.env.WEBHOOK_CHALLENGE_TTL_SECONDS || '900', 10) * 1000;
+const webhookSignatureMaxSkewMs = parseInt(process.env.WEBHOOK_SIGNATURE_MAX_SKEW_MS || '300000', 10);
 const isUnverifiedDeliveryAllowed = (): boolean => {
   if (process.env.WEBHOOK_ALLOW_UNVERIFIED !== undefined) {
     return process.env.WEBHOOK_ALLOW_UNVERIFIED === 'true';
@@ -431,9 +411,9 @@ export function resetWebhookState(): void {
   endpoints.clear();
   deliveries.length = 0;
   deadLetters.length = 0;
+  webhookReplayCache.clear();
   persistenceInitialized = false;
   delete process.env.WEBHOOK_ALLOW_UNVERIFIED;
-  webhookDeduplicationStore.flush();
   void clearPersistedWebhookEndpoints();
 }
 
@@ -512,7 +492,7 @@ export async function retryWebhookDeadLetter(id: string): Promise<WebhookDeadLet
 
 async function persistWebhookDeadLetter(
   entry: WebhookDeadLetterRecord,
-  envelope: WebhookEnvelope,
+  envelope: { eventType: TransactionEventType; sentAt: string; payload: TransactionEventPayload },
 ): Promise<void> {
   try {
     await prisma.webhookDeadLetter.create({
@@ -538,6 +518,59 @@ export function createWebhookSignature(secret: string, payload: unknown): string
     .createHmac('sha256', secret)
     .update(JSON.stringify(payload))
     .digest('hex');
+}
+
+export interface WebhookSignedEnvelope {
+  eventType: TransactionEventType;
+  sentAt: string;
+  payload: TransactionEventPayload;
+  deliveryId: string;
+}
+
+function createReplayCacheKey(endpointId: string, deliveryId: string): string {
+  return `${endpointId}:${deliveryId}`;
+}
+
+function pruneWebhookReplayCache(now = Date.now()): void {
+  for (const [key, expiry] of webhookReplayCache.entries()) {
+    if (expiry <= now) {
+      webhookReplayCache.delete(key);
+    }
+  }
+}
+
+export function markWebhookDeliverySeen(endpointId: string, deliveryId: string, sentAt: string): boolean {
+  pruneWebhookReplayCache();
+
+  const sentAtMs = Date.parse(sentAt);
+  if (Number.isNaN(sentAtMs)) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (Math.abs(now - sentAtMs) > webhookSignatureMaxSkewMs) {
+    return false;
+  }
+
+  const cacheKey = createReplayCacheKey(endpointId, deliveryId);
+  if (webhookReplayCache.has(cacheKey)) {
+    return false;
+  }
+
+  webhookReplayCache.set(cacheKey, sentAtMs + webhookSignatureMaxSkewMs);
+  return true;
+}
+
+export function buildWebhookSignedEnvelope(
+  delivery: WebhookDeliveryRecord,
+  payload: TransactionEventPayload,
+): WebhookSignedEnvelope {
+  return {
+    eventType: delivery.eventType,
+    sentAt: new Date().toISOString(),
+    payload,
+    deliveryId: delivery.id,
+  };
 }
 
 export function verifyWebhookSignature(
@@ -585,20 +618,7 @@ export async function emitTransactionEvent(
       (isUnverifiedDeliveryAllowed() || endpoint.verificationStatus === 'verified'),
   );
 
-  let dispatched = 0;
-
   for (const endpoint of activeEndpoints) {
-    const fingerprint = WebhookDeduplicationStore.computeFingerprint(
-      eventType,
-      endpoint.id,
-      payload,
-    );
-
-    const eventId = `${eventType}:${endpoint.id}:${payload.transactionId}`;
-    if (webhookDeduplicationStore.isDuplicate(eventId, fingerprint)) {
-      continue;
-    }
-
     const now = new Date().toISOString();
     const delivery: WebhookDeliveryRecord = {
       id: `whd_${crypto.randomBytes(8).toString('hex')}`,
@@ -617,10 +637,9 @@ export async function emitTransactionEvent(
     }
 
     void deliverWithRetry(endpoint, delivery, payload, 1);
-    dispatched++;
   }
 
-  return dispatched;
+  return activeEndpoints.length;
 }
 
 function assertValidWebhookUrl(url: string): void {
@@ -645,28 +664,15 @@ async function deliverWithRetry(
   delivery.attempts = attempt;
   delivery.updatedAt = new Date().toISOString();
 
-  const envelope: WebhookEnvelope = {
-    schemaVersion: WEBHOOK_SCHEMA_VERSION,
-    eventType: delivery.eventType,
-    sentAt: new Date().toISOString(),
-    payload,
-  };
+  const envelope = buildWebhookSignedEnvelope(delivery, payload);
 
   const body = JSON.stringify(envelope);
-  const correlationId = getActiveCorrelationId();
-  const requestId = getActiveRequestId();
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': 'YieldVault-Webhook-Delivery/1.0',
     'X-YieldVault-Event': delivery.eventType,
     'X-YieldVault-Delivery-Id': delivery.id,
   };
-
-  // Propagate correlation identifiers for traceability.
-  // Downstream systems can use these to correlate webhook requests.
-  if (correlationId) headers['X-Correlation-ID'] = correlationId;
-  if (requestId) headers['X-Request-ID'] = requestId;
 
   if (endpoint.secret) {
     headers['X-YieldVault-Signature'] = createWebhookSignature(endpoint.secret, envelope);
@@ -823,4 +829,30 @@ async function ensureWebhookPersistenceTable(): Promise<void> {
     )
   `);
   persistenceInitialized = true;
+}
+
+export async function initializeWebhookEndpoints(): Promise<void> {
+  try {
+    await ensureWebhookPersistenceTable();
+    const rows = await prisma.$queryRawUnsafe<any[]>(
+      'SELECT id, url, eventTypes, enabled, secretHash, createdAt, updatedAt, deletedAt, deletedBy FROM WebhookEndpoint',
+    );
+
+    for (const row of rows) {
+      endpoints.set(row.id, {
+        id: row.id,
+        url: row.url,
+        eventTypes: JSON.parse(row.eventTypes),
+        enabled: row.enabled === 1 || row.enabled === true,
+        secretHash: row.secretHash || undefined,
+        verificationStatus: 'verified',
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        deletedAt: row.deletedAt || undefined,
+        deletedBy: row.deletedBy || undefined,
+      });
+    }
+  } catch {
+    // Ignore initialization errors in test environments.
+  }
 }

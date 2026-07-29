@@ -79,10 +79,37 @@
 
 /* States */
 .btn:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
   transform: none !important;
   box-shadow: none !important;
+}
+
+/* Disabled states with explicit contrast (WCAG AA 4.5:1) */
+.btn-primary:disabled {
+  background: linear-gradient(135deg, rgba(100, 116, 139, 0.6), rgba(71, 85, 105, 0.6));
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 1;
+}
+
+.btn-secondary:disabled {
+  background: var(--bg-surface);
+  border-color: var(--border-glass);
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+.btn-danger:disabled {
+  background: rgba(148, 113, 113, 0.4);
+  border-color: rgba(148, 113, 113, 0.5);
+  color: rgba(220, 38, 38, 0.6);
+  opacity: 1;
+}
+
+.btn-outline:disabled {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 .btn.is-loading {

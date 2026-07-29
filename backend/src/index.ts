@@ -80,6 +80,7 @@ import {
   allowlistSize,
 } from './middleware/allowlist';
 import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/rbac';
+import { apiVersionMiddleware } from './middleware/versionNegotiation';
 import { GracefulShutdownHandler } from './gracefulShutdown';
 import { db } from './database';
 import vaultRouter from './vaultEndpoints';
@@ -121,11 +122,16 @@ import {
   verifyWebhookSignature,
   listWebhookDeadLetters,
   retryWebhookDeadLetter,
+  initializeWebhookEndpoints,
   WEBHOOK_SCHEMA_VERSION,
 } from './webhookDelivery';
 import { webhookDeduplicationStore } from './webhookDeduplication';
 import { healthProbeService } from './healthProbe';
 import { writeAheadAuditLog } from './writeAheadAuditLog';
+import {
+  withdrawalRecoveryCoordinator,
+  type WithdrawalSagaStatus,
+} from './withdrawalRecovery';
 import {
   maintenanceModeMiddleware,
   getMaintenanceModeState,
@@ -575,6 +581,9 @@ app.use(correlationIdMiddleware);
 
 // Structured logging with correlation IDs
 app.use(structuredLoggingMiddleware);
+
+// API version negotiation & deprecation headers
+app.use(apiVersionMiddleware);
 
 // Global timeout middleware (30 seconds default)
 app.use(timeoutMiddleware());
@@ -4243,6 +4252,7 @@ const metricsInterval =
 
 if (process.env.NODE_ENV !== 'test') {
   pollVaultMetrics(); // Initial call
+  void initializeWebhookEndpoints();
 }
 
 // Start latency monitoring
@@ -4384,61 +4394,95 @@ app.get('/health/probes', async (_req: Request, res: Response) => {
  * GET /admin/wal/entries
  * Lists write-ahead audit log entries with optional filters.
  */
-app.get('/admin/wal/entries', validateApiKey, (req: Request, res: Response) => {
+app.get('/admin/wal/entries', validateApiKey, async (req: Request, res: Response) => {
   const configType = typeof req.query.configType === 'string' ? req.query.configType : undefined;
   const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
   const status = typeof req.query.status === 'string' ? req.query.status as 'pending' | 'committed' | 'rolled_back' : undefined;
   const limit = parseLimited(req.query.limit, 50, 1, 200);
 
-  const entries = writeAheadAuditLog.list({ configType, actor, status, limit });
+  try {
+    const entries = await writeAheadAuditLog.list({ configType, actor, status, limit });
+    const metrics = await writeAheadAuditLog.getMetrics();
 
-  res.status(200).json({
-    entries,
-    count: entries.length,
-    metrics: writeAheadAuditLog.getMetrics(),
-    timestamp: new Date().toISOString(),
-  });
+    res.status(200).json({
+      entries,
+      count: entries.length,
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to list write-ahead audit log entries',
+    });
+  }
 });
 
 /**
  * GET /admin/wal/entries/:id
  * Returns a specific write-ahead audit log entry.
  */
-app.get('/admin/wal/entries/:id', validateApiKey, (req: Request, res: Response) => {
-  const entry = writeAheadAuditLog.getEntry(req.params.id);
-  if (!entry) {
-    res.status(404).json({
-      error: 'Not Found',
-      status: 404,
-      message: 'Write-ahead audit log entry not found',
+app.get('/admin/wal/entries/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const entry = await writeAheadAuditLog.getEntry(req.params.id);
+    if (!entry) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Write-ahead audit log entry not found',
+      });
+      return;
+    }
+    res.status(200).json({ entry });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch write-ahead audit log entry',
     });
-    return;
   }
-  res.status(200).json({ entry });
 });
 
 /**
  * GET /admin/wal/metrics
  * Returns metrics for the write-ahead audit log.
  */
-app.get('/admin/wal/metrics', validateApiKey, (_req: Request, res: Response) => {
-  res.status(200).json({
-    metrics: writeAheadAuditLog.getMetrics(),
-    timestamp: new Date().toISOString(),
-  });
+app.get('/admin/wal/metrics', validateApiKey, async (_req: Request, res: Response) => {
+  try {
+    const metrics = await writeAheadAuditLog.getMetrics();
+    res.status(200).json({
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch write-ahead audit log metrics',
+    });
+  }
 });
 
 /**
  * GET /admin/wal/pending
  * Returns currently pending (uncommitted) write-ahead entries.
  */
-app.get('/admin/wal/pending', validateApiKey, (_req: Request, res: Response) => {
-  const pending = writeAheadAuditLog.getPendingEntries();
-  res.status(200).json({
-    entries: pending,
-    count: pending.length,
-    timestamp: new Date().toISOString(),
-  });
+app.get('/admin/wal/pending', validateApiKey, async (_req: Request, res: Response) => {
+  try {
+    const pending = await writeAheadAuditLog.getPendingEntries();
+    res.status(200).json({
+      entries: pending,
+      count: pending.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch pending write-ahead audit log entries',
+    });
+  }
 });
 
 // ─── Scoped Admin Token Endpoints (Issue #723 / #858) ───────────────────────
@@ -4572,3 +4616,199 @@ app.post('/admin/scoped-tokens/:keyId/revoke', validateApiKey, async (req: Reque
   void recordAdminAuditLog(req, 'scoped-token.revoked', 200, { keyId: req.params.keyId, actor });
   res.status(200).json({ message: 'Scoped token revoked', keyId: req.params.keyId, timestamp: new Date().toISOString() });
 });
+
+// ─── Withdrawal Partial-Failure Recovery Endpoints (Issue #954) ──────────────
+
+const WITHDRAWAL_SAGA_STATUSES: readonly WithdrawalSagaStatus[] = [
+  'in_progress',
+  'completed',
+  'awaiting_retry',
+  'compensated',
+  'needs_manual_intervention',
+  'failed',
+];
+
+function parseSagaStatus(value: unknown): WithdrawalSagaStatus | undefined {
+  return typeof value === 'string' &&
+    (WITHDRAWAL_SAGA_STATUSES as readonly string[]).includes(value)
+    ? (value as WithdrawalSagaStatus)
+    : undefined;
+}
+
+/**
+ * GET /admin/withdrawals/recovery
+ * Lists journalled withdrawal sagas with optional filters. Use
+ * `?requiresManualIntervention=true` for the operator work queue.
+ */
+app.get('/admin/withdrawals/recovery', validateApiKey, (req: Request, res: Response) => {
+  const requiresManualIntervention =
+    req.query.requiresManualIntervention === undefined
+      ? undefined
+      : req.query.requiresManualIntervention === 'true';
+
+  const sagas = withdrawalRecoveryCoordinator.list({
+    status: parseSagaStatus(req.query.status),
+    walletAddress:
+      typeof req.query.walletAddress === 'string' ? req.query.walletAddress : undefined,
+    withdrawalId:
+      typeof req.query.withdrawalId === 'string' ? req.query.withdrawalId : undefined,
+    requiresManualIntervention,
+    limit: parseLimited(req.query.limit, 50, 1, 200),
+  });
+
+  res.status(200).json({
+    sagas,
+    count: sagas.length,
+    metrics: withdrawalRecoveryCoordinator.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/withdrawals/recovery/metrics
+ * Aggregate recovery counters for dashboards and alert rules.
+ */
+app.get('/admin/withdrawals/recovery/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: withdrawalRecoveryCoordinator.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/withdrawals/recovery/:sagaId
+ * Returns the full step journal for one withdrawal saga.
+ */
+app.get('/admin/withdrawals/recovery/:sagaId', validateApiKey, (req: Request, res: Response) => {
+  const saga = withdrawalRecoveryCoordinator.get(req.params.sagaId);
+  if (!saga) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Withdrawal recovery saga not found',
+    });
+    return;
+  }
+  res.status(200).json({ saga });
+});
+
+/**
+ * POST /admin/withdrawals/recovery/:sagaId/resume
+ * Replays the saga from its journal. Completed steps are skipped, so no side
+ * effect is repeated. `force: true` also resumes sagas parked for an operator.
+ */
+app.post(
+  '/admin/withdrawals/recovery/:sagaId/resume',
+  validateApiKey,
+  async (req: Request, res: Response) => {
+    const force = req.body?.force === true;
+    const outcome = await withdrawalRecoveryCoordinator.resume(req.params.sagaId, { force });
+
+    if (!outcome) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Withdrawal recovery saga not found',
+      });
+      return;
+    }
+
+    void recordAdminAuditLog(req, 'withdrawal-recovery.resumed', 200, {
+      sagaId: outcome.saga.id,
+      withdrawalId: outcome.saga.withdrawalId,
+      status: outcome.status,
+      forced: force,
+      actor: resolveActingAdminAddress(req),
+    });
+
+    res.status(200).json({
+      message: 'Withdrawal recovery pass completed',
+      status: outcome.status,
+      completed: outcome.completed,
+      partial: outcome.partial,
+      saga: outcome.saga,
+    });
+  },
+);
+
+/**
+ * POST /admin/withdrawals/recovery/:sagaId/resolve
+ * Closes out a parked saga after an operator reconciled it by hand.
+ */
+app.post(
+  '/admin/withdrawals/recovery/:sagaId/resolve',
+  validateApiKey,
+  (req: Request, res: Response) => {
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+    if (!note) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'A "note" describing the manual resolution is required',
+      });
+      return;
+    }
+
+    const outcome = req.body?.outcome;
+    if (outcome !== undefined && !['completed', 'compensated', 'failed'].includes(outcome)) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'outcome must be one of: completed, compensated, failed',
+      });
+      return;
+    }
+
+    const actor = resolveActingAdminAddress(req);
+    const saga = withdrawalRecoveryCoordinator.resolveManually(
+      req.params.sagaId,
+      actor,
+      note,
+      outcome,
+    );
+
+    if (!saga) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Withdrawal recovery saga not found',
+      });
+      return;
+    }
+
+    void recordAdminAuditLog(req, 'withdrawal-recovery.resolved', 200, {
+      sagaId: saga.id,
+      withdrawalId: saga.withdrawalId,
+      outcome: saga.status,
+      actor,
+    });
+
+    res.status(200).json({ message: 'Withdrawal saga resolved', saga });
+  },
+);
+
+/**
+ * POST /admin/withdrawals/recovery/sweep
+ * Runs one recovery sweep immediately instead of waiting for the interval.
+ */
+app.post('/admin/withdrawals/recovery/sweep', validateApiKey, async (req: Request, res: Response) => {
+  const result = await withdrawalRecoveryCoordinator.sweep();
+  void recordAdminAuditLog(req, 'withdrawal-recovery.swept', 200, {
+    resumed: result.resumed.length,
+    stale: result.stale.length,
+    actor: resolveActingAdminAddress(req),
+  });
+  res.status(200).json({
+    message: 'Withdrawal recovery sweep completed',
+    resumed: result.resumed,
+    staleResumed: result.stale,
+    metrics: withdrawalRecoveryCoordinator.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Resume partially failed withdrawals in the background. Disabled under test so
+// suites drive the sweeper explicitly.
+if (process.env.NODE_ENV !== 'test') {
+  withdrawalRecoveryCoordinator.startSweeper();
+}

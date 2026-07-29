@@ -78,7 +78,7 @@ const HealthStatusIndicator: FC = () => {
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: "0.75rem",
-              color: "var(--text-secondary, #94a3b8)",
+              color: "var(--text-primary, #ffffff)",
               zIndex: 1000,
               pointerEvents: "none",
               whiteSpace: "nowrap",
@@ -88,23 +88,23 @@ const HealthStatusIndicator: FC = () => {
               <span aria-hidden="true">{icon}</span> {label}
             </div>
 
-            <div style={{ marginBottom: checks ? 8 : 6, lineHeight: 1.4 }}>{message}</div>
+            <div style={{ marginBottom: checks ? 8 : 6, lineHeight: 1.4, color: "var(--text-secondary, #a8b8cc)" }}>{message}</div>
 
             {checks && Object.keys(checks).length > 0 && (
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 8, marginBottom: 6 }}>
-                <div style={{ fontWeight: 600, fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.06em", opacity: 0.6, marginBottom: 4 }}>
+                <div style={{ fontWeight: 600, fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.06em", opacity: 0.8, marginBottom: 4, color: "var(--text-secondary, #a8b8cc)" }}>
                   Services
                 </div>
                 {Object.entries(checks).map(([svc, s]) => (
-                  <div key={svc} style={{ display: "flex", gap: 6, padding: "2px 0", fontSize: "0.72rem", color: s === "up" ? "#22c55e" : "#ef4444" }}>
+                  <div key={svc} style={{ display: "flex", gap: 6, padding: "2px 0", fontSize: "0.72rem", color: s === "up" ? "#86efac" : "#fca5a5" }}>
                     <span aria-hidden="true">{s === "up" ? "✓" : "✕"}</span>
-                    <span style={{ color: "var(--text-secondary, #94a3b8)" }}>{svc}</span>
+                    <span style={{ color: "var(--text-secondary, #a8b8cc)" }}>{svc}</span>
                   </div>
                 ))}
               </div>
             )}
 
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 6, fontSize: "0.68rem", opacity: 0.5 }}>
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 6, fontSize: "0.68rem", opacity: 0.7, color: "var(--text-secondary, #a8b8cc)" }}>
               Last checked {relativeTime(lastChecked)}
             </div>
           </div>

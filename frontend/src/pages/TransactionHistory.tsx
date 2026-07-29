@@ -272,6 +272,11 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
           if (!isNaN(max) && !isNaN(amt) && amt > max) return false;
         }
 
+        // Asset filter (exact match, case-sensitive as stored)
+        if (filters.asset && row.asset !== filters.asset) {
+          return false;
+        }
+
         return true;
       },
     },
@@ -306,6 +311,10 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
     filters.types,
     filters.dateFrom,
     filters.dateTo,
+    filters.statuses,
+    filters.amountMin,
+    filters.amountMax,
+    filters.asset,
   ]);
 
   // Handle loading more items for infinite scroll
