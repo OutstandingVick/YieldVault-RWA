@@ -8,6 +8,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { assertCriticalEntityMutationAllowed } from './criticalEntityPolicy';
 import { logger } from './middleware/structuredLogging';
 import { recordQueryPerformance } from './queryBudgets';
 
@@ -62,6 +63,7 @@ function attachQueryInstrumentation(client: PrismaClient): void {
   }
 
   client.$use(async (params, next) => {
+    assertCriticalEntityMutationAllowed(params.model, params.action);
     const startedAt = process.hrtime.bigint();
 
     try {
