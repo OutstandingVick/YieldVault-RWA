@@ -40,5 +40,6 @@ Use this checklist before marking a multi-surface feature as "Done". All reviews
 
 ## 6. Release Management
 - [ ] Cross-repo integration tests passing in the staging environment.
-- [ ] Deployment checklist and rollback plan created.
+- [ ] **Deployment checklist completed** — [`docs/DEPLOYMENT_CHECKLIST.md`](./DEPLOYMENT_CHECKLIST.md) filled out and signed off for target environment (testnet/mainnet).
+- [ ] **Rollback plan documented** — specific rollback steps for the deployment.
 - [ ] PR descriptions clearly link to all related PRs across different repositories.
