@@ -27,6 +27,12 @@ pub enum VaultError {
   /// Large withdrawal timelock has not expired yet.
   TimelockNotExpired = 7,
   /// No pending withdrawal exists for this user.
+  ///
+  /// Note: also reused for "no pending record found for this identifier" in
+  /// two other flows that don't warrant a dedicated code under the 50-case
+  /// cap: `accept_admin`/`cancel_admin_rotation` with an unknown proposal id,
+  /// and `execute_*_change`/`cancel_*_change` (sensitive-parameter timelock)
+  /// with nothing currently queued.
   NoPendingWithdrawal = 8,
   /// Strategy allocation would leave idle liquidity below the configured buffer.
   LiquidityBufferNotMet = 9,
@@ -37,6 +43,11 @@ pub enum VaultError {
   /// Withdrawal blocked due to active deposit cooldown.
   WithdrawalCooldownActive = 12,
   /// Requested storage migration target is older than the current stored version.
+  ///
+  /// Note: also reused by `update_shipment_status` for an invalid RWA
+  /// shipment lifecycle transition — both mean "the requested state
+  /// transition target is invalid given the current state" — rather than
+  /// spend a dedicated code under the 50-case cap.
   InvalidMigrationTarget = 13,
   /// Arithmetic overflow was detected before mutating state.
   MathOverflow = 14,

@@ -170,13 +170,13 @@ Numeric codes match `#[contracterror]` in `contracts/vault/src/errors.rs`.
 | 4 | `ContractPaused` | Any user op while paused | Wait for admin `unpause`; show maintenance UI |
 | 5 | `ExceedsUserCap` | Deposit would exceed per-user cap | Reduce deposit or request cap increase |
 | 6 | `MinDepositNotMet` | Deposit below configured minimum | Deposit at least `min_deposit` (read from contract) |
-| 7 | `TimelockNotExpired` | `execute_withdrawal` before 24h timelock | Wait until `unlock_timestamp`; poll pending withdrawal state |
-| 8 | `NoPendingWithdrawal` | `execute_withdrawal` with no pending record | Call `withdraw` first for large withdrawals |
+| 7 | `TimelockNotExpired` | `execute_withdrawal` before 24h timelock; also `execute_fee_bps_change` / `execute_treasury_change` / `execute_price_oracle_change` before the configured sensitive-parameter timelock elapses (Issue #969) | Wait until `unlock_timestamp` / queued `eta`; poll pending state |
+| 8 | `NoPendingWithdrawal` | `execute_withdrawal` with no pending record; also reused for `accept_admin`/`cancel_admin_rotation` with an unknown proposal id, and `execute_*_change`/`cancel_*_change` (sensitive-parameter timelock) with nothing queued | Call `withdraw` first for large withdrawals; call the matching `queue_*_change` first for timelocked params |
 | 9 | `LiquidityBufferNotMet` | `invest` would breach minimum idle buffer | Reduce invest amount or wait for deposits |
 | 10 | `ExceedsStrategyCap` | Strategy allocation exceeds cap | Lower allocation amount |
 | 11 | `ExceedsRiskThreshold` | Allocation exceeds risk threshold | Reduce allocation or adjust threshold |
 | 12 | `WithdrawalCooldownActive` | Withdrawal during deposit cooldown | Wait for cooldown window |
-| 13 | `InvalidMigrationTarget` | Storage migration target invalid | Use current or next storage version |
+| 13 | `InvalidMigrationTarget` | Storage migration target invalid; also reused by `update_shipment_status` for an invalid RWA shipment lifecycle transition | Use current or next storage version; use a valid shipment status transition |
 | 14 | `MathOverflow` | Arithmetic overflow guard | Lower amounts; report if unexpected |
 | 15 | `SlippageExceeded` | Strategy slippage limit exceeded | Retry with adjusted bounds |
 | 16 | `BatchTooLarge` | Batch deposit exceeds max size | Split into smaller batches |
@@ -187,7 +187,7 @@ Numeric codes match `#[contracterror]` in `contracts/vault/src/errors.rs`.
 | 27 | `OracleValidationFailed` | Oracle price check failed | Refresh oracle; verify heartbeat |
 | 28 | `ClaimQuotaExceeded` | Treasury claim quota exceeded | Wait for next epoch or raise quota |
 | 29 | `StrategyHeartbeatExpired` | Strategy heartbeat stale | Strategy must call `record_strategy_heartbeat` |
-| 30 | `InvalidDaoThreshold` | DAO threshold ≤ 0 | Set threshold > 0 |
+| 30 | `InvalidDaoThreshold` | DAO threshold ≤ 0; also reused by `set_sensitive_timelock_delay` for a non-zero delay below the 1-hour floor (Issue #969) | Set threshold > 0; set delay to `0` (disabled) or ≥ 3600 |
 | 31 | `InvalidGovernanceThreshold` | Signer threshold out of range | Set 0 < threshold ≤ signer count |
 | 32 | `InvalidVoteWeight` | Vote weight ≤ 0 | Use positive vote weight |
 | 33 | `DuplicateVote` | Voter already voted on proposal | Each voter may vote once |
