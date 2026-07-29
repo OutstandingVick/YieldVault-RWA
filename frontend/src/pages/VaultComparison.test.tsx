@@ -67,6 +67,10 @@ describe("VaultComparison", () => {
 
     expect(screen.getByRole("heading", { name: /Compare Vault Strategies/i })).toBeInTheDocument();
     expect(screen.getByText(/Side-by-side comparison/i)).toBeInTheDocument();
+    const franklinMatches = screen.getAllByText(/Franklin BENJI Connector/i);
+    expect(franklinMatches.length).toBeGreaterThan(0);
+    const tokenizedMatches = screen.getAllByText(/Tokenized Treasury Ladder/i);
+    expect(tokenizedMatches.length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Franklin BENJI Connector/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Tokenized Treasury Ladder/i })).toBeInTheDocument();
   });

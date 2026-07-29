@@ -79,9 +79,17 @@ export const Modal: React.FC<ModalProps> = ({
       document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
 
-      // Focus the modal itself or the first focusable element
+      // Focus the first focusable element inside the modal, or fallback to the modal container
       if (modalRef.current) {
-        modalRef.current.focus();
+        const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+
+        if (focusableElements.length > 0) {
+          focusableElements[0].focus();
+        } else {
+          modalRef.current.focus();
+        }
       }
     } else {
       document.removeEventListener('keydown', handleKeyDown);
@@ -132,14 +140,15 @@ export const Modal: React.FC<ModalProps> = ({
         padding: '1rem',
       }}
       onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={modalId}
-      aria-describedby={descId}
+      onClick={handleBackdropClick}
     >
       <div
         ref={modalRef}
         tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={modalId}
+        aria-describedby={descId}
         className="glass-panel"
         style={{
           background: 'var(--bg-surface)',
