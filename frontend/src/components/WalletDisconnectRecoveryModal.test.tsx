@@ -33,6 +33,7 @@ function makeDraft(overrides: Partial<VaultFormDraft> = {}): VaultFormDraft {
     tab: "deposit" as const,
     step: "amount" as const,
     amount: "100",
+    savedAt: Date.now(),
     ...overrides,
   };
 }
