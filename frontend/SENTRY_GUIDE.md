@@ -42,15 +42,19 @@ main.tsx
 
 ### Error Boundary (`src/App.tsx`)
 
-The root `<Sentry.ErrorBoundary>` wraps the entire application:
+The app uses a layered boundary so users never see a blank screen or raw stack traces:
 
 ```tsx
-<Sentry.ErrorBoundary fallback={<ErrorFallback />} showDialog>
-  <App />
+<Sentry.ErrorBoundary fallback={…} showDialog={false}>
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
 </Sentry.ErrorBoundary>
 ```
 
-This automatically captures and reports any unhandled React render errors.
+- `ErrorBoundary` (`src/components/ErrorBoundary.tsx`) catches render errors even when Sentry is not configured.
+- `ErrorFallback` shows a fixed, user-safe message with **Try Again** / Reload / Go Home. Technical `error.message` values are not shown in production.
+- Sentry’s native crash dialog is disabled (`showDialog={false}`) to keep the fallback UI consistent.
 
 ### Router Integration (`src/App.tsx`)
 

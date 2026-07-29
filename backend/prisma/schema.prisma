@@ -21,6 +21,7 @@ model VaultState {
   id          Int      @id @default(1)
   totalAssets String
   totalShares String
+  version     Int      @default(1)
   updatedAt   DateTime @updatedAt
 }
 
@@ -34,6 +35,8 @@ model SharePriceSnapshot {
   createdAt   DateTime @default(now())
 
   @@index([recordedAt])
+  // Issue #895 – calculateUserYield orders by (recordedAt ASC, id ASC); composite covers both
+  @@index([recordedAt(sort: Asc), id(sort: Asc)])
 }
 
 model Transaction {
@@ -44,6 +47,15 @@ model Transaction {
   status       String?
   referralCode String?
   timestamp    DateTime @default(now())
+
+  // Issue #895 – query optimisation indices
+  // Ordered by timestamp DESC to match the default sort on the list endpoint.
+  @@index([timestamp(sort: Desc)])
+  @@index([user, timestamp(sort: Desc)])
+  @@index([type, timestamp(sort: Desc)])
+  @@index([status, timestamp(sort: Desc)])
+  @@index([user, type, timestamp(sort: Desc)])
+  @@index([user, status, timestamp(sort: Desc)])
 }
 
 model Referral {
@@ -61,6 +73,9 @@ model ReferralCode {
   code         String   @unique
   ownerAddress String
   createdAt    DateTime @default(now())
+
+  // Issue #895 – getOrCreateReferralCode does findFirst({ where: { ownerAddress } })
+  @@index([ownerAddress])
 }
 
 model AdminAuditLog {
@@ -124,6 +139,7 @@ model BulkExportJob {
   errorRows     Int      @default(0)
   artifactId    String?
   errorMessage  String?
+  version       Int      @default(1)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   completedAt   DateTime?
@@ -191,6 +207,8 @@ model WebhookDelivery {
 
   @@index([createdAt])
   @@index([endpointId])
+  // Issue #895 – listWebhookDeliveryPage sorts by (createdAt DESC, id DESC) filtered by endpointId
+  @@index([endpointId, createdAt(sort: Desc)])
 }
 
 model AdminActionReceipt {
@@ -368,4 +386,104 @@ model TransactionBackfillJob {
   @@index([status])
   @@index([createdAt])
   @@index([dryRun])
+}
+
+// ─── Scoped Admin Tokens (Issue #858) ────────────────────────────────────────
+
+/// Permission-scoped admin token. Secrets are stored as SHA-256 hashes only;
+/// plaintext values are never persisted.
+model ScopedAdminToken {
+  id           String    @id @default(uuid())
+  /// Human-readable identifier prefix `yv_` + 16 hex chars.
+  keyId        String    @unique
+  /// SHA-256(secret) – used for timing-safe authentication.
+  hashedSecret String
+  /// JSON-serialised AdminPermission[].
+  permissions  String
+  label        String
+  createdBy    String
+  revoked      Boolean   @default(false)
+  revokedBy    String?
+  revokedAt    DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  rotatedAt    DateTime?
+
+  rotationEvents ScopedAdminTokenRotationEvent[]
+
+  @@index([keyId])
+  @@index([revoked])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([createdBy])
+}
+
+/// Immutable audit record written on every successful secret rotation.
+/// Old hashed secrets are NOT stored; only the timing and actor are retained.
+model ScopedAdminTokenRotationEvent {
+  id        String   @id @default(uuid())
+  keyId     String
+  /// Fingerprint of the key that was rotated (sha256:<first 16 hex chars>).
+  keyFingerprint String
+  rotatedBy String
+  rotatedAt DateTime @default(now())
+
+  token ScopedAdminToken @relation(fields: [keyId], references: [keyId], onDelete: Cascade)
+
+  @@index([keyId])
+  @@index([rotatedAt])
+  @@index([rotatedBy])
+}
+
+// Tenant model – represents a customer/organization
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  // Relations
+  apiKeys   ApiKey[]
+  @@index([name])
+}
+
+// API key model – scoped per tenant with role and scopes
+model ApiKey {
+  id         String   @id @default(uuid())
+  tenantId   String
+  hashedKey  String   @unique
+  role       String
+  scopes     String[]
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime?
+  isActive   Boolean  @default(true)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([role])
+}
+
+// Durable write-ahead audit log for admin configuration changes (Issue #707).
+// Replaces the process-local in-memory store (issue #856) so entries survive
+// process restarts and are visible to every backend instance in multi-pod
+// deployments, letting operators reconstruct partial config changes that
+// were prepared but never committed/rolled back before a crash.
+model WriteAheadAuditEntry {
+  id                 String    @id
+  configType         String
+  action             String
+  actor              String
+  ipAddress          String?
+  userAgent          String?
+  preChangeSnapshot  String
+  postChangeSnapshot String?
+  metadata           String
+  status             String    @default("pending")
+  requestId          String?
+  createdAt          DateTime  @default(now())
+  committedAt        DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([configType])
+  @@index([actor])
 }

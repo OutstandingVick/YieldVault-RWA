@@ -18,6 +18,33 @@ vi.mock("../hooks/useReferral", () => ({
   useReferralLink: vi.fn().mockReturnValue({ referralLink: null, referralCode: null }),
 }));
 
+vi.mock("../hooks/useVaultHealth", () => ({
+  useVaultHealth: vi.fn().mockReturnValue({
+    data: [
+      {
+        vaultId: "vault-1",
+        name: "Stellar RWA Yield Fund",
+        status: "healthy",
+        latencyMs: 48,
+        uptimePct: 99.98,
+        lastCheckedAt: "2026-07-24T08:45:00.000Z",
+        message: "All systems operational",
+      },
+      {
+        vaultId: "vault-4",
+        name: "USD Treasury Express",
+        status: "healthy",
+        latencyMs: 55,
+        uptimePct: 99.99,
+        lastCheckedAt: "2026-07-24T08:45:00.000Z",
+        message: "All systems operational",
+      },
+    ],
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
 vi.mock("../components/YieldBreakdownChart", () => ({
   default: () => <div data-testid="yield-chart" />,
 }));
@@ -30,6 +57,7 @@ const mockHoldings: PortfolioHolding[] = [
   {
     id: "hold-1",
     asset: "USDC Treasury Pool",
+    vaultId: "vault-1",
     vaultName: "Stellar RWA Yield Fund",
     symbol: "yvUSDC",
     shares: 1250.5,
@@ -42,6 +70,7 @@ const mockHoldings: PortfolioHolding[] = [
   {
     id: "hold-2",
     asset: "Government Bond Basket",
+    vaultId: "vault-2",
     vaultName: "Sovereign Income Sleeve",
     symbol: "yvBOND",
     shares: 840.12,
@@ -54,6 +83,7 @@ const mockHoldings: PortfolioHolding[] = [
   {
     id: "hold-3",
     asset: "Short Duration Credit",
+    vaultId: "vault-3",
     vaultName: "Liquidity Ladder",
     symbol: "yvCASH",
     shares: 500.33,
@@ -66,6 +96,7 @@ const mockHoldings: PortfolioHolding[] = [
   {
     id: "hold-4",
     asset: "Tokenized T-Bills",
+    vaultId: "vault-4",
     vaultName: "USD Treasury Express",
     symbol: "yvUSTB",
     shares: 1380,
@@ -78,6 +109,7 @@ const mockHoldings: PortfolioHolding[] = [
   {
     id: "hold-5",
     asset: "Yield Bearing Cash",
+    vaultId: "vault-5",
     vaultName: "Prime Reserve Strategy",
     symbol: "yvPRIME",
     shares: 320.42,
@@ -90,6 +122,7 @@ const mockHoldings: PortfolioHolding[] = [
   {
     id: "hold-6",
     asset: "EM Debt Blend",
+    vaultId: "vault-6",
     vaultName: "Global Carry Vault",
     symbol: "yvEMD",
     shares: 214.1,
@@ -164,10 +197,11 @@ describe("Portfolio", () => {
     renderPortfolio();
 
     await waitForHoldingsToLoad();
-    expect(screen.getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
-    expect(screen.getByRole("table")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
+    expect(table).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Asset/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/Position ID:/i).length).toBeGreaterThan(0);
+    expect(within(table).getAllByText(/Position ID:/i).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Copy position ID/i }).length).toBeGreaterThan(0);
   });
 
@@ -179,8 +213,9 @@ describe("Portfolio", () => {
     fireEvent.change(searchInput, { target: { value: "OpenEden" } });
 
     await waitFor(() => {
-      expect(screen.getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
-      expect(screen.queryByText(/USDC Treasury Pool/i)).not.toBeInTheDocument();
+      const table = screen.getByRole("table");
+      expect(within(table).getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
+      expect(within(table).queryByText(/USDC Treasury Pool/i)).not.toBeInTheDocument();
       expect(screen.getByTestId("location-display")).toHaveTextContent(
         "search=OpenEden",
       );
@@ -191,8 +226,9 @@ describe("Portfolio", () => {
     renderPortfolio("/portfolio?page=1&pageSize=10&sortBy=asset&sortDirection=asc");
 
     await waitForHoldingsToLoad();
-    expect(screen.getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
-    expect(screen.getByText(/Government Bond Basket/i)).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).getByText(/Tokenized T-Bills/i)).toBeInTheDocument();
+    expect(within(table).getByText(/Government Bond Basket/i)).toBeInTheDocument();
 
     const assetSort = screen.getByRole("button", { name: /Sort by Asset/i });
     fireEvent.keyDown(assetSort, { key: "Enter" });
@@ -200,5 +236,12 @@ describe("Portfolio", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location-display").textContent).toMatch(/sortBy=asset/);
     });
+  });
+
+  it("shows vault health overview section", async () => {
+    renderPortfolio();
+
+    await waitForHoldingsToLoad();
+    expect(screen.getByRole("heading", { name: "Vault Health" })).toBeInTheDocument();
   });
 });

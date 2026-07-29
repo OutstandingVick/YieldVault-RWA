@@ -117,9 +117,10 @@ mod security_tests {
         //   - test_report_benji_yield_wrong_strategy_panics
         //   - test_report_benji_yield_zero_amount_panics
         //   - test_report_benji_yield_before_strategy_configured_panics
-        println!("✓ report_benji_yield enforces require_strategy_auth against DataKey::BenjiStrategy");
+        println!(
+            "✓ report_benji_yield enforces require_strategy_auth against DataKey::BenjiStrategy"
+        );
     }
-
     /// Tests that strategy auth is enforced in the permission matrix
     ///
     /// Security Concern: Permission matrix divergence from documented access control
@@ -140,7 +141,6 @@ mod security_tests {
         assert!(result.is_err(), "mismatched strategy must be rejected");
         println!("✓ require_strategy_auth rejects non-strategy addresses");
     }
-
 
     /// Tests that unsafe code blocks are necessary and safe
     ///

@@ -79,7 +79,7 @@ describe("TransactionDetailDrawer", () => {
     renderDrawer();
 
     expect(screen.getByText("Live Status")).toBeInTheDocument();
-    expect(screen.getByText(/Submitted/i)).toBeInTheDocument();
+    expect(screen.getByText(/Submitting/i)).toBeInTheDocument();
   });
 
   it("renders view receipt link", () => {

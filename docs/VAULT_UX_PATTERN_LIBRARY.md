@@ -214,6 +214,34 @@ Vault interactions are asynchronous and must distinguish between these states:
 - `stale`: the last known data is visible, but refresh freshness is degraded
 - `optimistic`: local cache reflects the expected result before server confirmation
 
+### Loading skeletons (vault pages)
+
+Use contextual skeletons from `frontend/src/components/Skeleton.tsx` instead of blank panels:
+
+| Surface | Skeleton |
+| --- | --- |
+| Vault dashboard cards / stats | `DashboardCardSkeleton`, `VaultStatSkeleton`, `SharePriceSkeleton` |
+| Charts | `ChartSkeleton` |
+| Portfolio summary | `PortfolioCardSkeleton` |
+| Transaction rows / tables | `TransactionRowSkeleton`, `TableSkeleton` |
+| Analytics widgets | `AnalyticsWidgetSkeleton` |
+| Lazy route fallback | `RouteLoadingFallback` |
+
+Rules:
+
+- Mark loading regions with `aria-busy="true"` and keep `aria-hidden` on decorative skeleton chrome.
+- Prefer delayed loading (`useDelayedLoading`) for short fetches to avoid skeleton flash.
+- Do not show empty-state CTAs while `isLoading` is true.
+
+### Empty states (vault pages)
+
+Use `frontend/src/components/ui/EmptyState` with an explicit `kind`:
+
+- `no-data` — wallet connected, no deposits/positions yet (offer deposit intent)
+- `no-results` / `search` — filters returned nothing (offer reset filters)
+- `permission` — wallet disconnected or access required
+- `error` — fetch failed after retries (offer retry)
+
 Rules:
 
 - Pending transactions must disable duplicate submission.

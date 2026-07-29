@@ -39,9 +39,10 @@ export function useAsyncActionButton({
   const [status, setStatus] = useState<AsyncActionStatus>("idle");
 
   useEffect(() => {
-    // Sync button chrome to external mutation flags; timers clear success/error flash.
+    /* eslint-disable react-hooks/set-state-in-effect -- mirror external async flags into button status */
     if (isPending) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- maps props into transient UI status
+      // Sync button chrome with mutation status flags from the caller.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- derived UI status from external flags
       setStatus("pending");
       return;
     }
@@ -58,6 +59,7 @@ export function useAsyncActionButton({
     if (!isPending && !isSuccess && !isError) {
       setStatus("idle");
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [isPending, isSuccess, isError, successResetMs, errorResetMs]);
 
   const label = useMemo(() => {

@@ -76,8 +76,8 @@ export function useWalletHeartbeat(
 
   useEffect(() => {
     if (!walletAddress) {
-      // Reset when the wallet disconnects; no external system to subscribe to.
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear local heartbeat on disconnect
+      // Reset heartbeat when the session address is cleared.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on wallet disconnect
       setHeartbeat(INITIAL);
       return;
     }

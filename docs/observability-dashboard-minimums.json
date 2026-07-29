@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "title": "YieldVault observability dashboard minimums",
+  "pillars": ["logs", "metrics", "traces"],
+  "minimums": [
+    {
+      "id": "logs.structured-http",
+      "pillar": "logs",
+      "required": true,
+      "description": "Structured JSON HTTP request logs with requestId and correlationId"
+    },
+    {
+      "id": "logs.error-level",
+      "pillar": "logs",
+      "required": true,
+      "description": "Error-level logs for 5xx and unhandled exceptions without secrets"
+    },
+    {
+      "id": "logs.correlation-lookup",
+      "pillar": "logs",
+      "required": true,
+      "description": "Log explorer views for errors, slow requests, and correlationId lookup (14-day retention)"
+    },
+    {
+      "id": "metrics.request-rate",
+      "pillar": "metrics",
+      "required": true,
+      "description": "Request rate panel from http_request_count"
+    },
+    {
+      "id": "metrics.error-rate",
+      "pillar": "metrics",
+      "required": true,
+      "description": "5xx error rate panel with >1% sustained alert"
+    },
+    {
+      "id": "metrics.p95-latency",
+      "pillar": "metrics",
+      "required": true,
+      "description": "P95 latency panel with read/write SLO thresholds"
+    },
+    {
+      "id": "metrics.slo-breach",
+      "pillar": "metrics",
+      "required": true,
+      "description": "backend_slo_breach gauge for critical routes"
+    },
+    {
+      "id": "metrics.vault-gauges",
+      "pillar": "metrics",
+      "required": true,
+      "description": "vault_tvl_usd and vault_share_price_usd panels"
+    },
+    {
+      "id": "metrics.process-health",
+      "pillar": "metrics",
+      "required": true,
+      "description": "Event-loop lag, heap, and CPU panels"
+    },
+    {
+      "id": "traces.otlp-export",
+      "pillar": "traces",
+      "required": true,
+      "description": "OTLP trace export enabled for staging/production"
+    },
+    {
+      "id": "traces.http-express",
+      "pillar": "traces",
+      "required": true,
+      "description": "HTTP and Express auto-instrumentation root spans"
+    },
+    {
+      "id": "traces.critical-paths",
+      "pillar": "traces",
+      "required": true,
+      "description": "Manual spans on deposit/withdraw and reconciliation paths"
+    },
+    {
+      "id": "traces.log-join",
+      "pillar": "traces",
+      "required": true,
+      "description": "Join from correlation/trace fields in logs to the matching trace"
+    }
+  ]
+}

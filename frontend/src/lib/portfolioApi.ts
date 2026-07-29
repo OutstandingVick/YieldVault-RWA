@@ -4,6 +4,7 @@ import { validate, PortfolioQuerySchema } from "./api";
 export interface PortfolioHolding {
   id: string;
   asset: string;
+  vaultId: string;
   vaultName: string;
   symbol: string;
   shares: number;

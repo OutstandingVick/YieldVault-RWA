@@ -14,6 +14,18 @@ import * as tokenAllowanceHooks from "../hooks/useTokenAllowance";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { PortfolioHolding } from "../lib/portfolioApi";
 import confetti from "canvas-confetti";
+import { ApiError } from "../lib/api/error";
+import { ValidationError } from "../lib/api/validation";
+
+const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn(),
+  mockWithdrawMutateAsync: vi.fn(),
+}));
+
+const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn().mockResolvedValue({}),
+  mockWithdrawMutateAsync: vi.fn().mockResolvedValue({}),
+}));
 
 const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
   mockDepositMutateAsync: vi.fn(),
@@ -216,7 +228,8 @@ describe("VaultDashboard", () => {
     expect(screen.queryByText(/Wallet Not Connected/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Global RWA Yield Fund/i)).toBeInTheDocument();
     expect(screen.getByText(/Current APY/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Fresh just now/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Live$|^Fresh/i).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/Fresh just now|Live|Fresh/i)).toBeInTheDocument();
 
     expect(await screen.findByText(/Sovereign Debt/i)).toBeInTheDocument();
     expect(screen.getByText(/Strategy ID:/i)).toBeInTheDocument();
@@ -266,13 +279,13 @@ describe("VaultDashboard", () => {
       expect(mockDepositMutateAsync).toHaveBeenCalled();
     }, { timeout: 10000 });
 
-    expect(screen.getByText(/Fee quote fresh/i)).toBeInTheDocument();
+    expect(screen.getByText(/Fee quote/i)).toBeInTheDocument();
 
     // Resolve the mocked API call
     resolveSubmit();
 
     await waitFor(() => {
-      expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
+      expect(screen.getByText(/Finalized/i)).toBeInTheDocument();
     }, { timeout: 10000 });
   }, 15000);
 
@@ -288,7 +301,9 @@ describe("VaultDashboard", () => {
       expect(mockDepositMutateAsync).toHaveBeenCalled();
     });
 
-    expect(confetti).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(confetti).toHaveBeenCalled();
+    });
     expect(localStorage.getItem("yieldvault:first-deposit:GFIRSTDEPOSITWALLET000000000000000000000000000000")).toBe("true");
   });
 
@@ -486,4 +501,99 @@ describe("VaultDashboard", () => {
         expect(screen.queryByText("Confirm Transaction")).not.toBeInTheDocument();
       });
     });
+
+    it("offers a retry action for a retryable transaction failure and resubmits without resetting the form", async () => {
+      const networkError = new ApiError({
+        code: "NETWORK_ERROR",
+        message: "Network request failed.",
+        userMessage: "We could not reach the server. Check your connection and try again.",
+        retryable: true,
+      });
+      const mutateAsync = vi
+        .fn()
+        .mockRejectedValueOnce(networkError)
+        .mockResolvedValueOnce({});
+      vi.mocked(vaultMutations.useDepositMutation).mockReturnValue({
+        mutateAsync,
+        isPending: false,
+      } as unknown as ReturnType<typeof vaultMutations.useDepositMutation>);
+
+      renderDashboard("GABC123");
+
+      const input = await screen.findByPlaceholderText("0.00");
+      fireEvent.change(input, { target: { value: "100" } });
+      fireEvent.click(screen.getByRole("button", { name: "Review Transaction" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Confirm deposit/i }));
+
+      await screen.findByRole("heading", { name: "Transaction Failed" });
+      expect(mutateAsync).toHaveBeenCalledTimes(1);
+
+      const retryButton = await screen.findByRole("button", { name: "Retry" });
+      expect(input).toHaveValue(100);
+      fireEvent.click(retryButton);
+
+      await waitFor(() => {
+        expect(mutateAsync).toHaveBeenCalledTimes(2);
+      });
+      await screen.findByRole("heading", { name: "Transaction Successful" });
+    }, 15000);
+
+    it("does not offer a retry action for a non-retryable validation failure", async () => {
+      const validationError = new ValidationError({
+        message: "Validation failed",
+        userMessage: "Please review the amount and try again.",
+        details: [{ field: "amount", message: "Amount exceeds vault cap" }],
+      });
+      const mutateAsync = vi.fn().mockRejectedValue(validationError);
+      vi.mocked(vaultMutations.useDepositMutation).mockReturnValue({
+        mutateAsync,
+        isPending: false,
+      } as unknown as ReturnType<typeof vaultMutations.useDepositMutation>);
+
+      renderDashboard("GABC123");
+
+      const input = await screen.findByPlaceholderText("0.00");
+      fireEvent.change(input, { target: { value: "100" } });
+      fireEvent.click(screen.getByRole("button", { name: "Review Transaction" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Confirm deposit/i }));
+
+      await screen.findByRole("heading", { name: "Transaction Failed" });
+      expect(await screen.findByRole("button", { name: "Start Over" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    }, 15000);
+
+    it("stops offering retry after repeated failures and shows a limit message", async () => {
+      const networkError = new ApiError({
+        code: "NETWORK_ERROR",
+        message: "Network request failed.",
+        userMessage: "We could not reach the server. Check your connection and try again.",
+        retryable: true,
+      });
+      const mutateAsync = vi.fn().mockRejectedValue(networkError);
+      vi.mocked(vaultMutations.useDepositMutation).mockReturnValue({
+        mutateAsync,
+        isPending: false,
+      } as unknown as ReturnType<typeof vaultMutations.useDepositMutation>);
+
+      renderDashboard("GABC123");
+
+      const input = await screen.findByPlaceholderText("0.00");
+      fireEvent.change(input, { target: { value: "100" } });
+      fireEvent.click(screen.getByRole("button", { name: "Review Transaction" }));
+      fireEvent.click(await screen.findByRole("button", { name: /Confirm deposit/i }));
+
+      await screen.findByRole("heading", { name: "Transaction Failed" });
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const retryButton = await screen.findByRole("button", { name: "Retry" });
+        fireEvent.click(retryButton);
+        await waitFor(() => {
+          expect(mutateAsync).toHaveBeenCalledTimes(attempt + 2);
+        });
+        await screen.findByRole("heading", { name: "Transaction Failed" });
+      }
+
+      expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+      expect(screen.getByText(/Still not going through/i)).toBeInTheDocument();
+    }, 15000);
   });

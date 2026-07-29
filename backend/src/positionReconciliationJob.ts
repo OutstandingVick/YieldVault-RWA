@@ -1,6 +1,9 @@
 import { getPrismaClient } from './prismaClient';
 import { logger } from './middleware/structuredLogging';
-import { runJobWithRetry, registerJob } from './jobGovernance';
+import { runJobWithRetry, registerJob, registerJobHandler } from './jobGovernance';
+
+registerJobHandler('positionReconciliation', () => runPositionReconciliationJob());
+registerJobHandler('reportGeneration', () => runLedgerReconciliationJob());
 import { startEventPollingService } from './eventPollingService';
 import { updateVaultMetrics } from './metrics';
 import Decimal from 'decimal.js';
@@ -113,7 +116,7 @@ async function sendDriftAlert(report: ReconciliationSummary): Promise<void> {
 
   logger.log('warn', 'Reconciliation drift detected', {
     drifted: report.counts.drifted,
-    status: report.status,
+    reconciliationStatus: report.status,
     window: report.window,
   });
 
@@ -157,7 +160,7 @@ export async function runLedgerReconciliationJob(): Promise<ReconciliationSummar
   }
 
   logger.log('info', 'Ledger reconciliation job completed', {
-    status: report.status,
+    reconciliationStatus: report.status,
     drifted: report.counts.drifted,
     durationMs: Date.now() - startedAt,
   });

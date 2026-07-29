@@ -1,19 +1,20 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ReactNode } from "react";
-import { PreferencesProvider } from "../context/PreferencesContext";
-import { ToastProvider } from "../context/ToastContext";
 import VaultDashboard from "../components/VaultDashboard";
 import { VaultProvider } from "../context/VaultContext";
-import { BrowserRouter } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import * as vaultApi from "../lib/vaultApi";
-import * as portfolioHooks from "../hooks/usePortfolioData";
 import * as vaultDataHooks from "../hooks/useVaultData";
-import * as tokenAllowanceHooks from "../hooks/useTokenAllowance";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { VaultSummary } from "../lib/vaultApi";
-import type { PortfolioHolding } from "../lib/portfolioApi";
+import { ToastProvider } from "../context/ToastContext";
+import { PreferencesProvider } from "../context/PreferencesContext";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as vaultApi from "../lib/vaultApi";
+
+const { mockDepositMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn().mockResolvedValue({}),
+}));
+
 
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
@@ -24,9 +25,14 @@ vi.mock("../lib/vaultApi", async (importOriginal) => {
   };
 });
 
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
+
 vi.mock("../hooks/useVaultMutations", () => ({
   useDepositMutation: () => ({
-    mutateAsync: vi.fn().mockResolvedValue({}),
+    mutateAsync: mockDepositMutateAsync,
     isPending: false,
   }),
   useWithdrawMutation: () => ({
@@ -43,17 +49,14 @@ vi.mock("../hooks/useTransactionConfirmation", () => ({
   }),
 }));
 
-vi.mock("../hooks/usePortfolioData", () => ({
-  usePortfolioHoldings: vi.fn(),
-}));
-
-vi.mock("../hooks/useVaultData", () => ({
-  useVaultSummary: vi.fn(),
-  useVaultHistory: vi.fn(),
-}));
-
 vi.mock("../hooks/useTokenAllowance", () => ({
-  useTokenAllowance: vi.fn(),
+  useTokenAllowance: vi.fn(() => ({
+    allowance: 1_000_000,
+    approvalStatus: "confirmed",
+    needsApproval: vi.fn().mockReturnValue(false),
+    approve: vi.fn().mockResolvedValue(undefined),
+    resetApproval: vi.fn(),
+  })),
 }));
 
 vi.mock("../hooks/useFeeEstimate", () => ({
@@ -93,23 +96,25 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
 
-function Wrapper({ children }: { children: ReactNode }) {
-  return (
-    <BrowserRouter>
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <PreferencesProvider>
-            <VaultProvider>{children}</VaultProvider>
-          </PreferencesProvider>
-        </ToastProvider>
-      </QueryClientProvider>
-    </BrowserRouter>
-  );
-}
+const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <PreferencesProvider>
+          <VaultProvider>
+            {children}
+          </VaultProvider>
+        </PreferencesProvider>
+      </ToastProvider>
+    </QueryClientProvider>
+  </MemoryRouter>
+);
 
 describe("VaultDashboard Wizard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    mockDepositMutateAsync.mockResolvedValue({});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -131,33 +136,16 @@ describe("VaultDashboard Wizard", () => {
       error: null,
       refetch: vi.fn(),
     } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
-    vi.mocked(portfolioHooks.usePortfolioHoldings).mockReturnValue({
-      data: [{ id: "1", shares: 10, valueUsd: 10, asset: "USDC", vaultName: "RWA Vault", symbol: "yvUSDC", apy: 5, unrealizedGainUsd: 0, issuer: "G...", status: "active" }],
-      isLoading: false,
-    } as unknown as UseQueryResult<PortfolioHolding[], Error>);
-    vi.mocked(tokenAllowanceHooks.useTokenAllowance).mockReturnValue({
-      allowance: 1_000_000,
-      approvalStatus: "confirmed",
-      needsApproval: vi.fn().mockReturnValue(false),
-      approve: vi.fn().mockResolvedValue(undefined),
-      resetApproval: vi.fn(),
-    });
-    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }));
   });
 
   it("navigates through the deposit wizard steps", async () => {
     render(
       <Wrapper>
-        <VaultDashboard walletAddress="GBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" usdcBalance={100} xlmBalance={10} />
+        <VaultDashboard
+          walletAddress="GWIZARDDEPOSITTEST000000000000000000000000000000000"
+          usdcBalance={100}
+          xlmBalance={10}
+        />
       </Wrapper>
     );
 
@@ -167,12 +155,9 @@ describe("VaultDashboard Wizard", () => {
 
     fireEvent.click(screen.getByText("Review Transaction"));
 
-    await waitFor(
-      () => {
-        expect(screen.getByText("Confirm Transaction")).toBeInTheDocument();
-      },
-      { timeout: 10000 },
-    );
+    await waitFor(() => {
+      expect(screen.getByText("Confirm Transaction")).toBeInTheDocument();
+    });
     expect(screen.getByText("10.00 USDC")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Back"));
@@ -182,21 +167,19 @@ describe("VaultDashboard Wizard", () => {
 
     fireEvent.click(screen.getByText("Review Transaction"));
 
-    // Confirm review step, then modal (requestConfirmation is already mocked to resolve true).
-    const confirmBtn = screen.getByRole("button", { name: /Confirm deposit/i });
-    fireEvent.click(confirmBtn);
+    fireEvent.click(screen.getByRole("button", { name: /Confirm deposit/i }));
 
-    await waitFor(
-      () => {
-        expect(screen.getByText("Transaction Successful")).toBeInTheDocument();
-      },
-      { timeout: 10000 },
-    );
+    await waitFor(() => {
+      expect(mockDepositMutateAsync).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Finalized")).toBeInTheDocument();
+    });
 
     const doneBtn = screen.getByText("Done");
     fireEvent.click(doneBtn);
 
-    // Reset to Step 1
     await waitFor(() => {
       const depositInput = screen.getByLabelText("Deposit amount");
       expect(depositInput).toBeInTheDocument();
