@@ -165,6 +165,10 @@ export const TransactionFilterPanel: React.FC<TransactionFilterPanelProps> = ({
 
   useEffect(() => {
     if (localSearch === filters.search) return;
+    if (localSearch === "" && filters.search !== "") {
+      onSearchChange("");
+      return;
+    }
     const id = window.setTimeout(() => onSearchChange(localSearch), DEBOUNCE_MS);
     return () => window.clearTimeout(id);
   }, [localSearch, filters.search, onSearchChange]);

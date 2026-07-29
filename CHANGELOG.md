@@ -9,6 +9,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Features
+- Harden the vault comparison screen for multi-strategy selection: numeric strategy catalog with locale-aware formatting, URL-synced shareable selection and column ordering, best-in-class marking with non-colour cues, and screen-reader announcements for selection and sort changes (#1036)
+- Add journalled partial-failure recovery for multi-step withdrawals: resume-forward retries, reverse-order compensation, an operator escalation queue with admin endpoints, and a background sweeper for crashed or backed-off sagas (#954)
 - Add deterministic admin proposal nonces with replay rejection for admin rotation (#736)
 - Add empty-state deposit and withdraw intent actions across dashboard pages (#734)
 - CORS configuration for cross-origin API access

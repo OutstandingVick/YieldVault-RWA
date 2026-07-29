@@ -608,8 +608,75 @@ button {
   to { transform: scale(1); opacity: 1; }
 }
 
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .animate-scale-in {
   animation: scaleIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.animate-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+.duration-200 {
+  animation-duration: 0.2s;
+}
+
+.duration-300 {
+  animation-duration: 0.3s;
+}
+
+/* Details/Summary styling for collapsible sections */
+details summary {
+  list-style: none;
+  outline: none;
+}
+
+details summary::-webkit-details-marker {
+  display: none;
+}
+
+details summary::before {
+  content: '▶';
+  display: inline-block;
+  margin-right: 8px;
+  transition: transform 0.2s ease;
+  font-size: 0.7em;
+  color: var(--accent-cyan);
+}
+
+details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+details summary:hover {
+  opacity: 0.9;
+}
+
+/* Field validation checkmark */
+.input-wrapper.input-valid {
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.input-wrapper.input-valid::after {
+  content: '✓';
+  position: absolute;
+  right: 16px;
+  color: #22c55e;
+  font-weight: bold;
+  font-size: 1.1em;
+  animation: scaleIn 0.3s ease-out;
 }
 
 .vault-chart-panel {
@@ -761,14 +828,31 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, rgba(0, 240, 255, 1), rgba(112, 0, 255, 1));
   transform: translateY(-2px);
   box-shadow: 0 0 25px rgba(0, 240, 255, 0.3);
 }
 
-.btn-primary:active {
+.btn-primary:active:not(:disabled) {
   transform: translateY(0);
+}
+
+/* Disabled button states with explicit WCAG AA contrast */
+.btn-primary:disabled {
+  background: linear-gradient(135deg, rgba(100, 116, 139, 0.6), rgba(71, 85, 105, 0.6));
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.btn-outline:disabled {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.btn-outline:disabled[data-theme="light"] {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
 .btn-outline {
@@ -1226,8 +1310,9 @@ button {
 }
 
 .data-table-pagination-actions .btn[disabled] {
-  opacity: 0.5;
   cursor: not-allowed;
+  opacity: 0.6;
+  color: var(--text-tertiary);
 }
 
 /* Pagination Component */
@@ -1337,8 +1422,9 @@ button {
 }
 
 .pagination-btn-nav[disabled] {
-  opacity: 0.5;
   cursor: not-allowed;
+  opacity: 0.6;
+  color: var(--text-tertiary);
 }
 
 .data-table-mobile-detail {

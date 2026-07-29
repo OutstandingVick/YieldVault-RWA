@@ -125,58 +125,27 @@ nano .env.production
 
 ## Environment Variables Reference
 
-### Backend Environment Variables
+The complete reference of all environment variables organized by service is maintained in:
 
-#### Required for All Environments
+> **[docs/ENV_VARIABLE_MATRIX.md](./docs/ENV_VARIABLE_MATRIX.md)**
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `PORT` | Server port | `3000` |
-| `NODE_ENV` | Environment mode | `development`, `production` |
-| `STELLAR_RPC_URL` | Stellar RPC endpoint | `https://soroban-testnet.stellar.org` |
-| `STELLAR_NETWORK` | Network identifier | `testnet`, `mainnet` |
-| `STELLAR_NETWORK_PASSPHRASE` | Network passphrase | `Test SDF Network ; September 2015` |
-| `VAULT_CONTRACT_ID` | Deployed vault contract ID | `C...` (56 chars) |
+That document covers 39 service-area tables with every variable's default, requirement level, description, and source file path.
 
-#### Security & Authentication
+**Quick links to key service tables:**
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | Primary database connection | Production |
-| `DATABASE_REPLICA_URL` | Read replica connection | Production (optional) |
-| `EMAIL_API_KEY` | Email service API key | Production |
-| `SLACK_WEBHOOK_URL` | Slack alerts webhook | Production |
-| `PAGERDUTY_INTEGRATION_KEY` | PagerDuty integration key | Production |
-
-#### Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `RATE_LIMIT_WINDOW_MS` | Rate limit window | `900000` (15 min) |
-| `RATE_LIMIT_MAX_REQUESTS` | Max requests per window | `100` |
-| `CORS_ALLOWED_ORIGINS` | Allowed CORS origins | Comma-separated list |
-| `SLO_READ_THRESHOLD_MS` | Read SLO threshold | `200` |
-| `SLO_WRITE_THRESHOLD_MS` | Write SLO threshold | `500` |
-
-### Frontend Environment Variables
-
-#### Required for All Environments
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `VITE_SOROBAN_RPC_URL` | Stellar RPC endpoint | `https://soroban-testnet.stellar.org` |
-| `VITE_STELLAR_NETWORK_PASSPHRASE` | Network passphrase | `Test SDF Network ; September 2015` |
-| `VITE_VAULT_CONTRACT_ID` | Vault contract ID | `C...` (56 chars) |
-
-#### Optional
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_API_BASE_URL` | Backend API URL | `http://localhost:3000` |
-| `VITE_SENTRY_DSN` | Sentry error tracking | - |
-| `VITE_FF_ANALYTICS_PAGE` | Feature flag: Analytics | `true` |
-| `VITE_FF_ADVANCED_CHARTS` | Feature flag: Charts | `false` |
-| `VITE_FF_DEBUG_MODE` | Feature flag: Debug | `false` |
+| Service | Count |
+|---------|-------|
+| [Backend — Server Core](./docs/ENV_VARIABLE_MATRIX.md#1-backend--server-core) | 8 |
+| [Backend — Stellar / Soroban Network](./docs/ENV_VARIABLE_MATRIX.md#2-backend--stellar--soroban-network) | 11 |
+| [Backend — Database (PostgreSQL)](./docs/ENV_VARIABLE_MATRIX.md#3-backend--database-postgresql) | 5 |
+| [Backend — Authentication (JWT)](./docs/ENV_VARIABLE_MATRIX.md#6-backend--authentication-jwt) | 3 |
+| [Backend — Rate Limiting](./docs/ENV_VARIABLE_MATRIX.md#8-backend--rate-limiting) | 16 |
+| [Backend — Webhook Delivery](./docs/ENV_VARIABLE_MATRIX.md#16-backend--webhook-delivery) | 11 |
+| [Backend — Withdrawal Recovery](./docs/ENV_VARIABLE_MATRIX.md#30-backend--withdrawal-partial-failure-recovery) | 8 |
+| [Frontend — Stellar / Soroban](./docs/ENV_VARIABLE_MATRIX.md#33-frontend--stellar--soroban-vite-vite_-prefix) | 6 |
+| [Frontend — Sentry Monitoring](./docs/ENV_VARIABLE_MATRIX.md#36-frontend--sentry-error-monitoring) | 7 |
+| [Environment-by-Environment Summary](./docs/ENV_VARIABLE_MATRIX.md#environment-by-environment-summary) | 16 |
+| [Minimum Required Sets](./docs/ENV_VARIABLE_MATRIX.md#minimum-required-sets) | — |
 
 ---
 
