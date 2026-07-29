@@ -20,6 +20,13 @@ export const en = {
     compare: "Compare",
     analytics: "Analytics",
     transactions: "Transactions",
+    admin: "Admin",
+  },
+  admin: {
+    title: "Admin Console",
+    description: "Operational tools restricted to admin wallets.",
+    badge: "Admin Access",
+    accessGranted: "Your connected wallet has admin access to this vault deployment.",
   },
   theme: {
     toggleToDark: "Toggle to dark mode",

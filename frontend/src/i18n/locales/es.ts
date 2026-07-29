@@ -20,6 +20,13 @@ export const es = {
     compare: "Comparar",
     analytics: "Analica",
     transactions: "Transacciones",
+    admin: "Administración",
+  },
+  admin: {
+    title: "Consola de Administración",
+    description: "Herramientas operativas restringidas a billeteras administradoras.",
+    badge: "Acceso de Administrador",
+    accessGranted: "Su billetera conectada tiene acceso de administrador a este despliegue de la bóveda.",
   },
   theme: {
     toggleToDark: "Cambiar al modo oscuro",

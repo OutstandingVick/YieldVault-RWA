@@ -447,6 +447,14 @@ Note: Any `VITE_FF_*` variable is dynamically read via `import.meta.env["VITE_FF
 
 ---
 
+## 35a. Frontend — Role-Based Navigation
+
+| Variable | Default | Req. | Description | Source |
+|---|---|---|---|---|
+| `VITE_ADMIN_WALLETS` | _(empty)_ | ⬜ optional | Comma-separated wallet addresses granted the admin nav link and `/admin` route. Not a security boundary — ships in the client bundle | `frontend/src/lib/roles.ts` |
+
+---
+
 ## 36. Frontend — Sentry Error Monitoring
 
 | Variable | Default | Req. | Description | Source |
