@@ -451,7 +451,7 @@ model ApiKey {
   tenantId   String
   hashedKey  String   @unique
   role       String
-  scopes     String[]
+  scopes     String   @default("[]")
   createdAt  DateTime @default(now())
   expiresAt  DateTime?
   isActive   Boolean  @default(true)
