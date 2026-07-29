@@ -71,7 +71,9 @@ describe('WalletConnect', () => {
     });
 
     it('shows error state when Freighter is not installed', async () => {
-        mockedFreighter.isConnected.mockResolvedValue({ isConnected: false });
+        mockedFreighter.setAllowed.mockRejectedValue(
+            new Error('Freighter is not installed'),
+        );
         render(
             <WalletConnectWrapper 
                 walletAddress={null} 
@@ -85,9 +87,9 @@ describe('WalletConnect', () => {
 
         await waitFor(() => {
             expect(mockOnConnect).not.toHaveBeenCalled();
-            // Button should change to error state, toast shown
-            // Check for the error icon/state via tooltip or visually
+            expect(document.querySelector('[data-error-code="NOT_INSTALLED"]')).toBeInTheDocument();
             const btn = screen.getByText(/Connect Freighter/i).closest('button');
+            expect(btn).toHaveClass('btn-danger');
             expect(btn).toHaveClass('is-error');
         });
     });
@@ -219,7 +221,7 @@ describe('WalletConnect', () => {
 
     it('shows the formatted address when connected', () => {
         const fullAddress = 'GABC1234567890123456789012345678901234567890123456789012';
-        const expectedAddress = 'GABC1...9012';
+
         render(
             <WalletConnectWrapper 
                 walletAddress={fullAddress} 
@@ -228,7 +230,9 @@ describe('WalletConnect', () => {
             />
         );
 
-        expect(screen.getByText(expectedAddress)).toBeInTheDocument();
+        // Default preferences mask sensitive values (GABC...9012).
+        expect(screen.getByTitle(fullAddress)).toBeInTheDocument();
+        expect(screen.getByText(/GABC.+9012/)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Copy wallet address/i })).toBeInTheDocument();
     });
 

@@ -2,7 +2,7 @@
 
 Features that span across multiple surfaces (Backend, Frontend, Smart Contracts, Infrastructure) require a rigorous Definition of Done to ensure complete, secure, and maintainable delivery. 
 
-Use this checklist before marking a multi-surface feature as "Done".
+Use this checklist before marking a multi-surface feature as "Done". All reviews and approvals must adhere to the [Code Review and Approval Standards](./CODE_REVIEW_STANDARDS.md).
 
 ## 1. Smart Contracts
 - [ ] Code is fully implemented and peer-reviewed by at least two core maintainers.
@@ -36,8 +36,10 @@ Use this checklist before marking a multi-surface feature as "Done".
 - [ ] Threat modeling considered for the holistic feature.
 - [ ] Alerts and dashboards created for new critical metrics (e.g., failure rates).
 - [ ] Feature flagged appropriately (if using gradual rollout).
+- [ ] All changes meet the non-functional requirement baselines ([`docs/NFR_BASELINES.md`](./NFR_BASELINES.md)) for SLO, RTO, and RPO.
 
 ## 6. Release Management
 - [ ] Cross-repo integration tests passing in the staging environment.
-- [ ] Deployment checklist and rollback plan created.
+- [ ] **Deployment checklist completed** — [`docs/DEPLOYMENT_CHECKLIST.md`](./DEPLOYMENT_CHECKLIST.md) filled out and signed off for target environment (testnet/mainnet).
+- [ ] **Rollback plan documented** — specific rollback steps for the deployment.
 - [ ] PR descriptions clearly link to all related PRs across different repositories.

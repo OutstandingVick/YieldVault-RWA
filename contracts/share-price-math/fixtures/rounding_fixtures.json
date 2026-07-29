@@ -1,0 +1,102 @@
+{
+  "$comment": "Canonical cross-language rounding vectors. Mirrors share_price_math::rounding::FIXTURES; any change must be applied to both.",
+  "version": 1,
+  "policy": {
+    "deposit": "down",
+    "mint": "up",
+    "withdraw": "up",
+    "redeem": "down"
+  },
+  "fixtures": [
+    {
+      "id": "empty-vault-first-deposit",
+      "op": "deposit",
+      "rounding": "down",
+      "amount": 1000,
+      "total_shares": 0,
+      "total_assets": 0,
+      "expected": 1000
+    },
+    {
+      "id": "deposit-exact-division",
+      "op": "deposit",
+      "rounding": "down",
+      "amount": 300,
+      "total_shares": 1000,
+      "total_assets": 1500,
+      "expected": 200
+    },
+    {
+      "id": "deposit-truncates-residual",
+      "op": "deposit",
+      "rounding": "down",
+      "amount": 100,
+      "total_shares": 1000,
+      "total_assets": 1500,
+      "expected": 66
+    },
+    {
+      "id": "deposit-dust-rounds-to-zero",
+      "op": "deposit",
+      "rounding": "down",
+      "amount": 1,
+      "total_shares": 1000,
+      "total_assets": 1000000,
+      "expected": 0
+    },
+    {
+      "id": "withdraw-charges-extra-share",
+      "op": "withdraw",
+      "rounding": "up",
+      "amount": 100,
+      "total_shares": 1000,
+      "total_assets": 1500,
+      "expected": 67
+    },
+    {
+      "id": "withdraw-exact-division-no-bump",
+      "op": "withdraw",
+      "rounding": "up",
+      "amount": 300,
+      "total_shares": 1000,
+      "total_assets": 1500,
+      "expected": 200
+    },
+    {
+      "id": "redeem-truncates-residual",
+      "op": "redeem",
+      "rounding": "down",
+      "amount": 99,
+      "total_shares": 1000,
+      "total_assets": 1500,
+      "expected": 148
+    },
+    {
+      "id": "redeem-dust-rounds-to-zero",
+      "op": "redeem",
+      "rounding": "down",
+      "amount": 1,
+      "total_shares": 1000000,
+      "total_assets": 1000,
+      "expected": 0
+    },
+    {
+      "id": "mint-charges-extra-asset",
+      "op": "mint",
+      "rounding": "up",
+      "amount": 99,
+      "total_shares": 1000,
+      "total_assets": 1500,
+      "expected": 149
+    },
+    {
+      "id": "mint-empty-vault-is-zero",
+      "op": "mint",
+      "rounding": "up",
+      "amount": 500,
+      "total_shares": 0,
+      "total_assets": 0,
+      "expected": 0
+    }
+  ]
+}

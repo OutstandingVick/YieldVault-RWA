@@ -12,6 +12,25 @@ import Redis from 'ioredis';
 import { logger } from './middleware/structuredLogging';
 import { normalizeWalletAddress } from './walletUtils';
 
+class AsyncMutex {
+  private readonly locks = new Map<string, Promise<void>>();
+  async runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    let release: () => void;
+    const current = new Promise<void>((res) => (release = res));
+    this.locks.set(key, current);
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release!();
+      if (this.locks.get(key) === current) this.locks.delete(key);
+    }
+  }
+}
+
+
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export type WalletAction = 'login' | 'deposit' | 'withdrawal';

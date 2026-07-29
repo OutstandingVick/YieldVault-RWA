@@ -1,38 +1,28 @@
 import { useMemo, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
+import {
+  hasActiveTransactionFilters,
+  resolveDatePreset,
+  VALID_TX_STATUSES,
+  VALID_TX_TYPES,
+  type ActiveFilterDescriptor,
+  type DatePresetId,
+  type TransactionFilters,
+  type TxStatus,
+  type TxType,
+} from "../lib/transactionQuery";
 
 // ---------------------------------------------------------------------------
-// Valid filter enum values — used for safe deserialization
+// Re-exports
+//
+// The filter vocabulary and shape live in `lib/transactionQuery` so the filter
+// engine stays a pure module with no React or router dependency. They are
+// re-exported here because this hook was the original home of both, and
+// components import them from this path.
 // ---------------------------------------------------------------------------
 
-export const VALID_TX_TYPES = ["deposit", "withdrawal", "transfer", "trade"] as const;
-export const VALID_TX_STATUSES = ["pending", "completed", "failed"] as const;
-
-export type TxType = (typeof VALID_TX_TYPES)[number];
-export type TxStatus = (typeof VALID_TX_STATUSES)[number];
-
-// ---------------------------------------------------------------------------
-// Parsed filter shape
-// ---------------------------------------------------------------------------
-
-export interface TransactionFilters {
-  /** Free-text search (hash, description, counterparty) */
-  search: string;
-  /** Asset filter (exact match), or empty string for all */
-  asset: string;
-  /** Active type filters — empty array means "all" */
-  types: TxType[];
-  /** Active status filters — empty array means "all" */
-  statuses: TxStatus[];
-  /** ISO date string (YYYY-MM-DD), or "" */
-  dateFrom: string;
-  /** ISO date string (YYYY-MM-DD), or "" */
-  dateTo: string;
-  /** Minimum amount as a string, or "" */
-  amountMin: string;
-  /** Maximum amount as a string, or "" */
-  amountMax: string;
-}
+export { VALID_TX_TYPES, VALID_TX_STATUSES };
+export type { TransactionFilters, TxType, TxStatus, DatePresetId };
 
 // ---------------------------------------------------------------------------
 // URL param names
@@ -115,15 +105,7 @@ export function useTransactionFilters() {
 
   /** True when any filter is non-default */
   const hasActiveFilters = useMemo(
-    () =>
-      Boolean(filters.search) ||
-      Boolean(filters.asset) ||
-      filters.types.length > 0 ||
-      filters.statuses.length > 0 ||
-      Boolean(filters.dateFrom) ||
-      Boolean(filters.dateTo) ||
-      Boolean(filters.amountMin) ||
-      Boolean(filters.amountMax),
+    () => hasActiveTransactionFilters(filters),
     [filters],
   );
 
@@ -231,6 +213,81 @@ export function useTransactionFilters() {
     [updateParams],
   );
 
+  /**
+   * Writes the absolute date range a relative preset resolves to, in one URL
+   * update so the two bounds never land in the URL separately (which would
+   * momentarily produce an inverted range and an empty table).
+   *
+   * `now` is injectable to keep the resolution deterministic under test.
+   */
+  const applyDatePreset = useCallback(
+    (preset: DatePresetId, now: Date = new Date()) => {
+      const { dateFrom, dateTo } = resolveDatePreset(preset, now);
+      updateParams((next) => {
+        next.set(PARAM.DATE_FROM, dateFrom);
+        next.set(PARAM.DATE_TO, dateTo);
+      });
+    },
+    [updateParams],
+  );
+
+  /** Clears both date bounds in one update. */
+  const clearDateRange = useCallback(() => {
+    updateParams((next) => {
+      next.delete(PARAM.DATE_FROM);
+      next.delete(PARAM.DATE_TO);
+    });
+  }, [updateParams]);
+
+  /**
+   * Removes exactly what one summary chip stands for: the whole filter for
+   * single-valued ones, or a single selection out of `types` / `statuses`.
+   */
+  const removeFilter = useCallback(
+    (descriptor: ActiveFilterDescriptor) => {
+      switch (descriptor.kind) {
+        case "search":
+          setSearch("");
+          return;
+        case "asset":
+          setAsset("");
+          return;
+        case "dateFrom":
+          setDateFrom("");
+          return;
+        case "dateTo":
+          setDateTo("");
+          return;
+        case "amountMin":
+          setAmountMin("");
+          return;
+        case "amountMax":
+          setAmountMax("");
+          return;
+        case "type":
+          setTypes(filters.types.filter((type) => type !== descriptor.value));
+          return;
+        case "status":
+          setStatuses(
+            filters.statuses.filter((status) => status !== descriptor.value),
+          );
+          return;
+      }
+    },
+    [
+      filters.statuses,
+      filters.types,
+      setAmountMax,
+      setAmountMin,
+      setAsset,
+      setDateFrom,
+      setDateTo,
+      setSearch,
+      setStatuses,
+      setTypes,
+    ],
+  );
+
   /** Strips all filter params and resets page to 1 */
   const clearAll = useCallback(() => {
     updateParams((next) => {
@@ -256,6 +313,9 @@ export function useTransactionFilters() {
     setAmountMin,
     setAmountMax,
     setAsset,
+    applyDatePreset,
+    clearDateRange,
+    removeFilter,
     clearAll,
   };
 }

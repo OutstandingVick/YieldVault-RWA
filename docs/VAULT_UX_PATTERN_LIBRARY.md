@@ -1,6 +1,6 @@
 # Vault UX Pattern Library
 
-> **Last Updated:** 2026-06-23
+> **Last Updated:** 2026-07-24
 
 This document defines the approved frontend UX patterns for vault-specific interactions in YieldVault-RWA. It is the source of truth for deposit, withdrawal, allowance approval, transaction confirmation, loading, and recovery states.
 
@@ -93,8 +93,10 @@ The amount step should contain:
 
 Rules:
 
-- Disable the primary CTA when the wallet is disconnected, input is empty, validation fails, or the vault cannot accept the action.
+- Disable the primary CTA when the wallet is disconnected, input is empty, validation fails, or the vault cannot accept the action. The CTA's disabled state must be computed against the full validation schema on every value change (live), not only from errors already surfaced by a blurred/touched field — the user should never be able to reach review with an invalid amount just because they haven't blurred the field yet.
+- Inline field errors appear once a field has been blurred (or once the user has attempted to advance), and continue to revalidate live as the user keeps typing so they clear as soon as the value becomes valid.
 - Validation messages should appear inline and also be summarized via toast only when the user tries to advance with invalid input.
+- Advancing to review must re-run full validation (`validateAll`) and block the transition if invalid, independent of whether the CTA happened to be enabled — this is a defense-in-depth check, not just a UI affordance.
 - If a deep link pre-fills the amount, the value may be hydrated from the URL, but the URL should not trap the user in a stale step.
 
 ### 3. Review Step
@@ -211,6 +213,34 @@ Vault interactions are asynchronous and must distinguish between these states:
 - `pending`: the user has submitted an action and completion is in progress
 - `stale`: the last known data is visible, but refresh freshness is degraded
 - `optimistic`: local cache reflects the expected result before server confirmation
+
+### Loading skeletons (vault pages)
+
+Use contextual skeletons from `frontend/src/components/Skeleton.tsx` instead of blank panels:
+
+| Surface | Skeleton |
+| --- | --- |
+| Vault dashboard cards / stats | `DashboardCardSkeleton`, `VaultStatSkeleton`, `SharePriceSkeleton` |
+| Charts | `ChartSkeleton` |
+| Portfolio summary | `PortfolioCardSkeleton` |
+| Transaction rows / tables | `TransactionRowSkeleton`, `TableSkeleton` |
+| Analytics widgets | `AnalyticsWidgetSkeleton` |
+| Lazy route fallback | `RouteLoadingFallback` |
+
+Rules:
+
+- Mark loading regions with `aria-busy="true"` and keep `aria-hidden` on decorative skeleton chrome.
+- Prefer delayed loading (`useDelayedLoading`) for short fetches to avoid skeleton flash.
+- Do not show empty-state CTAs while `isLoading` is true.
+
+### Empty states (vault pages)
+
+Use `frontend/src/components/ui/EmptyState` with an explicit `kind`:
+
+- `no-data` — wallet connected, no deposits/positions yet (offer deposit intent)
+- `no-results` / `search` — filters returned nothing (offer reset filters)
+- `permission` — wallet disconnected or access required
+- `error` — fetch failed after retries (offer retry)
 
 Rules:
 

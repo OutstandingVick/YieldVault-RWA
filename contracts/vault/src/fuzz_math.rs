@@ -318,7 +318,8 @@ proptest! {
         let user = Address::generate(&env);
 
         // Configure fee rate
-        client.set_fee_bps(&fee_bps);
+        client.queue_fee_bps_change(&fee_bps);
+        client.execute_fee_bps_change();
 
         // Accrue a small amount of yield so the fee path is exercised.
         let yield_amount = 1_000i128;

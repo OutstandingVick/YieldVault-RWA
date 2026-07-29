@@ -15,6 +15,17 @@ vi.mock("../hooks/useVaultData", () => ({
   useVaultHistory: vi.fn(),
 }));
 
+import { ToastProvider } from "../context/ToastContext";
+import { PreferencesProvider } from "../context/PreferencesContext";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as vaultApi from "../lib/vaultApi";
+
+const { mockDepositMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn().mockResolvedValue({}),
+}));
+
+
 vi.mock("../lib/vaultApi", async (importOriginal) => {
   const actual = await importOriginal<typeof vaultApi>();
   return {
@@ -24,9 +35,22 @@ vi.mock("../lib/vaultApi", async (importOriginal) => {
   };
 });
 
+vi.mock("../hooks/useVaultData", () => ({
+  useVaultSummary: vi.fn(),
+  useVaultHistory: vi.fn(),
+}));
+
 vi.mock("../hooks/useVaultMutations", () => ({
   useDepositMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
   useWithdrawMutation: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
+  useDepositMutation: () => ({
+    mutateAsync: mockDepositMutateAsync,
+    isPending: false,
+  }),
+  useWithdrawMutation: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({}),
+    isPending: false,
+  }),
 }));
 
 vi.mock("../hooks/useTransactionConfirmation", () => ({
@@ -38,6 +62,9 @@ vi.mock("../hooks/useTokenAllowance", () => ({
     allowance: Number.MAX_SAFE_INTEGER,
     approvalStatus: "confirmed",
     needsApproval: () => false,
+    allowance: 1_000_000,
+    approvalStatus: "confirmed",
+    needsApproval: vi.fn().mockReturnValue(false),
     approve: vi.fn().mockResolvedValue(undefined),
     resetApproval: vi.fn(),
   })),
@@ -50,6 +77,26 @@ const mockSummary: VaultSummary = {
   tvl: 12450800, depositCap: 15000000, apy: 8.45, participantCount: 1248,
   monthlyGrowthPct: 12.5, strategyStabilityPct: 99.9, assetLabel: "Sovereign Debt",
   exchangeRate: 1.084, networkFeeEstimate: "~0.00001 XLM", updatedAt: "2026-03-25T10:00:00.000Z",
+  useFeeEstimate: () => ({
+    feeXlm: 0.1,
+    feeUsd: 0.01,
+    isEstimating: false,
+    isHighFee: false,
+    lastUpdated: new Date(),
+  }),
+}));
+
+const mockSummary: VaultSummary = {
+  tvl: 12450800,
+  depositCap: 15000000,
+  apy: 8.45,
+  participantCount: 1248,
+  monthlyGrowthPct: 12.5,
+  strategyStabilityPct: 99.9,
+  assetLabel: "Sovereign Debt",
+  exchangeRate: 1.084,
+  networkFeeEstimate: "~0.00001 XLM",
+  updatedAt: new Date().toISOString(),
   contractPaused: false,
   strategy: { id: "stellar-benji", name: "Franklin BENJI Connector", issuer: "Franklin Templeton", network: "Stellar", rpcUrl: "https://soroban-testnet.stellar.org", status: "active", description: "Connector strategy." },
 };
@@ -58,6 +105,17 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false 
 
 const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <BrowserRouter><QueryClientProvider client={queryClient}><ToastProvider><PreferencesProvider><VaultProvider>{children}</VaultProvider></PreferencesProvider></ToastProvider></QueryClientProvider></BrowserRouter>
+  <MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <PreferencesProvider>
+          <VaultProvider>
+            {children}
+          </VaultProvider>
+        </PreferencesProvider>
+      </ToastProvider>
+    </QueryClientProvider>
+  </MemoryRouter>
 );
 
 describe("VaultDashboard Wizard", () => {
@@ -70,6 +128,42 @@ describe("VaultDashboard Wizard", () => {
 
   it("navigates through the deposit wizard steps", async () => {
     render(<Wrapper><VaultDashboard walletAddress="GBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" usdcBalance={100} xlmBalance={10} /></Wrapper>);
+    localStorage.clear();
+    mockDepositMutateAsync.mockResolvedValue({});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(mockSummary), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    vi.mocked(vaultDataHooks.useVaultSummary).mockReturnValue({
+      data: mockSummary,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<VaultSummary, Error>);
+    vi.mocked(vaultDataHooks.useVaultHistory).mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as UseQueryResult<{ date: string; value: number }[], Error>);
+  });
+
+  it("navigates through the deposit wizard steps", async () => {
+    render(
+      <Wrapper>
+        <VaultDashboard
+          walletAddress="GWIZARDDEPOSITTEST000000000000000000000000000000000"
+          usdcBalance={100}
+          xlmBalance={10}
+        />
+      </Wrapper>
+    );
+
     expect(await screen.findByText("Amount to deposit")).toBeInTheDocument();
     const input = screen.getByLabelText("Deposit amount");
     fireEvent.change(input, { target: { value: "10" } });
@@ -84,6 +178,20 @@ describe("VaultDashboard Wizard", () => {
     fireEvent.click(screen.getByText("Confirm deposit"));
     await waitFor(() => expect(screen.getByText("Transaction Successful")).toBeInTheDocument());
     fireEvent.click(screen.getByText("Done"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Confirm deposit/i }));
+
+    await waitFor(() => {
+      expect(mockDepositMutateAsync).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Finalized")).toBeInTheDocument();
+    });
+
+    const doneBtn = screen.getByText("Done");
+    fireEvent.click(doneBtn);
+
     await waitFor(() => {
       const depositInput = screen.getByLabelText("Deposit amount");
       expect(depositInput).toBeInTheDocument();

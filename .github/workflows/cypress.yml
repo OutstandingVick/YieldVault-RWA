@@ -36,10 +36,11 @@ jobs:
           npm ci
           # TypeScript 5.9 removed moduleResolution=node10; build with 5.5 for compatibility
           npx -p typescript@5.5.4 tsc -p tsconfig.json
+        run: npm ci && npm run build
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Cypress run
         uses: cypress-io/github-action@v6

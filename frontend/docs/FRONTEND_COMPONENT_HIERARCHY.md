@@ -205,6 +205,25 @@ Responsibilities:
 
 ---
 
+## Failed Transaction Retry
+
+The result step of the deposit/withdraw wizard offers a resilient retry path for
+submission failures that aren't a 409 conflict (network errors, RPC timeouts,
+transient 5xx responses from the vault API):
+
+- `VaultDashboard`'s `executeTransaction` classifies the caught error as
+  `retryable` using `ApiError.retryable` (see `lib/api/error.ts`). Field-level
+  validation failures are never retryable — the user is routed back to fix the
+  amount instead.
+- When retryable, the result screen shows a **Retry** action that resubmits the
+  same amount and transaction intent (`executeTransaction(actionType, { skipStaleCheck: true, isRetry: true })`)
+  without clearing the form, alongside a **Start Over** action that resets the
+  wizard (`resetWizard`).
+- Retries are capped at `MAX_TRANSACTION_RETRY_ATTEMPTS` (3). Once exhausted,
+  only **Start Over** remains and a limit-reached message is shown.
+
+---
+
 # Notes
 
 The dashboard centralizes transaction management while delegating visualization, validation, and feedback to dedicated child components. This separation keeps business logic isolated from reusable UI components and improves maintainability.

@@ -8,9 +8,9 @@ describe("TransactionTimeline", () => {
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  it("shows Submitted step as active when pending", () => {
-    render(<TransactionTimeline status="pending" elapsedSeconds={5} />);
-    expect(screen.getByText("Submitted")).toBeInTheDocument();
+  it("shows Submitting step as active when submitting", () => {
+    render(<TransactionTimeline status="submitting" elapsedSeconds={5} />);
+    expect(screen.getByText("Submitting")).toBeInTheDocument();
     // elapsed seconds shown next to active step
     expect(screen.getByText("5s")).toBeInTheDocument();
   });
@@ -68,9 +68,9 @@ describe("TransactionTimeline", () => {
     expect(screen.queryByText(/^\d+s$/)).not.toBeInTheDocument();
   });
 
-  it("marks Submitted as completed when status is confirming", () => {
+  it("marks Submitting as completed when status is confirming", () => {
     const { container } = render(<TransactionTimeline status="confirming" />);
-    // The Submitted step dot should use the green completed color
+    // The Submitting step dot should use the green completed color
     const dots = container.querySelectorAll('[style*="border"]');
     // At least one dot should have the green accent color
     const greenDot = Array.from(dots).find((el) =>

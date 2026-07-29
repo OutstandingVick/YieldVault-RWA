@@ -58,6 +58,7 @@ pub mod benji_strategy;
 pub mod errors;
 pub use errors::VaultError;
 pub mod emergency;
+pub mod emergency_rescue;
 #[cfg(test)]
 mod event_tests;
 pub mod external_calls;
@@ -66,11 +67,15 @@ mod feature_tests;
 pub mod fee_math;
 #[cfg(test)]
 mod fuzz_math;
+/// Property-based tests for deposit/withdraw math invariants (Issue #962).
+#[cfg(test)]
+mod deposit_withdraw_props;
 #[cfg(test)]
 mod invariant_tests;
 pub mod math;
 #[cfg(test)]
 mod oracle_tests;
+pub mod packed_storage;
 pub mod permissions;
 #[cfg(test)]
 pub mod proxy_tests;
@@ -78,11 +83,16 @@ pub mod storage_registry;
 pub mod strategy;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod timelock_tests;
+mod formal_verification_tests;
 pub mod upgrade;
+pub mod withdrawal_queue_safety;
 
 pub mod oracle;
 pub mod strategy_heartbeat;
 pub mod strategy_registration;
+pub mod timelock;
 pub mod whitelist;
 
 use crate::strategy::StrategyClient;
@@ -93,7 +103,7 @@ use crate::upgrade::{
 };
 use crate::whitelist::SecureWhitelist;
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, symbol_short, token,
+    contract, contractclient, contractimpl, contracttype, symbol_short, token,
     Address, BytesN, Env, String, Vec,
 };
 
@@ -214,6 +224,12 @@ pub enum DataKeyExt {
     // Strategy heartbeat config & timestamps
     StrategyHeartbeat,
     StrategyLastHeartbeat(Address),
+
+    // Issue #969: timelock enforcement for sensitive parameter changes
+    SensitiveTimelockDelay,
+    PendingFeeBps,
+    PendingTreasury,
+    PendingPriceOracle,
 }
 
 #[contracttype]
@@ -231,7 +247,9 @@ pub enum DataKey {
     GovernanceConfig,
     BenjiStrategy,
     KoreanDebtStrategy,
+    ConfiguredStrategy(soroban_sdk::Symbol),
     PauseReason,
+    Pauser,
     EmergencyApprovers,
     Emergency(EmergencyStorageKey),
     EmergencyProposalNonce,
@@ -380,75 +398,6 @@ pub struct BatchDepositResult {
     pub failure_count: u32,
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-/// Vault error codes.
-pub enum VaultError {
-    /// Contract has already been initialized.
-    AlreadyInitialized = 1,
-    /// User does not have enough shares to withdraw.
-    InsufficientShares = 2,
-    /// Amount is invalid (zero or negative).
-    InvalidAmount = 3,
-    /// Vault is paused; deposits and withdrawals are blocked.
-    ContractPaused = 4,
-    /// Deposit would exceed per-user cap.
-    ExceedsUserCap = 5,
-    /// Deposit is below minimum deposit threshold.
-    MinDepositNotMet = 6,
-    /// Large withdrawal timelock has not expired yet.
-    TimelockNotExpired = 7,
-    /// No pending withdrawal exists for this user.
-    NoPendingWithdrawal = 8,
-    /// Strategy allocation would leave idle liquidity below the configured buffer.
-    LiquidityBufferNotMet = 9,
-    /// Strategy allocation exceeds configured cap.
-    ExceedsStrategyCap = 10,
-    /// Strategy allocation exceeds configured risk threshold.
-    ExceedsRiskThreshold = 11,
-    /// Withdrawal blocked due to active deposit cooldown.
-    WithdrawalCooldownActive = 12,
-    /// Requested storage migration target is older than the current stored version.
-    InvalidMigrationTarget = 13,
-    /// Arithmetic overflow was detected before mutating state.
-    MathOverflow = 14,
-    /// Strategy operation exceeded maximum allowed slippage.
-    SlippageExceeded = 15,
-    /// Batch deposit entries vector exceeds the maximum allowed size.
-    BatchTooLarge = 16,
-    /// Caller is not a registered relayer and cannot submit batch deposits.
-    RelayerNotAuthorized = 17,
-    /// Emergency proposal is still within the dispute window and cannot be confirmed yet.
-    DisputeWindowActive = 18,
-    /// Emergency proposal has been cancelled and cannot be confirmed or executed.
-    ProposalCancelled = 19,
-    /// Dispute window has already closed; the proposal can no longer be cancelled.
-    DisputeWindowClosed = 20,
-    /// Withdrawal was queued because idle liquidity was insufficient.
-    WithdrawalQueued = 21,
-    /// Admin parameter change attempted before the minimum interval elapsed.
-    AdminParamChangeTooSoon = 22,
-    /// No strategy has been configured on the vault.
-    StrategyNotConfigured = 23,
-    /// Vault does not have enough idle liquidity to satisfy the operation.
-    InsufficientLiquidity = 24,
-    /// Governance signers are not configured.
-    GovernanceSignersNotConfigured = 25,
-    /// Governance signature threshold was not met.
-    GovernanceThresholdNotMet = 26,
-    /// Oracle validation failed (stale or manipulated price).
-    OracleValidationFailed = 27,
-    /// Treasury claim quota exceeded for the current epoch.
-    ClaimQuotaExceeded = 28,
-    StrategyHeartbeatExpired = 29,
-    /// Referenced admin or governance proposal does not exist.
-    ProposalNotFound = 30,
-    /// Proposal has already been executed or accepted.
-    ProposalAlreadyExecuted = 31,
-    /// Invalid RWA shipment status transition (violates lifecycle rules).
-    InvalidShipmentStatusTransition = 30,
-}
 
 #[contractclient(name = "OracleClient")]
 /// Client for reading price data from the configured oracle.
@@ -589,7 +538,7 @@ impl YieldVault {
     /// Accept the admin role for a specific proposal.
     /// Only the pending Admin can call this.
     pub fn accept_admin(env: Env, proposal_id: u32) -> Result<(), VaultError> {
-        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::NoPendingWithdrawal)?;
 
         if proposal.cancelled {
             return Err(VaultError::ProposalCancelled);
@@ -619,7 +568,7 @@ impl YieldVault {
         let admin = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+        let mut proposal = admin::read_proposal(&env, proposal_id).ok_or(VaultError::NoPendingWithdrawal)?;
 
         if proposal.accepted {
             return Err(VaultError::ProposalAlreadyExecuted);
@@ -676,22 +625,29 @@ impl YieldVault {
         }
     }
 
+    /// Register a new strategy (Pending state). Admin-only.
     pub fn register_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         strategy_registration::register_strategy(&env, &admin, &strategy)
             .map(|_| ())
             .map_err(Self::map_registration_error)
     }
 
+    /// Advance a strategy from Pending → Active. Admin-only.
     pub fn activate_strategy_registration(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         strategy_registration::activate_strategy(&env, &admin, &strategy)
             .map(|_| ())
             .map_err(Self::map_registration_error)
     }
 
+    /// Retire a strategy (Active/Pending → Retired). Admin-only.
+    /// Fails if `strategy` is the currently-active vault strategy.
     pub fn retire_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         let active = Self::strategy(env.clone());
         strategy_registration::retire_strategy(&env, &admin, &strategy, active)
             .map(|_| ())
@@ -766,14 +722,17 @@ impl YieldVault {
     ///
     /// # Authorization
     /// Caller must be the vault admin
-    pub fn whitelist_strategy(env: Env, strategy: Address, approved: bool) {
+    ///
+    /// # Errors
+    /// * `VaultError::WhitelistOperationFailed` - If the whitelist mutation fails
+    pub fn whitelist_strategy(env: Env, strategy: Address, approved: bool) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        // Explicit admin auth check hardened per issue #963.
+        admin.require_auth();
 
         // Use SecureWhitelist module for whitelist operations
-        match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
-            Ok(_) => {}
-            Err(_) => return Err(VaultError::WhitelistOperationFailed),
-        }
+        SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved)
+            .map_err(|_| VaultError::WhitelistOperationFailed)
     }
 
     /// Check if a strategy is whitelisted.
@@ -794,6 +753,62 @@ impl YieldVault {
     /// Read the active strategy address.
     pub fn strategy(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Strategy)
+    }
+
+    /// Configures the designated pauser role address.
+    /// Only the admin can call this.
+    pub fn set_pauser(env: Env, pauser: Option<Address>) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        if let Some(ref p) = pauser {
+            env.storage().instance().set(&DataKey::Pauser, p);
+        } else {
+            env.storage().instance().remove(&DataKey::Pauser);
+        }
+        env.events()
+            .publish((symbol_short!("setpauser"),), (pauser.clone(),));
+        Ok(())
+    }
+
+    /// Returns the currently configured pauser role address, if any.
+    pub fn pauser(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Pauser)
+    }
+
+    /// Pauses the contract with role-restricted authorization.
+    /// Caller must be either the Admin or the assigned Pauser role address.
+    pub fn pause_with_role(
+        env: Env,
+        caller: Address,
+        reason: PauseReason,
+    ) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        let pauser_addr = Self::pauser(env.clone());
+        permissions::require_pauser_or_admin_auth(&caller, &admin, pauser_addr.as_ref());
+
+        let mut state = Self::get_state(&env);
+        state.is_paused = true;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+        env.events()
+            .publish((symbol_short!("paused"),), (reason as u32,));
+        Ok(())
+    }
+
+    /// Unpauses the contract with role-restricted authorization.
+    /// Caller must be either the Admin or the assigned Pauser role address.
+    pub fn unpause_with_role(env: Env, caller: Address) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        let pauser_addr = Self::pauser(env.clone());
+        permissions::require_pauser_or_admin_auth(&caller, &admin, pauser_addr.as_ref());
+
+        let mut state = Self::get_state(&env);
+        state.is_paused = false;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().remove(&DataKey::PauseReason);
+        env.events().publish((symbol_short!("unpaused"),), ());
+        Ok(())
     }
 
     pub fn pause(env: Env, reason: PauseReason) {
@@ -862,10 +877,13 @@ impl YieldVault {
         pause_reason_code: u32,
         divest_amount: Option<i128>,
         wasm_hash: Option<BytesN<32>>,
-    ) -> u32 {
+    ) -> Result<u32, VaultError> {
         initiator.require_auth();
         let primary = emergency::primary_approver(&env).expect("primary approver not set");
-        assert!(initiator == primary, "only primary approver can initiate");
+        // Issue #963: replaced panic with VaultError::RescueUnauthorized for production-hardened auth.
+        if initiator != primary {
+            return Err(VaultError::RescueUnauthorized);
+        }
 
         let window_secs: u64 = env
             .storage()
@@ -895,7 +913,7 @@ impl YieldVault {
             (symbol_short!("emrgprop"),),
             (proposal_id, kind as u32, dispute_deadline),
         );
-        proposal_id
+        Ok(proposal_id)
     }
 
     /// Secondary approver confirms and executes a pending emergency action.
@@ -909,18 +927,21 @@ impl YieldVault {
     ) -> Result<(), VaultError> {
         confirmer.require_auth();
         let secondary = emergency::secondary_approver(&env).expect("secondary approver not set");
-        assert!(
-            confirmer == secondary,
-            "only secondary approver can confirm"
-        );
+        // Issue #963: replaced panic with VaultError::RescueUnauthorized for production-hardened auth.
+        if confirmer != secondary {
+            return Err(VaultError::RescueUnauthorized);
+        }
 
-        let mut proposal = emergency::read_proposal(&env, proposal_id).expect("proposal not found");
-        assert!(!proposal.executed, "proposal already executed");
-        assert!(!proposal.confirmed, "proposal already confirmed");
-        assert!(
-            proposal.initiator != confirmer,
-            "confirmer must differ from initiator"
-        );
+        let mut proposal = emergency::read_proposal(&env, proposal_id).ok_or(VaultError::NoPendingWithdrawal)?;
+        if proposal.executed {
+            return Err(VaultError::ProposalAlreadyExecuted);
+        }
+        if proposal.confirmed {
+            return Err(VaultError::ProposalAlreadyExecuted);
+        }
+        if proposal.initiator == confirmer {
+            return Err(VaultError::RescueUnauthorized);
+        }
 
         if proposal.cancelled {
             return Err(VaultError::ProposalCancelled);
@@ -1286,11 +1307,10 @@ impl YieldVault {
         state.total_assets = new_total_assets;
         env.storage().instance().set(&DataKey::State, &state);
 
-        Ok(harvested)
         env.events()
             .publish((symbol_short!("k_yield"),), (harvested, new_total_assets));
 
-        harvested
+        Ok(harvested)
     }
 
     pub fn set_dao_threshold(env: Env, threshold: i128) -> Result<(), VaultError> {
@@ -1326,7 +1346,7 @@ impl YieldVault {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
 
-        if threshold == 0 || threshold as usize > signers.len() {
+        if threshold == 0 || threshold > signers.len() {
             return Err(VaultError::InvalidGovernanceThreshold);
         }
 
@@ -1496,11 +1516,6 @@ impl YieldVault {
             .has(&DataKey::Vote(VoteKey { proposal_id, voter: voter.clone() }))
         {
             return Err(VaultError::DuplicateVote);
-        if env.storage().instance().has(&DataKey::Vote(VoteKey {
-            proposal_id,
-            voter: voter.clone(),
-        })) {
-            panic!("duplicate vote");
         }
 
         let mut proposal: StrategyProposal = env
@@ -1613,7 +1628,7 @@ impl YieldVault {
         }
 
         if !Self::is_valid_shipment_status_transition(&old_status, &new_status) {
-            return Err(VaultError::InvalidShipmentStatusTransition);
+            return Err(VaultError::InvalidMigrationTarget);
         }
 
         let old_key = DataKey::ShipmentByStatus(old_status);
@@ -2481,6 +2496,8 @@ impl YieldVault {
     }
 
     /// Test helper: appends a synthetic queue entry for `process_withdrawal_queue` tests.
+    /// Only compiled and callable in test builds — not available on mainnet WASM.
+    #[cfg(test)]
     #[doc(hidden)]
     pub fn test_seed_withdrawal_queue_entry(env: Env, user: Address, shares: i128, assets: i128) {
         let tail = Self::withdrawal_queue_tail(&env);
@@ -2693,6 +2710,12 @@ impl YieldVault {
         admin.require_auth();
 
         if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+        if from_strategy == to_strategy {
+            return Err(VaultError::InvalidAmount);
+        }
+        if min_divest_value < 0 || min_invest_value < 0 {
             return Err(VaultError::InvalidAmount);
         }
 
@@ -2928,19 +2951,120 @@ impl YieldVault {
         Ok(())
     }
 
-    /// Set the protocol fee in basis points (0–10000). Emits a FeeBpsChanged event.
-    pub fn set_fee_bps(env: Env, new_bps: i128) -> Result<(), VaultError> {
+    // ── Issue #969: timelock enforcement for sensitive parameter changes ─────
+    //
+    // Protocol fee, treasury, and price oracle are the parameters that most
+    // directly move value or trust: an immediately-effective change lets a
+    // compromised or malicious admin key redirect fees, swap in a hostile
+    // oracle, or set the fee to 100% with zero warning. Each now goes through
+    // queue_*_change → (wait out the timelock) → execute_*_change instead of
+    // applying on a single call. Depositors watching the queued-change events
+    // get that window to react before the change lands.
+    //
+    // The delay defaults to 0 (disabled) until armed via
+    // `set_sensitive_timelock_delay`, mirroring the existing
+    // `admin_param_change_interval` guard. Once armed it cannot be set below
+    // `timelock::MIN_SENSITIVE_TIMELOCK_DELAY_SECS` — an admin can widen the
+    // window but can't quietly shrink it to noise.
+    //
+    // Queueing a new value while one is already pending overwrites it and
+    // resets the timelock relative to the new queue call.
+
+    /// Returns the configured minimum delay before a queued sensitive
+    /// parameter change becomes executable. Defaults to 0 (disabled).
+    pub fn sensitive_timelock_delay(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKeyExt::SensitiveTimelockDelay)
+            .unwrap_or(0)
+    }
+
+    /// Configure the minimum timelock delay for sensitive parameter changes.
+    /// Must be `0` (disabled) or at least `timelock::MIN_SENSITIVE_TIMELOCK_DELAY_SECS`.
+    pub fn set_sensitive_timelock_delay(env: Env, seconds: u64) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        Self::assert_admin_param_interval(&env)?;
+        if !timelock::is_valid_delay(seconds) {
+            return Err(VaultError::InvalidDaoThreshold);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKeyExt::SensitiveTimelockDelay, &seconds);
+        Self::record_admin_param_change(&env);
+        Ok(())
+    }
+
+    fn queue_eta(env: &Env) -> u64 {
+        timelock::compute_eta(env, Self::sensitive_timelock_delay(env.clone()))
+    }
+
+    fn assert_timelock_ready(env: &Env, eta: u64) -> Result<(), VaultError> {
+        if !timelock::is_ready(env, eta) {
+            return Err(VaultError::TimelockNotExpired);
+        }
+        Ok(())
+    }
+
+    /// Queue a new protocol fee (0–10000 bps). Takes effect once
+    /// `execute_fee_bps_change` is called after the configured timelock delay
+    /// elapses. Emits `feebpsq` with the queued value and its eta.
+    pub fn queue_fee_bps_change(env: Env, new_bps: i128) -> Result<u64, VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
         if !(0..=10_000).contains(&new_bps) {
             return Err(VaultError::InvalidFeeBps);
         }
-        let old_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
-        env.storage().instance().set(&DataKey::FeeBps, &new_bps);
+        let eta = Self::queue_eta(&env);
+        env.storage().instance().set(
+            &DataKeyExt::PendingFeeBps,
+            &timelock::PendingI128Change {
+                new_value: new_bps,
+                eta,
+            },
+        );
         Self::record_admin_param_change(&env);
         env.events()
-            .publish((symbol_short!("feechg"),), (old_bps, new_bps));
+            .publish((symbol_short!("feebpsq"),), (new_bps, eta));
+        Ok(eta)
+    }
+
+    /// Returns the currently queued fee change, if any.
+    pub fn pending_fee_bps_change(env: Env) -> Option<timelock::PendingI128Change> {
+        env.storage().instance().get(&DataKeyExt::PendingFeeBps)
+    }
+
+    /// Execute a previously queued fee change once its timelock has elapsed.
+    /// Emits `feechg` with the old and new value, matching the pre-timelock event.
+    pub fn execute_fee_bps_change(env: Env) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let pending: timelock::PendingI128Change = env
+            .storage()
+            .instance()
+            .get(&DataKeyExt::PendingFeeBps)
+            .ok_or(VaultError::NoPendingWithdrawal)?;
+        Self::assert_timelock_ready(&env, pending.eta)?;
+        let old_bps: i128 = env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeBps, &pending.new_value);
+        env.storage().instance().remove(&DataKeyExt::PendingFeeBps);
+        env.events()
+            .publish((symbol_short!("feechg"),), (old_bps, pending.new_value));
+        Ok(())
+    }
+
+    /// Cancel a previously queued fee change before it executes.
+    pub fn cancel_fee_bps_change(env: Env) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if !env.storage().instance().has(&DataKeyExt::PendingFeeBps) {
+            return Err(VaultError::NoPendingWithdrawal);
+        }
+        env.storage().instance().remove(&DataKeyExt::PendingFeeBps);
+        env.events().publish((symbol_short!("feebpscn"),), ());
         Ok(())
     }
 
@@ -2949,13 +3073,60 @@ impl YieldVault {
         env.storage().instance().get(&DataKey::FeeBps).unwrap_or(0)
     }
 
-    /// Set the treasury address where fees accumulate.
-    pub fn set_treasury(env: Env, treasury: Address) -> Result<(), VaultError> {
+    /// Queue a new treasury address where fees accumulate. Takes effect once
+    /// `execute_treasury_change` is called after the configured timelock delay
+    /// elapses.
+    pub fn queue_treasury_change(env: Env, treasury: Address) -> Result<u64, VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
-        env.storage().instance().set(&DataKey::Treasury, &treasury);
+        let eta = Self::queue_eta(&env);
+        env.storage().instance().set(
+            &DataKeyExt::PendingTreasury,
+            &timelock::PendingAddressChange {
+                new_value: treasury.clone(),
+                eta,
+            },
+        );
         Self::record_admin_param_change(&env);
+        env.events()
+            .publish((symbol_short!("trsryq"),), (treasury, eta));
+        Ok(eta)
+    }
+
+    /// Returns the currently queued treasury change, if any.
+    pub fn pending_treasury_change(env: Env) -> Option<timelock::PendingAddressChange> {
+        env.storage().instance().get(&DataKeyExt::PendingTreasury)
+    }
+
+    /// Execute a previously queued treasury change once its timelock has elapsed.
+    pub fn execute_treasury_change(env: Env) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let pending: timelock::PendingAddressChange = env
+            .storage()
+            .instance()
+            .get(&DataKeyExt::PendingTreasury)
+            .ok_or(VaultError::NoPendingWithdrawal)?;
+        Self::assert_timelock_ready(&env, pending.eta)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::Treasury, &pending.new_value);
+        env.storage().instance().remove(&DataKeyExt::PendingTreasury);
+        env.events()
+            .publish((symbol_short!("trsrychg"),), pending.new_value);
+        Ok(())
+    }
+
+    /// Cancel a previously queued treasury change before it executes.
+    pub fn cancel_treasury_change(env: Env) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if !env.storage().instance().has(&DataKeyExt::PendingTreasury) {
+            return Err(VaultError::NoPendingWithdrawal);
+        }
+        env.storage().instance().remove(&DataKeyExt::PendingTreasury);
+        env.events().publish((symbol_short!("trsrycn"),), ());
         Ok(())
     }
 
@@ -2994,8 +3165,6 @@ impl YieldVault {
     }
 
     fn check_and_update_claim_quota(env: &Env, amount: i128) -> Result<(), VaultError> {
-        if let Some(quota) = env.storage().instance().get::<_, i128>(&DataKeyExt::TreasuryClaimQuota) {
-    fn check_and_update_claim_quota(env: &Env, amount: i128) {
         if let Some(quota) = env
             .storage()
             .instance()
@@ -3247,16 +3416,69 @@ impl YieldVault {
 
     // ── Oracle configuration ──────────────────────────────────────────────────
 
-    /// Set the price oracle contract address used for strategy value validation.
+    /// Queue a new price oracle contract address used for strategy value
+    /// validation. Takes effect once `execute_price_oracle_change` is called
+    /// after the configured timelock delay elapses (see Issue #969: an
+    /// immediately-effective oracle swap would let a compromised admin point
+    /// the vault at a hostile price feed with no warning).
     /// Only the Admin can call this.
-    pub fn set_price_oracle(env: Env, oracle: Address) -> Result<(), VaultError> {
+    pub fn queue_price_oracle_change(env: Env, oracle: Address) -> Result<u64, VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
         admin.require_auth();
         Self::assert_admin_param_interval(&env)?;
+        let eta = Self::queue_eta(&env);
+        env.storage().instance().set(
+            &DataKeyExt::PendingPriceOracle,
+            &timelock::PendingAddressChange {
+                new_value: oracle.clone(),
+                eta,
+            },
+        );
+        Self::record_admin_param_change(&env);
+        env.events()
+            .publish((symbol_short!("oracleq"),), (oracle, eta));
+        Ok(eta)
+    }
+
+    /// Returns the currently queued price oracle change, if any.
+    pub fn pending_price_oracle_change(env: Env) -> Option<timelock::PendingAddressChange> {
         env.storage()
             .instance()
-            .set(&DataKeyExt::PriceOracle, &oracle);
-        Self::record_admin_param_change(&env);
+            .get(&DataKeyExt::PendingPriceOracle)
+    }
+
+    /// Execute a previously queued price oracle change once its timelock has elapsed.
+    pub fn execute_price_oracle_change(env: Env) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        let pending: timelock::PendingAddressChange = env
+            .storage()
+            .instance()
+            .get(&DataKeyExt::PendingPriceOracle)
+            .ok_or(VaultError::NoPendingWithdrawal)?;
+        Self::assert_timelock_ready(&env, pending.eta)?;
+        env.storage()
+            .instance()
+            .set(&DataKeyExt::PriceOracle, &pending.new_value);
+        env.storage()
+            .instance()
+            .remove(&DataKeyExt::PendingPriceOracle);
+        env.events()
+            .publish((symbol_short!("oraclech"),), pending.new_value);
+        Ok(())
+    }
+
+    /// Cancel a previously queued price oracle change before it executes.
+    pub fn cancel_price_oracle_change(env: Env) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+        if !env.storage().instance().has(&DataKeyExt::PendingPriceOracle) {
+            return Err(VaultError::NoPendingWithdrawal);
+        }
+        env.storage()
+            .instance()
+            .remove(&DataKeyExt::PendingPriceOracle);
+        env.events().publish((symbol_short!("oraclecn"),), ());
         Ok(())
     }
 
@@ -3327,17 +3549,11 @@ impl YieldVault {
             return Err(VaultError::StrategyNotWhitelisted);
         }
         let now = env.ledger().timestamp();
-        env.storage().instance().set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
-        env.events().publish((symbol_short!("strathb"),), (strategy, now));
-        Ok(())
-            panic!("strategy not whitelisted");
-        }
-        let now = env.ledger().timestamp();
         env.storage()
             .instance()
             .set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
-        env.events()
-            .publish((symbol_short!("strathb"),), (strategy, now));
+        env.events().publish((symbol_short!("strathb"),), (strategy, now));
+        Ok(())
     }
     pub fn strategy_last_heartbeat(env: Env, strategy: Address) -> Option<u64> {
         env.storage()

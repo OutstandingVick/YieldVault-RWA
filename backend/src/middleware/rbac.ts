@@ -78,11 +78,19 @@ type RouteRule = {
 const ADMIN_ROUTE_RULES: RouteRule[] = [
   // Super-privileged
   { methods: ['GET'], pattern: /^\/admin\/impersonate\/[^/]+$/, permission: Permission.IMPERSONATE },
+  { methods: ['POST'], pattern: /^\/admin\/impersonate\/sessions$/, permission: Permission.IMPERSONATE },
+  { methods: ['DELETE'], pattern: /^\/admin\/impersonate\/sessions\/[^/]+$/, permission: Permission.IMPERSONATE },
   { methods: ['DELETE'], pattern: /^\/admin\/idempotency\/keys$/, permission: Permission.IDEMPOTENCY_FLUSH },
 
   // Config / cache / maintenance (parameter updates)
   { methods: ['POST'], pattern: /^\/admin\/maintenance$/, permission: Permission.CONFIG_WRITE },
+  { methods: ['POST'], pattern: /^\/admin\/maintenance\/windows$/, permission: Permission.CONFIG_WRITE },
+  { methods: ['DELETE'], pattern: /^\/admin\/maintenance\/windows\/[^/]+$/, permission: Permission.CONFIG_WRITE },
+  { methods: ['POST'], pattern: /^\/admin\/feature-flags\/overrides$/, permission: Permission.CONFIG_WRITE },
+  { methods: ['DELETE'], pattern: /^\/admin\/feature-flags\/overrides\/[^/]+$/, permission: Permission.CONFIG_WRITE },
   { methods: ['POST'], pattern: /^\/admin\/cache\/invalidate$/, permission: Permission.CONFIG_WRITE },
+  { methods: ['DELETE'], pattern: /^\/admin\/cache$/, permission: Permission.CONFIG_WRITE },
+  { methods: ['POST'], pattern: /^\/admin\/withdrawal-limits\/override$/, permission: Permission.CONFIG_WRITE },
 
   // Allowlist
   { methods: ['POST'], pattern: /^\/admin\/allowlist\/add$/, permission: Permission.ALLOWLIST_WRITE },
@@ -91,11 +99,22 @@ const ADMIN_ROUTE_RULES: RouteRule[] = [
   // Background jobs
   { methods: ['POST'], pattern: /^\/admin\/apy\/backfill$/, permission: Permission.JOBS_WRITE },
   { methods: ['POST'], pattern: /^\/admin\/events\/replay$/, permission: Permission.JOBS_WRITE },
+  { methods: ['POST'], pattern: /^\/admin\/emails\/replay\/[^/]+$/, permission: Permission.JOBS_WRITE },
+  { methods: ['POST'], pattern: /^\/admin\/jobs\/dead-letters\/.*$/, permission: Permission.JOBS_WRITE },
+  { methods: ['POST'], pattern: /^\/admin\/idempotency\/retention\/cleanup$/, permission: Permission.JOBS_WRITE },
 
   // API keys
   { methods: ['POST'], pattern: /^\/admin\/api-keys\/register$/, permission: Permission.API_KEYS_WRITE },
   { methods: ['POST'], pattern: /^\/admin\/api-keys\/rotate$/, permission: Permission.API_KEYS_WRITE },
   { methods: ['POST'], pattern: /^\/admin\/api-keys\/revoke$/, permission: Permission.API_KEYS_WRITE },
+
+  // Scoped admin tokens (Issue #858)
+  { methods: ['POST'],   pattern: /^\/admin\/scoped-tokens$/, permission: Permission.API_KEYS_SUPER },
+  { methods: ['POST'],   pattern: /^\/admin\/scoped-tokens\/[^/]+\/rotate$/, permission: Permission.API_KEYS_SUPER },
+  { methods: ['POST'],   pattern: /^\/admin\/scoped-tokens\/[^/]+\/revoke$/, permission: Permission.API_KEYS_SUPER },
+  { methods: ['GET'],    pattern: /^\/admin\/scoped-tokens$/, permission: Permission.ADMIN_READ },
+  { methods: ['GET'],    pattern: /^\/admin\/scoped-tokens\/[^/]+$/, permission: Permission.ADMIN_READ },
+  { methods: ['GET'],    pattern: /^\/admin\/scoped-tokens\/[^/]+\/rotations$/, permission: Permission.ADMIN_READ },
 
   // Webhooks
   { methods: ['POST'], pattern: /^\/admin\/webhooks$/, permission: Permission.WEBHOOKS_WRITE },
@@ -115,7 +134,7 @@ const ADMIN_ROUTE_RULES: RouteRule[] = [
 // ─── Core helpers ────────────────────────────────────────────────────────────
 
 export function resolveApiKeyRole(req: Request): ApiKeyRole {
-  return normalizeApiKeyRole(req.authApiKeyRole);
+  return normalizeApiKeyRole(req.authApiKeyRole) ?? 'admin';
 }
 
 export function roleHasPermission(role: ApiKeyRole, permission: Permission): boolean {

@@ -2,6 +2,7 @@
   {
     "id": "hold-1",
     "asset": "USDC Treasury Pool",
+    "vaultId": "vault-1",
     "vaultName": "Stellar RWA Yield Fund",
     "symbol": "yvUSDC",
     "shares": 1250.5,
@@ -14,6 +15,7 @@
   {
     "id": "hold-2",
     "asset": "Government Bond Basket",
+    "vaultId": "vault-2",
     "vaultName": "Sovereign Income Sleeve",
     "symbol": "yvBOND",
     "shares": 840.12,
@@ -26,6 +28,7 @@
   {
     "id": "hold-3",
     "asset": "Short Duration Credit",
+    "vaultId": "vault-3",
     "vaultName": "Liquidity Ladder",
     "symbol": "yvCASH",
     "shares": 500.33,
@@ -38,6 +41,7 @@
   {
     "id": "hold-4",
     "asset": "Tokenized T-Bills",
+    "vaultId": "vault-4",
     "vaultName": "USD Treasury Express",
     "symbol": "yvUSTB",
     "shares": 1380,
@@ -50,6 +54,7 @@
   {
     "id": "hold-5",
     "asset": "Yield Bearing Cash",
+    "vaultId": "vault-5",
     "vaultName": "Prime Reserve Strategy",
     "symbol": "yvPRIME",
     "shares": 320.42,
@@ -62,6 +67,7 @@
   {
     "id": "hold-6",
     "asset": "EM Debt Blend",
+    "vaultId": "vault-6",
     "vaultName": "Global Carry Vault",
     "symbol": "yvEMD",
     "shares": 214.1,

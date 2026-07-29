@@ -114,12 +114,12 @@ describe('Issue #705: Request ID propagation across async job pipeline', () => {
 // ─── Issue #707: Write-ahead audit log ──────────────────────────────────────
 
 describe('Issue #707: Write-ahead audit log for admin configuration changes', () => {
-  beforeEach(() => {
-    writeAheadAuditLog.clear();
+  beforeEach(async () => {
+    await writeAheadAuditLog.clear();
   });
 
-  it('prepares a pending WAL entry with pre-change snapshot', () => {
-    const entry = writeAheadAuditLog.prepare({
+  it('prepares a pending WAL entry with pre-change snapshot', async () => {
+    const entry = await writeAheadAuditLog.prepare({
       configType: 'maintenance',
       action: 'toggle',
       actor: 'admin-1',
@@ -133,15 +133,15 @@ describe('Issue #707: Write-ahead audit log for admin configuration changes', ()
     expect(entry.id).toMatch(/^wal-/);
   });
 
-  it('commits a WAL entry with post-change snapshot', () => {
-    const entry = writeAheadAuditLog.prepare({
+  it('commits a WAL entry with post-change snapshot', async () => {
+    const entry = await writeAheadAuditLog.prepare({
       configType: 'maintenance',
       action: 'toggle',
       actor: 'admin-1',
       preChangeSnapshot: { enabled: false },
     });
 
-    const committed = writeAheadAuditLog.commit(entry.id, { enabled: true });
+    const committed = await writeAheadAuditLog.commit(entry.id, { enabled: true });
 
     expect(committed).not.toBeNull();
     expect(committed!.status).toBe('committed');
@@ -149,92 +149,137 @@ describe('Issue #707: Write-ahead audit log for admin configuration changes', ()
     expect(committed!.committedAt).not.toBeNull();
   });
 
-  it('rolls back a WAL entry with reason', () => {
-    const entry = writeAheadAuditLog.prepare({
+  it('rolls back a WAL entry with reason', async () => {
+    const entry = await writeAheadAuditLog.prepare({
       configType: 'feature_flags',
       action: 'override',
       actor: 'admin-2',
       preChangeSnapshot: { flag: 'old' },
     });
 
-    const rolledBack = writeAheadAuditLog.rollback(entry.id, 'validation failed');
+    const rolledBack = await writeAheadAuditLog.rollback(entry.id, 'validation failed');
 
     expect(rolledBack).not.toBeNull();
     expect(rolledBack!.status).toBe('rolled_back');
     expect(rolledBack!.metadata).toHaveProperty('rollbackReason', 'validation failed');
   });
 
-  it('cannot commit an already committed entry', () => {
-    const entry = writeAheadAuditLog.prepare({
+  it('cannot commit an already committed entry', async () => {
+    const entry = await writeAheadAuditLog.prepare({
       configType: 'test',
       action: 'update',
       actor: 'admin-1',
       preChangeSnapshot: {},
     });
 
-    writeAheadAuditLog.commit(entry.id, { value: 1 });
-    const secondCommit = writeAheadAuditLog.commit(entry.id, { value: 2 });
+    await writeAheadAuditLog.commit(entry.id, { value: 1 });
+    const secondCommit = await writeAheadAuditLog.commit(entry.id, { value: 2 });
 
     expect(secondCommit).toBeNull();
   });
 
-  it('lists entries with filters', () => {
-    writeAheadAuditLog.prepare({
+  it('lists entries with filters', async () => {
+    await writeAheadAuditLog.prepare({
       configType: 'maintenance',
       action: 'toggle',
       actor: 'admin-1',
       preChangeSnapshot: {},
     });
-    const entry2 = writeAheadAuditLog.prepare({
+    const entry2 = await writeAheadAuditLog.prepare({
       configType: 'feature_flags',
       action: 'override',
       actor: 'admin-2',
       preChangeSnapshot: {},
     });
-    writeAheadAuditLog.commit(entry2.id, {});
+    await writeAheadAuditLog.commit(entry2.id, {});
 
-    const maintenanceEntries = writeAheadAuditLog.list({ configType: 'maintenance' });
+    const maintenanceEntries = await writeAheadAuditLog.list({ configType: 'maintenance' });
     expect(maintenanceEntries).toHaveLength(1);
 
-    const committedEntries = writeAheadAuditLog.list({ status: 'committed' });
+    const committedEntries = await writeAheadAuditLog.list({ status: 'committed' });
     expect(committedEntries).toHaveLength(1);
 
-    const pendingEntries = writeAheadAuditLog.getPendingEntries();
+    const pendingEntries = await writeAheadAuditLog.getPendingEntries();
     expect(pendingEntries).toHaveLength(1);
   });
 
-  it('tracks metrics correctly', () => {
-    const e1 = writeAheadAuditLog.prepare({
+  it('tracks metrics correctly', async () => {
+    const e1 = await writeAheadAuditLog.prepare({
       configType: 'a',
       action: 'x',
       actor: 'admin',
       preChangeSnapshot: {},
     });
-    const e2 = writeAheadAuditLog.prepare({
+    const e2 = await writeAheadAuditLog.prepare({
       configType: 'b',
       action: 'y',
       actor: 'admin',
       preChangeSnapshot: {},
     });
-    writeAheadAuditLog.prepare({
+    await writeAheadAuditLog.prepare({
       configType: 'c',
       action: 'z',
       actor: 'admin',
       preChangeSnapshot: {},
     });
 
-    writeAheadAuditLog.commit(e1.id, {});
-    writeAheadAuditLog.rollback(e2.id, 'err');
+    await writeAheadAuditLog.commit(e1.id, {});
+    await writeAheadAuditLog.rollback(e2.id, 'err');
 
-    const metrics = writeAheadAuditLog.getMetrics();
+    const metrics = await writeAheadAuditLog.getMetrics();
     expect(metrics.total).toBe(3);
     expect(metrics.committed).toBe(1);
     expect(metrics.rolledBack).toBe(1);
     expect(metrics.pending).toBe(1);
+    expect(metrics.stalePending).toBe(0);
   });
 
-  it('includes actor metadata (ipAddress, userAgent)', () => {
-    const entry = writeAheadAuditLog.prepare({
+  it('surfaces stale pending entries in metrics (Issue #856)', async () => {
+    const original = process.env.WAL_STALE_PENDING_TTL_MS;
+    process.env.WAL_STALE_PENDING_TTL_MS = '0';
+
+    try {
+      await writeAheadAuditLog.prepare({
+        configType: 'maintenance',
+        action: 'toggle',
+        actor: 'admin-1',
+        preChangeSnapshot: {},
+      });
+
+      // With a TTL of 0ms, any pending entry is immediately "stale".
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const metrics = await writeAheadAuditLog.getMetrics();
+      expect(metrics.pending).toBe(1);
+      expect(metrics.stalePending).toBe(1);
+    } finally {
+      if (original === undefined) {
+        delete process.env.WAL_STALE_PENDING_TTL_MS;
+      } else {
+        process.env.WAL_STALE_PENDING_TTL_MS = original;
+      }
+    }
+  });
+
+  it('a stale pending entry can still be rolled back (Issue #856)', async () => {
+    const entry = await writeAheadAuditLog.prepare({
+      configType: 'maintenance',
+      action: 'toggle',
+      actor: 'admin-1',
+      preChangeSnapshot: {},
+    });
+
+    const rolledBack = await writeAheadAuditLog.rollback(entry.id, 'stale, abandoning');
+    expect(rolledBack).not.toBeNull();
+    expect(rolledBack!.status).toBe('rolled_back');
+
+    const metrics = await writeAheadAuditLog.getMetrics();
+    expect(metrics.pending).toBe(0);
+    expect(metrics.rolledBack).toBe(1);
+  });
+
+  it('includes actor metadata (ipAddress, userAgent)', async () => {
+    const entry = await writeAheadAuditLog.prepare({
       configType: 'test',
       action: 'update',
       actor: 'admin-x',

@@ -1,0 +1,38 @@
+# YieldVault-RWA Code Owners Policy
+# See docs/CODE_REVIEW_STANDARDS.md for detailed review guidelines and approval requirements.
+
+# Default maintainers for all repository files
+* @YieldVault-RWA/core-maintainers
+
+# Tier 1: Smart Contracts & Value Transfer
+/contracts/ @YieldVault-RWA/contracts-maintainers @YieldVault-RWA/security-team
+/contracts/**/src/ @YieldVault-RWA/contracts-maintainers @YieldVault-RWA/security-team
+/deployments/ @YieldVault-RWA/contracts-maintainers
+
+# Tier 2: Backend Services & API Layer
+/backend/ @YieldVault-RWA/backend-maintainers
+/backend/src/ @YieldVault-RWA/backend-maintainers
+/backend/prisma/ @YieldVault-RWA/backend-maintainers
+/backend/migrations/ @YieldVault-RWA/backend-maintainers
+/docs/api/ @YieldVault-RWA/backend-maintainers
+
+# Tier 3: Frontend & User Interfaces
+/frontend/ @YieldVault-RWA/frontend-maintainers
+/frontend/src/ @YieldVault-RWA/frontend-maintainers
+/frontend/src/i18n/ @YieldVault-RWA/frontend-maintainers
+/public-portfolio/ @YieldVault-RWA/frontend-maintainers
+
+# Tier 4: CI/CD, Infrastructure & Scripts
+/.github/ @YieldVault-RWA/devops-maintainers
+/.github/workflows/ @YieldVault-RWA/devops-maintainers
+/scripts/ @YieldVault-RWA/devops-maintainers
+/.husky/ @YieldVault-RWA/devops-maintainers
+/.kiro/ @YieldVault-RWA/devops-maintainers
+/branch-protection.json @YieldVault-RWA/devops-maintainers
+
+# Documentation & Governance
+/docs/ @YieldVault-RWA/docs-maintainers
+/ARCHITECTURE_SUMMARY.md @YieldVault-RWA/core-maintainers
+/CONTRIBUTING.md @YieldVault-RWA/docs-maintainers @YieldVault-RWA/core-maintainers
+/TRIAGE_AND_REVIEW.md @YieldVault-RWA/docs-maintainers @YieldVault-RWA/core-maintainers
+/README.md @YieldVault-RWA/docs-maintainers

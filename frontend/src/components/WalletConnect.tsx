@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useReducer } from "react";
 import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
 import { LogOut, Wallet, AlertCircle } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useToast } from "../context/ToastContext";
-import { usePreferencesContext } from "../context/PreferencesContext";
+import { useOptionalPreferencesContext } from "../context/PreferencesContext";
 import { useTranslation } from "../i18n";
 import { displayIdentifier } from "../lib/maskSensitiveValues";
 import CopyButton from "./CopyButton";
@@ -26,6 +26,13 @@ import {
 import { Button } from "./ui/Button";
 import WalletSessionIndicator from "./WalletSessionIndicator";
 import WalletReconnectPrompt from "./WalletReconnectPrompt";
+import {
+  classifyWalletConnectionError,
+  createWalletConnectionError,
+  initialWalletConnectionState,
+  reduceWalletConnection,
+  walletErrorI18nKeys,
+} from "../lib/walletConnectionState";
 
 const IS_AUTOMATED_TEST =
   typeof process !== "undefined" &&
@@ -42,16 +49,16 @@ interface WalletConnectProps {
 
 export type DisconnectReason = "manual" | "session-expired" | "connection-lost";
 
-type ConnectionErrorType = "not-installed" | "not-allowed" | "no-address" | "generic" | null;
-
 const WalletConnect: React.FC<WalletConnectProps> = ({
   walletAddress,
   usdcBalance = 0,
   onConnect,
   onDisconnect,
 }) => {
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionError, setConnectionError] = useState<ConnectionErrorType>(null);
+  const [connection, dispatch] = useReducer(
+    reduceWalletConnection,
+    initialWalletConnectionState,
+  );
   const [showTooltip, setShowTooltip] = useState(false);
   const [isFreighterDiscovering, setIsFreighterDiscovering] = useState(
     () =>
@@ -61,9 +68,21 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   );
   const [reconnectProvider, setReconnectProvider] = useState<ReturnType<typeof getLastWalletProvider>>(null);
   const initialSyncDoneRef = useRef(false);
-  const { preferences } = usePreferencesContext();
+  const preferences = useOptionalPreferencesContext()?.preferences;
   const toast = useToast();
   const { t } = useTranslation();
+
+  const isConnecting = connection.status === "connecting";
+  const hasError = connection.status === "error" && connection.error !== null;
+
+  // Keep machine aligned with the controlled address from the parent.
+  useEffect(() => {
+    if (walletAddress) {
+      dispatch({ type: "ADDRESS_SYNCED", address: walletAddress });
+      return;
+    }
+    dispatch({ type: "PARENT_ADDRESS_CLEARED" });
+  }, [walletAddress]);
 
   // Show reconnect prompt for returning users who have a persisted provider
   useEffect(() => {
@@ -102,12 +121,14 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
 
         if (discovered) {
           clearWalletManualDisconnect();
+          dispatch({ type: "ADDRESS_SYNCED", address: discovered });
           onConnect(discovered);
         } else if (walletAddress) {
+          dispatch({ type: "EXTERNAL_DISCONNECT" });
           onDisconnect("connection-lost");
           toast.info({
-            title: "Wallet disconnected",
-            description: "Freighter is no longer connected to this session.",
+            title: t("toast.walletConnectionLost.title"),
+            description: t("toast.walletConnectionLost.description"),
           });
         }
       } finally {
@@ -129,11 +150,10 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       mounted = false;
       window.clearInterval(interval);
     };
-  }, [onConnect, onDisconnect, toast, walletAddress]);
+  }, [onConnect, onDisconnect, toast, walletAddress, t]);
 
   const handleConnect = useCallback(async () => {
-    setIsConnecting(true);
-    setConnectionError(null);
+    dispatch({ type: "CONNECT_REQUESTED" });
     try {
       await setAllowed();
       const allowed = await isAllowed();
@@ -146,45 +166,46 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           clearReconnectPromptDismissed();
           setLastWalletProvider("freighter");
           setReconnectProvider(null);
+          dispatch({ type: "CONNECT_SUCCEEDED", address: userInfo.address });
           onConnect(userInfo.address);
-          setConnectionError(null);
           toast.success({
             title: t("toast.walletConnected.title"),
             description: t("toast.walletConnected.description"),
           });
           return;
-        } else {
-          setConnectionError("no-address");
-          toast.error({
-            title: t("toast.walletConnectionFailed.title"),
-            description: t("wallet.error.noAddress"),
-          });
-          return;
         }
-      } else {
-        setConnectionError("not-allowed");
-        toast.warning({
-          title: t("toast.walletPermissionRequired.title"),
-          description: t("wallet.error.notAllowed"),
+
+        const error = createWalletConnectionError(
+          "NO_ADDRESS",
+          "Unable to retrieve wallet address.",
+          true,
+        );
+        dispatch({ type: "CONNECT_FAILED", error });
+        toast.error({
+          title: t("toast.walletConnectionFailed.title"),
+          description: t(walletErrorI18nKeys(error.code).description),
         });
         return;
       }
+
+      const denied = createWalletConnectionError(
+        "PERMISSION_DENIED",
+        "Freighter permission denied.",
+        true,
+      );
+      dispatch({ type: "CONNECT_FAILED", error: denied });
+      toast.warning({
+        title: t("toast.walletPermissionRequired.title"),
+        description: t(walletErrorI18nKeys(denied.code).description),
+      });
     } catch (e: unknown) {
       console.error(e);
-      const error = e as Error;
-
-      if (error.message?.includes("Freighter")) {
-        setConnectionError("not-installed");
-      } else {
-        setConnectionError("generic");
-      }
-
+      const error = classifyWalletConnectionError(e);
+      dispatch({ type: "CONNECT_FAILED", error });
       toast.error({
         title: t("toast.walletConnectionFailed.title"),
-        description: t("wallet.error.generic"),
+        description: t(walletErrorI18nKeys(error.code).description),
       });
-    } finally {
-      setIsConnecting(false);
     }
   }, [onConnect, toast, t]);
 
@@ -200,25 +221,17 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   }, [handleConnect]);
 
   const formatAddress = (addr: string) => {
-    if (preferences.maskSensitiveValues) {
+    if (preferences?.maskSensitiveValues) {
       return displayIdentifier(addr, true);
     }
     return `${addr.substring(0, 5)}...${addr.substring(addr.length - 4)}`;
   };
 
   const getErrorDescription = (): string => {
-    switch (connectionError) {
-      case "not-installed":
-        return t("wallet.error.notInstalled");
-      case "not-allowed":
-        return t("wallet.error.notAllowed");
-      case "no-address":
-        return t("wallet.error.noAddress");
-      case "generic":
-        return t("wallet.error.generic");
-      default:
-        return "";
+    if (!connection.error) {
+      return "";
     }
+    return t(walletErrorI18nKeys(connection.error.code).description);
   };
 
   const getStatusTooltip = (): string => {
@@ -231,7 +244,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
     if (isConnecting) {
       return t("wallet.tooltip.connectingStatus");
     }
-    if (connectionError) {
+    if (hasError) {
       return getErrorDescription();
     }
     return t("wallet.tooltip.disconnectedStatus");
@@ -239,7 +252,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
 
   if (walletAddress) {
     return (
-      <div className="wallet-status flex items-center gap-md">
+      <div className="wallet-status flex items-center gap-md" data-wallet-status="connected">
         <WalletSessionIndicator walletAddress={walletAddress} />
         <div
           className="glass-panel"
@@ -306,7 +319,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
           className="btn btn-outline"
           style={{ padding: "8px", borderRadius: "50%" }}
           onClick={() => {
-            setConnectionError(null);
+            dispatch({ type: "DISCONNECT_REQUESTED" });
             setWalletManualDisconnect();
             clearReconnectPromptDismissed();
             clearLastWalletProvider();
@@ -327,7 +340,11 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   const showDiscovering = isFreighterDiscovering && !isConnecting;
 
   return (
-    <div style={{ position: "relative" }}>
+    <div
+      style={{ position: "relative" }}
+      data-wallet-status={connection.status}
+      data-error-code={connection.error?.code ?? undefined}
+    >
       {reconnectProvider && !walletAddress && !isConnecting && (
         <WalletReconnectPrompt
           provider={reconnectProvider}
@@ -343,15 +360,15 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
         />
       )}
       <Button
-        variant={connectionError ? "danger" : "primary"}
+        variant={hasError ? "danger" : "primary"}
         className={isConnecting || showDiscovering ? "animate-glow" : ""}
         onClick={handleConnect}
         disabled={isConnecting || showDiscovering}
-        status={isConnecting || showDiscovering ? "pending" : connectionError ? "error" : "idle"}
+        status={isConnecting || showDiscovering ? "pending" : hasError ? "error" : "idle"}
         loadingLabel={
           showDiscovering ? t("wallet.checkingFreighter") : t("wallet.connecting")
         }
-        leftIcon={connectionError ? <AlertCircle size={18} /> : <Wallet size={18} />}
+        leftIcon={hasError ? <AlertCircle size={18} /> : <Wallet size={18} />}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
         onFocus={() => setShowTooltip(true)}
@@ -366,6 +383,41 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
             : t("wallet.connectFreighter")}
       </Button>
 
+      {hasError && connection.error ? (
+        <div
+          className="wallet-connection-error"
+          role="alert"
+          aria-live="assertive"
+          data-error-code={connection.error.code}
+          style={{
+            marginTop: "8px",
+            padding: "8px 10px",
+            borderRadius: "8px",
+            border: "1px solid var(--accent-red-dim, #f87171)",
+            fontSize: "0.75rem",
+            color: "var(--accent-red, #f87171)",
+            maxWidth: "260px",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: "2px" }}>
+            {t(walletErrorI18nKeys(connection.error.code).title)}
+          </div>
+          <div style={{ color: "var(--text-secondary)" }}>
+            {t(walletErrorI18nKeys(connection.error.code).description)}
+          </div>
+          {connection.error.retryable ? (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ marginTop: "8px", padding: "4px 8px", fontSize: "0.75rem" }}
+              onClick={() => void handleConnect()}
+            >
+              {t("wallet.retry")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {showTooltip && (
         <div
           className="wallet-tooltip"
@@ -377,15 +429,15 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
             marginBottom: "8px",
             padding: "8px 12px",
             backgroundColor: "var(--surface-secondary)",
-            border: connectionError ? "1px solid var(--accent-red-dim)" : "1px solid var(--accent-cyan-dim)",
+            border: hasError ? "1px solid var(--accent-red-dim)" : "1px solid var(--accent-cyan-dim)",
             borderRadius: "4px",
             fontSize: "0.75rem",
-            color: connectionError ? "var(--accent-red)" : "var(--text-secondary)",
+            color: hasError ? "var(--accent-red)" : "var(--text-secondary)",
             whiteSpace: "normal",
             wordWrap: "break-word",
             maxWidth: "200px",
             zIndex: 1000,
-            boxShadow: connectionError
+            boxShadow: hasError
               ? "0 0 12px rgba(255, 80, 100, 0.15)"
               : "0 0 12px rgba(0, 240, 255, 0.15)",
             pointerEvents: "none",
@@ -402,7 +454,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
               height: "0",
               borderLeft: "4px solid transparent",
               borderRight: "4px solid transparent",
-              borderTop: connectionError ? "4px solid var(--accent-red-dim)" : "4px solid var(--accent-cyan-dim)",
+              borderTop: hasError ? "4px solid var(--accent-red-dim)" : "4px solid var(--accent-cyan-dim)",
             }}
           />
         </div>

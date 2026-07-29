@@ -1,6 +1,53 @@
 # Monitoring & Observability Dashboard Guide
 
-This guide explains every metric, alert, and dashboard panel used to monitor YieldVault backend health and webhook delivery.
+This guide explains every metric, alert, and dashboard panel used to monitor YieldVault backend health and webhook delivery. All monitoring targets and alert thresholds are governed by the **[Non-Functional Requirement (NFR) Baselines Specification](./NFR_BASELINES.md)** and machine-readable spec [`docs/nfr-baselines.json`](./nfr-baselines.json).
+
+---
+
+## 0. Observability Dashboard Minimums (Logs, Metrics, Traces)
+
+Production and staging must expose a **minimum viable observability dashboard** covering three pillars. Operators may add panels beyond this list; they must not ship without these.
+
+Machine-readable checklist: [`docs/observability-dashboard-minimums.json`](./observability-dashboard-minimums.json).
+
+### 0.1 Logs (minimum)
+
+| Requirement | Source | Acceptance |
+| --- | --- | --- |
+| Structured JSON logs for every HTTP request | `structuredLoggingMiddleware` | Fields include `timestamp`, `level`, `message`, `method`, `url`, `status`, `durationMs`, `requestId`, `correlationId` |
+| Error logs for 5xx / unhandled exceptions | `errorBoundary` + logger | `level=error` with stable `errorCode` when available; no raw secrets |
+| Correlation ID on inbound and outbound calls | correlation middleware + outbound propagation | Same `correlationId` visible in API logs and webhook/email egress logs |
+| Retained search | log backend (e.g. CloudWatch / Loki) | Filter by `correlationId` and `requestId` for the last **14 days** |
+
+**Required log explorer views:** (1) errors last 1h, (2) slow requests `durationMs > SLO`, (3) lookup by `correlationId`.
+
+### 0.2 Metrics (minimum)
+
+| Panel | PromQL / source | Alert hint |
+| --- | --- | --- |
+| Request rate | `sum(rate(http_request_count[1m]))` | Sudden drop → outage |
+| 5xx error rate | `sum(rate(http_request_count{status_code=~"5.."}[5m])) / sum(rate(http_request_count[5m]))` | Sustained > 1% |
+| P95 latency | `histogram_quantile(0.95, sum(rate(http_response_time_seconds_bucket[5m])) by (le, route))` | Above read 200 ms / write 500 ms |
+| SLO breach gauge | `backend_slo_breach` | Any `1` on `tier="critical"` |
+| Vault TVL + share price | `vault_tvl_usd`, `vault_share_price_usd` | Flat/stale > 15 min while traffic exists |
+| Process health | `nodejs_eventloop_lag_seconds`, heap, CPU | Lag > 100 ms |
+
+Full panel layout: [§4 Dashboard Panel Layout](#4-dashboard-panel-layout-grafana).
+
+### 0.3 Traces (minimum)
+
+| Requirement | Source | Acceptance |
+| --- | --- | --- |
+| OTLP export enabled in staging/prod | `backend/src/tracing.ts` (`OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`) | Spans arrive in the collector within 60 s of traffic |
+| HTTP + Express auto-instrumentation | OpenTelemetry HTTP/Express instrumentations | Each inbound request has a root server span |
+| Manual spans on critical paths | `withSpan` / `getCurrentTraceId` in transaction & reconciliation flows | Deposit/withdraw and reconciliation jobs appear as named spans |
+| Trace ↔ log join | `traceId` / correlation fields | From a failing log line, open the matching trace in ≤ 2 clicks |
+
+**Required trace views:** (1) slowest endpoints last 15 m, (2) error traces (`status=ERROR`), (3) service map for `yieldvault-backend`.
+
+### 0.4 Go / No-Go gate
+
+A release is observability-ready only when all three pillars above are green in the target environment. Track sign-off with the checklist JSON `minimums` entries set to `required: true` (all current entries).
 
 ---
 

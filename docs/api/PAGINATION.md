@@ -193,8 +193,18 @@ Cursor paging is **stable for a fixed dataset**, but new rows can appear while y
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `type` | string | 'all' | Filter by transaction type: 'deposit', 'withdrawal', or 'all' |
-| `walletAddress` | string | - | Filter by wallet address |
+| `type` | string | 'all' | Filter by transaction type: `deposit`, `withdrawal`, or a comma-separated combination. Unknown values return `400`. |
+| `status` | string | - | Filter by status: `pending`, `completed`, or `failed`. Unknown values return `400`. |
+| `from` / `to` | string | - | Inclusive date range (ISO 8601 or `YYYY-MM-DD`). |
+| `walletAddress` | string | - | Filter by wallet address (results are tenant-scoped to this wallet). |
+| `sortBy` | string | `timestamp` | Sort field. **Allowed:** `timestamp`, `type`, `status`. Unknown values return `400`. |
+| `sortOrder` | string | `desc` | `asc` or `desc`. |
+
+> **Note:** `amount` is **not** a sortable field for transactions because it is
+> persisted as a decimal string and would sort lexically rather than
+> numerically. Sortable fields are restricted to an allowlist to prevent
+> arbitrary `orderBy` injection. A secondary `id` tie-breaker (same direction)
+> guarantees stable cursor paging even when the primary sort key has ties.
 
 #### Portfolio Holdings (`GET /api/portfolio/holdings`)
 
@@ -297,14 +307,21 @@ GET /api/transactions?limit=20&page=2
 
 ## Sorting
 
-All list endpoints support sorting by multiple fields.
+List endpoints support sorting via `sortBy` / `sortOrder`. For the transactions
+endpoint the `sortBy` field is validated against an **allowlist**
+(`timestamp`, `type`, `status`); requesting any other field returns
+`400 Bad Request` rather than silently ignoring it. Ordering is always made
+total by appending a secondary `id` sort in the same direction.
 
 **Example:**
 ```bash
-# Sort by timestamp descending (newest first)
+# Sort by timestamp descending (newest first) — default
 GET /api/transactions?sortBy=timestamp&sortOrder=desc
 
-# Sort by amount ascending (smallest first)
+# Group by status, ascending
+GET /api/transactions?sortBy=status&sortOrder=asc
+
+# Rejected: amount is not an allowlisted sort field → 400 Bad Request
 GET /api/transactions?sortBy=amount&sortOrder=asc
 ```
 
@@ -328,7 +345,10 @@ Invalid pagination parameters are handled gracefully:
 - Invalid `limit` values are clamped to valid range (1-100)
 - Invalid `page` values default to page 1
 - Invalid `sortOrder` values default to 'desc'
-- Invalid `cursor` values return empty results
+- Invalid `cursor` values return empty results on public list routes, or `400`
+  on the wallet-scoped transactions route
+- On the transactions route, an unknown `sortBy`, `type`, or `status` value
+  returns `400 Bad Request` with a message listing the allowed values
 
 ## Best Practices
 
@@ -351,9 +371,9 @@ curl "http://localhost:3000/api/transactions?limit=20"
 curl "http://localhost:3000/api/transactions?limit=20&cursor=base64encodedcursor"
 ```
 
-### Get deposits only, sorted by amount
+### Get completed deposits only, sorted by status
 ```bash
-curl "http://localhost:3000/api/transactions?type=deposit&sortBy=amount&sortOrder=desc"
+curl "http://localhost:3000/api/transactions?type=deposit&status=completed&sortBy=status&sortOrder=desc"
 ```
 
 ### Get active portfolio holdings for a wallet
@@ -371,6 +391,14 @@ curl "http://localhost:3000/api/vault/history?from=2026-01-01&to=2026-03-31&limi
 All list endpoints are subject to API rate limiting. See [RATE_LIMITING.md](./RATE_LIMITING.md) for details.
 
 ## Changelog
+
+### Version 1.2.0 (2026-07-25)
+- Transactions endpoint: `sortBy` is now validated against an allowlist
+  (`timestamp`, `type`, `status`) and honored server-side; previously `sortBy`
+  was accepted but ignored (always sorted by `timestamp`). (Issue #890)
+- Transactions endpoint: `status` filter is now validated (`pending`,
+  `completed`, `failed`); unknown `sortBy`/`type`/`status` values return `400`.
+- Documented the deterministic secondary `id` tie-breaker for cursor stability.
 
 ### Version 1.1.0 (2026-06-26)
 - Add deterministic paging behavior walkthrough with concrete request/response examples

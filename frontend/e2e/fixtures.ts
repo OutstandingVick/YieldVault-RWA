@@ -89,6 +89,7 @@ const portfolioHoldings = [
   {
     id: 'hold-1',
     asset: 'USDC Treasury Pool',
+    vaultId: 'vault-1',
     vaultName: 'Stellar RWA Yield Fund',
     symbol: 'yvUSDC',
     shares: 1250.5,
@@ -101,6 +102,7 @@ const portfolioHoldings = [
   {
     id: 'hold-2',
     asset: 'Government Bond Basket',
+    vaultId: 'vault-2',
     vaultName: 'Sovereign Income Sleeve',
     symbol: 'yvBOND',
     shares: 840.12,
@@ -113,6 +115,7 @@ const portfolioHoldings = [
   {
     id: 'hold-3',
     asset: 'Short Duration Credit',
+    vaultId: 'vault-3',
     vaultName: 'Liquidity Ladder',
     symbol: 'yvCASH',
     shares: 500.33,
@@ -125,6 +128,7 @@ const portfolioHoldings = [
   {
     id: 'hold-4',
     asset: 'Tokenized T-Bills',
+    vaultId: 'vault-4',
     vaultName: 'USD Treasury Express',
     symbol: 'yvUSTB',
     shares: 1380,
@@ -137,6 +141,7 @@ const portfolioHoldings = [
   {
     id: 'hold-5',
     asset: 'Yield Bearing Cash',
+    vaultId: 'vault-5',
     vaultName: 'Prime Reserve Strategy',
     symbol: 'yvPRIME',
     shares: 320.42,
@@ -149,6 +154,7 @@ const portfolioHoldings = [
   {
     id: 'hold-6',
     asset: 'EM Debt Blend',
+    vaultId: 'vault-6',
     vaultName: 'Global Carry Vault',
     symbol: 'yvEMD',
     shares: 214.1,
@@ -157,6 +163,63 @@ const portfolioHoldings = [
     unrealizedGainUsd: 14.07,
     issuer: 'Templeton',
     status: 'pending',
+  },
+];
+
+const vaultHealth = [
+  {
+    vaultId: 'vault-1',
+    name: 'Stellar RWA Yield Fund',
+    status: 'healthy',
+    latencyMs: 48,
+    uptimePct: 99.98,
+    lastCheckedAt: '2026-07-24T08:45:00.000Z',
+    message: 'All systems operational',
+  },
+  {
+    vaultId: 'vault-2',
+    name: 'Sovereign Income Sleeve',
+    status: 'healthy',
+    latencyMs: 62,
+    uptimePct: 99.95,
+    lastCheckedAt: '2026-07-24T08:45:00.000Z',
+    message: 'All systems operational',
+  },
+  {
+    vaultId: 'vault-3',
+    name: 'Liquidity Ladder',
+    status: 'degraded',
+    latencyMs: 420,
+    uptimePct: 98.2,
+    lastCheckedAt: '2026-07-24T08:45:00.000Z',
+    message: 'Elevated settlement latency',
+  },
+  {
+    vaultId: 'vault-4',
+    name: 'USD Treasury Express',
+    status: 'healthy',
+    latencyMs: 55,
+    uptimePct: 99.99,
+    lastCheckedAt: '2026-07-24T08:45:00.000Z',
+    message: 'All systems operational',
+  },
+  {
+    vaultId: 'vault-5',
+    name: 'Prime Reserve Strategy',
+    status: 'healthy',
+    latencyMs: 71,
+    uptimePct: 99.91,
+    lastCheckedAt: '2026-07-24T08:45:00.000Z',
+    message: 'All systems operational',
+  },
+  {
+    vaultId: 'vault-6',
+    name: 'Global Carry Vault',
+    status: 'unhealthy',
+    latencyMs: 2100,
+    uptimePct: 94.5,
+    lastCheckedAt: '2026-07-24T08:45:00.000Z',
+    message: 'Oracle feed unreachable',
   },
 ];
 
@@ -209,6 +272,31 @@ export async function interceptApiRoutes(page: Page) {
         });
       });
     }
+    // Privacy masking is on by default; disable it so address/balance assertions stay stable.
+    try {
+      localStorage.setItem(
+        'yieldvault-preferences:guest',
+        JSON.stringify({
+          theme: 'dark',
+          locale: 'en-US',
+          currency: 'USD',
+          notifications: {
+            depositAlerts: true,
+            withdrawalAlerts: true,
+            yieldUpdates: true,
+            priceAlerts: false,
+            weeklyReport: true,
+            securityAlerts: true,
+          },
+          compactMode: false,
+          showBalances: true,
+          maskSensitiveValues: false,
+          precision: 2,
+        }),
+      );
+    } catch {
+      // ignore quota / private mode
+    }
   });
 
   await page.route('**/sw.js', (route) =>
@@ -231,6 +319,13 @@ export async function interceptApiRoutes(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(portfolioHoldings),
+    }),
+  );
+  await page.route('**/mock-api/vault-health.json', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(vaultHealth),
     }),
   );
 
@@ -325,6 +420,16 @@ export async function stubFreighterConnected(page: Page, address: string) {
       'yieldvault-preferences:guest',
       JSON.stringify({ maskSensitiveValues: false }),
     );
+    try {
+      const raw = localStorage.getItem('yieldvault-preferences:guest');
+      const base = raw ? JSON.parse(raw) : { maskSensitiveValues: false };
+      localStorage.setItem(
+        `yieldvault-preferences:${addr}`,
+        JSON.stringify({ ...base, maskSensitiveValues: false }),
+      );
+    } catch {
+      // ignore
+    }
 
     const stub = { connected: true };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
@@ -394,6 +499,16 @@ export async function stubFreighterManualConnect(page: Page, address: string) {
       'yieldvault-preferences:guest',
       JSON.stringify({ maskSensitiveValues: false }),
     );
+    try {
+      const raw = localStorage.getItem('yieldvault-preferences:guest');
+      const base = raw ? JSON.parse(raw) : { maskSensitiveValues: false };
+      localStorage.setItem(
+        `yieldvault-preferences:${addr}`,
+        JSON.stringify({ ...base, maskSensitiveValues: false }),
+      );
+    } catch {
+      // ignore
+    }
 
     const stub = { connected: false };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;

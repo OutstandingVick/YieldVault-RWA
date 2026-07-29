@@ -14,21 +14,22 @@ and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 The file lives at `CHANGELOG.md` in the repository root.  Every entry is
 written in past tense from the perspective of someone upgrading the software.
 
+For official GitHub Releases and major version announcements, all release notes must be drafted using the **[Release Notes Template](../.github/RELEASE_NOTES_TEMPLATE.md)**.
+
 ### Section order inside a release
 
-Each version block must use the sections below in this order, omitting any
-section that has no entries:
+Each version block must use the sections below in this order:
 
-| Section | What belongs here |
-|---|---|
-| **Breaking Changes** | Any change that requires a manual action during upgrade (API removals, schema migrations, env-var renames). |
-| **Features** | New capabilities that are immediately usable after upgrading. |
-| **Bug Fixes** | Corrections to existing behaviour. |
-| **Security** | Vulnerability patches.  Reference CVE or advisory where available. |
-| **Performance** | Improvements with measurable throughput or latency impact. |
-| **Deprecations** | Existing behaviour that will be removed in a future version. |
-| **Documentation** | Notable doc-only changes that affect how integrators use the system. |
-| **Chores** | Dependency upgrades, CI changes, refactors with no user-visible effect. |
+| Section | What belongs here | Required Sign-Off |
+|---|---|---|
+| **Release Overview** | Executive summary of release deliverables and goals. | Release Lead |
+| **Security Highlights** | Vulnerability patches, CVE references, Slither scan results, access control fixes. | Security Lead (`@security-team`) |
+| **Performance Highlights** | Smart contract gas savings, API latency metrics, throughput improvements. | Tech Lead |
+| **Breaking Changes** | Any change requiring manual upgrade actions (API removals, DB migrations). | Tech Lead |
+| **Features** | New capabilities usable after upgrading. | Maintainers |
+| **Bug Fixes** | Corrections to existing behavior and defect remedies. | Maintainers |
+| **Documentation** | Technical documentation and developer tooling updates. | Docs Lead |
+| **Chores & Dependencies** | Dependency upgrades, CI changes, refactors. | DevOps Lead |
 
 ### Entry style guide
 

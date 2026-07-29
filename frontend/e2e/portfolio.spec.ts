@@ -27,6 +27,7 @@ test.describe('Portfolio page  authenticated', () => {
     await page.goto('/portfolio');
     await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Total Net Value')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Vault Health' })).toBeVisible();
     await expect(page.getByRole('table', { name: 'Portfolio holdings' })).toBeVisible();
     // Highest value holding from mock data (sorted by valueUsd desc)
     await expect(page.getByText('Tokenized T-Bills')).toBeVisible();
