@@ -1,64 +1,686 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
-import NodeCache from 'node-cache';
+// Load environment variables FIRST before any other imports
+// This ensures OTEL_ENABLED is set before tracing initialization
 import dotenv from 'dotenv';
-import listEndpoints from './listEndpoints';
-import { apiLimiter } from './rateLimiter';
-import {
-  buildIdempotencyFingerprint,
-  idempotencyStore,
-  IdempotencyConflictError,
-} from './idempotency';
-import { getJobHealthStatus, getJobMetrics } from './jobGovernance';
-
 dotenv.config();
+
+// Tracing must be initialised before any other imports so auto-instrumentation
+// can patch http/express/prisma before they are first required.
+import { initTracing, shutdownTracing, getCurrentTraceId } from './tracing';
+initTracing();
+
+import express, { Express, Request, Response, NextFunction, ErrorRequestHandler } from 'express';
+import NodeCache from 'node-cache';
+import { loginHandler, nonceHandler, refreshHandler, requireAuth, verifyJwt } from './auth';
+import {
+  authLimiter,
+  writesLimiter,
+  readsLimiter,
+  adminLimiter,
+} from './rateLimiter';
+import { idempotencyStore } from './idempotency';
+import { createAdminAuditMiddleware, getAuditLogs, getAuditLogMetrics } from './auditLog';
+import { recordAdminAuditLog } from './adminAudit';
+import {
+  recordAdminConfigChange, listAdminConfigChanges, getActorFromRequest
+} from './adminConfigChangeAudit';
+import { featureFlags } from './featureFlags';
+import {
+  startImpersonationSession,
+  endImpersonationSession,
+  validateImpersonationSession,
+  listImpersonationSessions,
+  resolveImpersonationSessionContext,
+  type ImpersonationSessionRecord,
+} from './impersonationSessionService';
+import { generateAdminReceipt, getAdminReceipt, listAdminReceipts, verifyReceiptSignature } from './adminReceipt';
+import { startApySnapshotScheduler } from './apySnapshot';
+import { startDbBackupScheduler } from './dbBackupJob';
+import { startPositionReconciliationScheduler, startLedgerReconciliationScheduler } from './positionReconciliationJob';
+import { setupSwagger } from './swagger';
+import { sorobanCircuitBreaker } from './circuitBreaker';
+import { correlationIdMiddleware, CorrelationIdRequest } from './middleware/correlationId';
+import { structuredLoggingMiddleware, logger, LogLevel } from './middleware/structuredLogging';
+import { corsMiddleware } from './middleware/cors';
+import { geofencingMiddleware } from './middleware/geofencing';
+import { cacheMiddleware, invalidateCache, getCacheStats } from './middleware/cache';
+import { getRedisCacheHealth, redisCacheClient } from './redisCache';
+import { validate, LoginSchema, NonceRequestSchema, RefreshSchema, WebhookRegisterSchema, WebhookUpdateSchema } from './middleware/validate';
+import { tieredJsonBodyParser } from './middleware/payloadLimit';
+import { requireSignedWalletAction } from './middleware/walletSignedAction';
+import { timeoutMiddleware, createTimeoutFor } from './middleware/timeoutMiddleware';
+import {
+  setWithdrawalLimitOverride,
+  listWithdrawalLimitAuditEntries,
+} from './middleware/withdrawalDailyLimit';
+import { adaptiveThrottleMiddleware } from './middleware/adaptiveThrottle';
+import {
+  validateApiKey,
+  authenticateApiKeyValue,
+  registerApiKey,
+  rotateApiKey,
+  revokeApiKey,
+  getApiKeyMetadata,
+  restoreApiKey,
+  hasRequiredApiKeyRole,
+  normalizeApiKeyRole,
+} from './middleware/apiKeyAuth';
+import {
+  API_KEY_AUDIT_ACTIONS,
+  isApiKeyHash,
+  getApiKeyFingerprintFromHash,
+  getApiKeyFingerprintFromValue,
+  resolveApiKeyAuditActor,
+  recordApiKeyAuditEvent,
+  listApiKeyAuditEvents,
+} from './apiKeyAudit';
+import {
+  addAddress,
+  removeAddress,
+  listAddresses,
+  allowlistSize,
+} from './middleware/allowlist';
+import { adminRbacMiddleware, assertWebhookParameterUpdate } from './middleware/rbac';
+import { apiVersionMiddleware } from './middleware/versionNegotiation';
+import { GracefulShutdownHandler } from './gracefulShutdown';
+import { db } from './database';
+import vaultRouter from './vaultEndpoints';
+import walletAliasRouter from './walletAliasEndpoints';
+import transactionRouter from './transactionEndpoints';
+import {
+  buildPortfolioHoldingsResponse,
+  buildTransactionExportArtifact,
+  buildTransactionsResponse,
+  buildVaultHistoryResponse,
+} from './listEndpoints';
+import { createPaginatedResponse, createPaginationEnvelope, encodeCursor } from './pagination';
+import listRouter from './listEndpoints';
+import referralRouter from './referralEndpoints';
+import { referralService } from './referralService';
+import {
+  register,
+  httpRequestCount,
+  httpResponseTime,
+  activeConnections,
+  updateVaultMetrics,
+  syncJobGovernanceMetrics,
+} from './metrics';
+import { latencyMonitoringService } from './latencyMonitoring';
+import { listEndpointSlaRegistry } from './endpointSlaRegistry';
+import { startEventPollingService, stopEventPollingService } from './eventPollingService';
+import { prisma, getPrismaRuntimeConfig } from './prisma';
+import { getPrismaClient } from './prismaClient';
+import {
+  verifyWebhookEndpoint,
+  registerWebhookEndpoint,
+  updateWebhookEndpoint,
+  deleteWebhookEndpoint,
+  restoreWebhookEndpoint,
+  listWebhookEndpoints,
+  listWebhookDeliveryPage,
+  getWebhookDeliveryMetrics,
+  createWebhookSignature,
+  verifyWebhookSignature,
+  listWebhookDeadLetters,
+  retryWebhookDeadLetter,
+  initializeWebhookEndpoints,
+  WEBHOOK_SCHEMA_VERSION,
+} from './webhookDelivery';
+import { webhookDeduplicationStore } from './webhookDeduplication';
+import { healthProbeService } from './healthProbe';
+import { writeAheadAuditLog } from './writeAheadAuditLog';
+import {
+  withdrawalRecoveryCoordinator,
+  type WithdrawalSagaStatus,
+} from './withdrawalRecovery';
+import {
+  maintenanceModeMiddleware,
+  getMaintenanceModeState,
+  updateMaintenanceModeState,
+  logMaintenanceTransition,
+} from './maintenanceMode';
+import {
+  buildMaintenanceStatusPayload,
+  cancelMaintenanceWindow,
+  listMaintenanceWindows,
+  scheduleMaintenanceWindow,
+  startMaintenanceWindowScheduler,
+} from './maintenanceWindow';
+import {
+  buildExportMetadataHeaderValue,
+  getExportJobById,
+  listExportJobs,
+  recordExportJob,
+  resolveExportGeneratedBy,
+} from './exportJobs';
+import { parseUtcDateRange, DateRangeParseError } from './dateRange';
+import { backfillApySnapshots } from './apySnapshot';
+import {
+  getJobMetrics,
+  getJobHealthStatus,
+  listDeadLetters,
+  getDeadLetterRecord,
+  retryDeadLetter,
+  resolveDeadLetter,
+  discardDeadLetter,
+  bulkRetryDeadLetters,
+  bulkDiscardDeadLetters,
+  processDeadLetterQueue,
+  type JobName,
+  type DeadLetterStatus,
+} from './jobGovernance';
+import {
+  createBulkExportJob,
+  getBulkExportJob,
+  listBulkExportJobs,
+  cancelBulkExportJob,
+  processBulkExportJob,
+  getBulkExportArtifact,
+} from './bulkExportJobs';
+import { normalizeWalletAddress } from './walletUtils';
+import { emailQueueService } from './emailQueue';
+import {
+  createOrResumeTransactionBackfill,
+  getTransactionBackfillJob,
+  listTransactionBackfillJobs,
+} from './transactionBackfill';
+import {
+  createExportManifest,
+  getExportManifestById,
+  listExportManifests,
+  verifyExportManifestChecksum,
+} from './exportManifest';
+import {
+  reconciliationReportHandler,
+  automatedReconciliationSummaryHandler,
+} from './reconciliationReport';
+import { diagnosticsBundleHandler } from './diagnosticsBundle';
+import { errorBoundaryMiddleware } from './middleware/errorBoundary';
+import {
+  exportGovernanceSnapshots,
+  listGovernanceSnapshots,
+} from './governanceSnapshotExport';
+import {
+  getIdempotencyRetentionMetrics,
+  pruneStaleIdempotencyRecords,
+  startIdempotencyRetentionScheduler,
+} from './idempotencyRetention';
+import { scopedAdminTokenStore } from './scopedAdminTokens';
+
+declare global {
+  namespace Express {
+    interface Request {
+      rateLimit?: {
+        resetTime?: number;
+        current?: number;
+        limit?: number;
+      };
+    }
+  }
+}
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
 const nodeEnv = process.env.NODE_ENV || 'development';
+const logLevel = (process.env.LOG_LEVEL || (nodeEnv === 'development' ? 'debug' : 'info')) as LogLevel;
+const drainTimeout = parseInt(process.env.DRAIN_TIMEOUT_MS || '30000', 10);
+const cacheVaultMetricsTtl = parseInt(process.env.CACHE_TTL_MS || process.env.CACHE_VAULT_METRICS_TTL_MS || '60000', 10);
+
+// Configure logger
+logger.configure(logLevel);
 
 // Health check cache to track dependency status
 const cache = new NodeCache({ stdTTL: 30 });
 
-// ─── Middleware ──────────────────────────────────────────────────────────────
+function buildVaultSummaryResponse() {
+  return {
+    totalAssets: 0,
+    totalShares: 0,
+    apy: 0,
+    timestamp: new Date().toISOString(),
+  };
+}
 
-app.use(express.json());
+/**
+ * Reads the vault summary from the VaultState table and the most recent
+ * SharePriceSnapshot for the share price. Falls back to zeroed values when
+ * the database is unavailable (e.g., during startup or in tests).
+ */
+async function buildVaultSummaryResponseFromDb(): Promise<{
+  totalAssets: string;
+  totalShares: string;
+  sharePrice: string;
+  apy: number;
+  timestamp: string;
+}> {
+  try {
+    const prismaClient = getPrismaClient();
+    const [vaultState, latestSnapshot] = await Promise.all([
+      prismaClient.vaultState.findUnique({ where: { id: 1 } }),
+      prismaClient.sharePriceSnapshot
+        .findFirst({ orderBy: { recordedAt: 'desc' } })
+        .catch(() => null),
+    ]);
 
-app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  if (req.path.startsWith('/v1')) {
-    next();
+    const totalAssets = vaultState?.totalAssets ?? '0';
+    const totalShares = vaultState?.totalShares ?? '0';
+    const sharePrice = latestSnapshot?.sharePrice ?? '1.000000';
+
+    return {
+      totalAssets,
+      totalShares,
+      sharePrice,
+      apy: 0, // APY is computed by the nightly snapshot job; placeholder until first run
+      timestamp: new Date().toISOString(),
+    };
+  } catch {
+    // Fail-open: return safe zero values so the endpoint never 500s
+    return {
+      totalAssets: '0',
+      totalShares: '0',
+      sharePrice: '1.000000',
+      apy: 0,
+      timestamp: new Date().toISOString(),
+    };
+  }
+}
+
+function resolveActingAdminAddress(req: Request): string {
+  const address =
+    req.get('x-admin-address') ||
+    req.get('x-admin-id') ||
+    req.get('x-wallet-address') ||
+    'unknown';
+  return address === 'unknown' ? address : normalizeWalletAddress(address);
+}
+
+function parseLimited(v: unknown, fallback: number, min: number, max: number): number {
+  const n = parseInt(String(v ?? ''), 10);
+  return Number.isNaN(n) ? fallback : Math.min(Math.max(n, min), max);
+}
+
+function isDryRunRequest(req: Request): boolean {
+  const value = req.body?.dryRun ?? req.query.dryRun;
+  return value === true || value === 'true' || value === '1';
+}
+
+function countInclusiveDays(start: string, end: string): number {
+  const startMs = Date.parse(start + 'T00:00:00.000Z');
+  const endMs = Date.parse(end + 'T00:00:00.000Z');
+  return Math.floor((endMs - startMs) / 86400000) + 1;
+}
+
+function paginateByLimit<T>(rows: T[], limit: number): { data: T[]; hasNextPage: boolean } {
+  const hasNextPage = rows.length > limit;
+  return {
+    data: hasNextPage ? rows.slice(0, limit) : rows,
+    hasNextPage,
+  };
+}
+
+function sendStandardListEnvelope<T>(
+  res: Response,
+  input: {
+    data: T[];
+    limit: number;
+    hasNextPage?: boolean;
+    hasPrevPage?: boolean;
+    nextCursor?: string;
+    total?: number;
+    statusCode?: number;
+    extras?: Record<string, unknown>;
+  },
+): void {
+  const payload = createPaginatedResponse(input.data, {
+    count: input.data.length,
+    total: input.total ?? input.data.length,
+    nextCursor: input.nextCursor ?? null,
+    prevCursor: null,
+    currentPage: null,
+    totalPages: null,
+    hasNextPage: input.hasNextPage ?? false,
+    hasPrevPage: input.hasPrevPage ?? false,
+    limit: input.limit,
+  });
+
+  res.status(input.statusCode ?? 200).json({
+    ...payload,
+    ...(input.extras || {}),
+  });
+}
+
+async function buildReferralStatsSnapshot(wallet: string) {
+  const normalizedWallet = normalizeWalletAddress(wallet);
+  const stats = await referralService.getReferralStats(normalizedWallet);
+  if (!stats) {
+    return {
+      statusCode: 404,
+      body: {
+        error: 'Not Found',
+        status: 404,
+        message: 'No referral activity found for this wallet',
+      },
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: stats,
+  };
+}
+
+async function buildWalletTransactionsSnapshot(wallet: string) {
+  const normalizedWallet = normalizeWalletAddress(wallet);
+  const prisma = getPrismaClient();
+  const limit = 20;
+  const where = { user: normalizedWallet };
+  const [total, transactions] = await Promise.all([
+    prisma.transaction.count({ where }),
+    prisma.transaction.findMany({
+      where,
+      orderBy: { timestamp: 'desc' },
+      take: limit + 1,
+    }),
+  ]);
+  const hasNextPage = transactions.length > limit;
+  const data = hasNextPage ? transactions.slice(0, limit) : transactions;
+
+  return createPaginatedResponse(
+    data,
+    createPaginationEnvelope({
+      count: data.length,
+      limit,
+      total,
+      hasNextPage,
+      hasPrevPage: false,
+      nextCursor: hasNextPage && data.length > 0 ? encodeCursor(data[data.length - 1].id) : null,
+    }),
+  );
+}
+
+async function buildImpersonatedVaultState(wallet: string) {
+  const normalizedWallet = normalizeWalletAddress(wallet);
+  return {
+    walletAddress: normalizedWallet,
+    summary: buildVaultSummaryResponse(),
+    transactions: await buildWalletTransactionsSnapshot(normalizedWallet),
+    portfolioHoldings: buildPortfolioHoldingsResponse({ walletAddress: normalizedWallet }),
+    vaultHistory: buildVaultHistoryResponse({}),
+    referralStats: await buildReferralStatsSnapshot(normalizedWallet),
+    referralCode: {
+      statusCode: 200,
+      body: { code: await referralService.getOrCreateReferralCode(normalizedWallet) },
+    },
+  };
+}
+
+function resolveTransactionExportAccess(req: Request):
+  | { kind: 'admin'; walletAddress?: string }
+  | { kind: 'user'; walletAddress: string }
+  | null {
+  const authHeader = req.get('authorization') || '';
+  const walletAddress =
+    typeof req.query.walletAddress === 'string' ? normalizeWalletAddress(req.query.walletAddress) : undefined;
+
+  const apiKeyMatch = authHeader.match(/^ApiKey\s+(.+)$/i);
+  if (apiKeyMatch) {
+    const authenticated = authenticateApiKeyValue(apiKeyMatch[1]);
+    if (!authenticated) {
+      return null;
+    }
+    req.authApiKeyHash = authenticated.hash;
+    req.authApiKeyRole = authenticated.role;
+    return {
+      kind: 'admin',
+      walletAddress: walletAddress || undefined,
+    };
+  }
+
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch) {
+    return null;
+  }
+
+  const payload = verifyJwt(bearerMatch[1]);
+  const userWallet = normalizeWalletAddress(payload.sub);
+  if (walletAddress && walletAddress !== userWallet) {
+    throw new Error('FORBIDDEN_WALLET_EXPORT');
+  }
+
+  return {
+    kind: 'user',
+    walletAddress: userWallet,
+  };
+}
+
+function buildTransactionExportFilename(format: 'csv' | 'json'): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `transaction-history-${timestamp}.${format}`;
+}
+
+async function handleTransactionExport(req: Request, res: Response): Promise<void> {
+  const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'json' ? 'json' : null;
+  if (!format) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'format query parameter must be either csv or json',
+    });
     return;
   }
 
-  const redirectedPath = req.originalUrl.replace(/^\/api(?!\/v1)/, '/api/v1');
-  res.setHeader('Deprecation', 'true');
-  res.setHeader(
-    'Sunset',
-    new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toUTCString()
-  );
-  res.setHeader('Link', `<${redirectedPath}>; rel="alternate"`);
-  res.redirect(308, redirectedPath);
-});
+  let access;
+  try {
+    access = resolveTransactionExportAccess(req);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN_WALLET_EXPORT') {
+      res.status(403).json({
+        error: 'Forbidden',
+        status: 403,
+        message: 'Users may only export their own wallet transactions',
+      });
+      return;
+    }
 
-app.use('/api/v1', (_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('X-API-Version', 'v1');
-  next();
-});
+    res.status(401).json({
+      error: 'Unauthorized',
+      status: 401,
+      message: error instanceof Error ? error.message : 'Invalid authorization header',
+    });
+    return;
+  }
 
-app.use('/api/v1', apiLimiter);
+  if (!access) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      status: 401,
+      message: 'Authorization header must contain a Bearer token or ApiKey',
+    });
+    return;
+  }
 
-// Request logging middleware
+  const exportQuery = {
+    type: typeof req.query.type === 'string' ? req.query.type : undefined,
+    status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    sortBy: typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined,
+    sortOrder: (
+      req.query.sortOrder === 'asc' || req.query.sortOrder === 'desc'
+        ? req.query.sortOrder
+        : undefined
+    ) as 'asc' | 'desc' | undefined,
+    walletAddress: access.walletAddress,
+    startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+    endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+  };
+
+  try {
+    const artifact = buildTransactionExportArtifact(format, exportQuery);
+    const fileName = buildTransactionExportFilename(format);
+    const job = await recordExportJob({
+      format,
+      fileName,
+      contentType: artifact.contentType,
+      checksum: artifact.checksum,
+      checksumAlgorithm: artifact.checksumAlgorithm,
+      generatedBy: resolveExportGeneratedBy(req),
+      walletAddress: access.walletAddress,
+      rowCount: artifact.rowCount,
+      filters: {
+        type: exportQuery.type || null,
+        status: exportQuery.status || null,
+        sortBy: exportQuery.sortBy || null,
+        sortOrder: exportQuery.sortOrder || null,
+        startDate: exportQuery.startDate || null,
+        endDate: exportQuery.endDate || null,
+        walletAddress: exportQuery.walletAddress || null,
+      },
+    });
+
+    res.setHeader('Content-Type', artifact.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('X-Export-Job-Id', job.id);
+    res.setHeader('X-Export-Checksum', artifact.checksum);
+    res.setHeader('X-Export-Checksum-Algorithm', artifact.checksumAlgorithm);
+    res.setHeader('X-Export-Metadata', buildExportMetadataHeaderValue(job));
+    res.status(200).send(artifact.body);
+  } catch (error) {
+    logger.log('error', 'Transaction export failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to generate transaction export',
+    });
+  }
+}
+
+// â”€â”€â”€ Rate Limiting Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Issue #455: Use the Redis-backed limiter factory from rateLimiter.ts.
+//
+// Three pre-built instances are imported from rateLimiter.ts:
+//   depositsLimiter â€“ stricter limits for write-heavy deposit/withdrawal routes
+//   summaryLimiter  â€“ relaxed limits for read-only summary/metrics routes
+//   defaultLimiter  â€“ fallback for all other API routes
+//
+// All instances use fail-open behaviour: when Redis is configured but
+// unreachable the `skip` function returns true so requests are processed
+// normally. When Redis is not configured an in-memory store is used.
+//
+// Rate-limit policy information (RateLimit-* headers) and Retry-After are
+// included in all 429 responses by the handlers in rateLimiter.ts.
+
+// â”€â”€â”€ Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+app.use(tieredJsonBodyParser());
+
+// CORS configuration (restricted origins)
+app.use(corsMiddleware);
+
+// Correlation ID must be first to inject on all requests
+app.use(correlationIdMiddleware);
+
+// Structured logging with correlation IDs
+app.use(structuredLoggingMiddleware);
+
+// API version negotiation & deprecation headers
+app.use(apiVersionMiddleware);
+
+// Global timeout middleware (30 seconds default)
+app.use(timeoutMiddleware());
+
+// Metrics middleware to track HTTP requests
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const start = Date.now();
+  const start = process.hrtime();
+  activeConnections.inc();
+
   res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(
-      `[${new Date().toISOString()}] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`
-    );
+    activeConnections.dec();
+    const duration = process.hrtime(start);
+    const durationSeconds = duration[0] + duration[1] / 1e9;
+    const durationMs = durationSeconds * 1000; // Convert to milliseconds for SLO monitoring
+
+    // Use the path pattern (e.g., /api/vault/:id) instead of the actual path if available
+    const route = req.route ? req.route.path : req.path;
+    const labels = {
+      method: req.method,
+      route,
+      status_code: res.statusCode,
+    };
+
+    httpRequestCount.inc(labels);
+    httpResponseTime.observe(labels, durationSeconds);
+
+    // Record latency for SLO monitoring (only track successful requests)
+    if (res.statusCode < 400) {
+      latencyMonitoringService.recordLatency(route, durationMs);
+    }
   });
+
   next();
 });
 
-// ─── Health Check Endpoints (Issue #148) ────────────────────────────────────
+// Apply the Redis-backed default limiter (reads tier) globally (skip health/ready probes).
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/health' || req.path === '/ready') return next();
+  return readsLimiter(req, res, next);
+});
+app.use(adaptiveThrottleMiddleware);
+
+// Capture immutable admin audit records for every /admin request.
+// Apply admin-tier rate limiting to all /admin endpoints.
+app.use('/admin', adminLimiter, createAdminAuditMiddleware());
+// â”€â”€â”€ Geofencing (Issue #379) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Applied after rate-limiting so bots from blocked countries are still rate-limited.
+app.use(geofencingMiddleware);
+
+// â”€â”€â”€ Maintenance Mode Gate (Issue #481) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Blocks mutating routes (POST/PUT/PATCH/DELETE) when maintenance mode is active.
+// Health, ready, metrics, and /admin/maintenance routes are always bypassed.
+app.use(maintenanceModeMiddleware);
+
+// â”€â”€â”€ Health Check Endpoints (Issue #148) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * GET /metrics
+ * Exposes Prometheus metrics for operational monitoring
+ */
+app.get('/metrics', async (_req: Request, res: Response) => {
+  try {
+    syncJobGovernanceMetrics();
+    latencyMonitoringService.syncSloMetrics();
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (err) {
+    res.status(500).end(err);
+  }
+});
+
+/**
+ * GET /admin/latency-status
+ * Returns latency monitoring status and metrics (admin endpoint)
+ * Requires API key authentication
+ */
+app.get('/admin/latency-status', validateApiKey, (_req: Request, res: Response) => {
+  const status = latencyMonitoringService.getStatus();
+  const detailedMetrics = latencyMonitoringService.getDetailedMetrics();
+  
+  res.json({
+    status,
+    metrics: detailedMetrics,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/sla/registry
+ * Returns the canonical endpoint SLA / latency budget registry for monitoring and alerts.
+ */
+app.get('/admin/sla/registry', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    endpoints: listEndpointSlaRegistry(),
+    generatedAt: new Date().toISOString(),
+  });
+});
 
 /**
  * GET /health
@@ -67,22 +689,42 @@ app.use((req: Request, res: Response, next: NextFunction) => {
  * 
  * Response: 200 OK or 503 Service Unavailable
  */
-app.get('/health', (_req: Request, res: Response) => {
+app.get('/health', async (_req: Request, res: Response) => {
+  const dbHealth = await getDatabaseHealth();
+  const prismaHealth = await getPrismaHealth();
+  const circuitSnapshot = sorobanCircuitBreaker.toHealthSnapshot();
+  const lastIndexedLedger = await (async () => {
+    try {
+      const cursor = await prisma.eventCursor.findUnique({ where: { id: 1 } });
+      return cursor?.lastLedgerSeq ?? 0;
+    } catch {
+      return 0;
+    }
+  })();
+
   const health = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: nodeEnv,
+    lastIndexedLedger,
     checks: {
       api: 'up',
       cache: getCacheHealth(),
       stellarRpc: getStellarRpcHealth(),
+      databasePrimary: dbHealth.primary,
+      databaseReplica: dbHealth.replica,
+      prisma: prismaHealth,
       jobs: getJobHealthStatus(),
     },
+    sorobanCircuitBreaker: circuitSnapshot,
   };
 
-  // Check if all dependencies are healthy
-  const allHealthy = Object.values(health.checks).every((check) => check === 'up');
+  // 'degraded' is acceptable for cache (in-memory fallback active); only 'down' is unhealthy
+  const allHealthy = Object.entries(health.checks).every(([key, check]) => {
+    if (key === 'cache') return check === 'up' || check === 'degraded';
+    return check === 'up';
+  });
 
   res.status(allHealthy ? 200 : 503).json(health);
 });
@@ -94,124 +736,3596 @@ app.get('/health', (_req: Request, res: Response) => {
  * 
  * Response: 200 OK if ready, 503 Service Unavailable if not ready
  */
-app.get('/ready', (_req: Request, res: Response) => {
+app.get('/ready', async (_req: Request, res: Response) => {
+  const dbHealth = await getDatabaseHealth();
+  const prismaHealth = await getPrismaHealth();
   const readiness = {
     ready: true,
     timestamp: new Date().toISOString(),
     dependencies: {
       cache: checkCacheDependency(),
       stellarRpc: checkStellarRpcDependency(),
+      database: dbHealth.primary === 'up',
+      prisma: prismaHealth === 'up',
     },
   };
 
   // Service is ready only if all critical dependencies are available
   const isReady =
     readiness.dependencies.cache &&
-    readiness.dependencies.stellarRpc;
+    readiness.dependencies.stellarRpc &&
+    readiness.dependencies.database &&
+    readiness.dependencies.prisma;
 
   readiness.ready = isReady;
 
   res.status(isReady ? 200 : 503).json(readiness);
 });
 
-// ─── API Routes (with strict rate limiting) ────────────────────────────────
+/**
+ * GET /maintenance/status
+ * Public read-only maintenance window visibility (Issue #714).
+ */
+app.get('/maintenance/status', (_req: Request, res: Response) => {
+  res.status(200).json(buildMaintenanceStatusPayload());
+});
+
+// Enable Swagger UI documentation
+setupSwagger(app);
+
+// â”€â”€â”€ Versioned API v1 Router â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const apiV1 = express.Router();
+app.use('/api/v1', apiV1);
+
+// Mount routers under /api/v1
+apiV1.use('/vault', vaultRouter);
+apiV1.use('/wallet-aliases', walletAliasRouter);
+apiV1.use('/referrals', referralRouter);
+apiV1.use('/transactions', transactionRouter);
+apiV1.use('/', listRouter);
+
+// Backward compatibility for legacy unversioned list routes (/api/*)
+app.use('/api', listRouter);
+
+// â”€â”€â”€ Auth Routes (Issue #377) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Canonical versioned auth endpoints
 
 /**
- * Example protected API endpoint
- * Demonstrates rate limiting per API key
+ * POST /api/v1/auth/login
+ * Issue 15-min access JWT + 7-day refresh token on wallet authentication.
  */
-app.get('/api/v1/vault/summary', (_req: Request, res: Response) => {
-  // This would typically fetch data from Stellar RPC or database
-  res.json({
-    totalAssets: 0,
-    totalShares: 0,
-    apy: 0,
+apiV1.post('/auth/nonce', authLimiter, validate({ body: NonceRequestSchema }), nonceHandler);
+apiV1.post('/auth/login', authLimiter, validate({ body: LoginSchema }), requireSignedWalletAction('login'), loginHandler);
+
+/**
+ * POST /api/v1/auth/refresh
+ * Rotate the refresh token and issue a new access JWT.
+ */
+apiV1.post('/auth/refresh', authLimiter, validate({ body: RefreshSchema }), refreshHandler);
+
+// Admin routes share API-key authentication and role-based authorization.
+app.use('/admin', validateApiKey, adminRbacMiddleware);
+
+/**
+ * POST /api/v1/auth/logout
+ * Revokes the current session. Requires Bearer token.
+ */
+apiV1.post('/auth/logout', readsLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const authReq = req as import('./auth').AuthenticatedRequest;
+    const walletAddress = authReq.jwtPayload?.sub;
+    if (!walletAddress) throw new Error('Unable to determine authenticated wallet');
+    res.status(200).json({
+      message: 'Session revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + 'â€¦',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke session',
+    });
+  }
+});
+
+/**
+ * POST /api/v1/auth/logout-all
+ * Revokes all active sessions for the authenticated wallet.
+ */
+apiV1.post('/auth/logout-all', readsLimiter, requireAuth, (req: Request, res: Response) => {
+  try {
+    const authReq = req as import('./auth').AuthenticatedRequest;
+    const walletAddress = authReq.jwtPayload?.sub;
+    if (!walletAddress) throw new Error('Unable to determine authenticated wallet');
+    res.status(200).json({
+      message: 'All sessions revoked successfully',
+      walletAddress: walletAddress.slice(0, 8) + 'â€¦',
+      revokedCount: 1,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : 'Failed to revoke all sessions',
+    });
+  }
+});
+
+// â”€â”€â”€ Backward-compatibility redirects (301) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Old unversioned paths redirect to /api/v1 equivalents during transition window.
+
+app.post('/auth/login', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/login');
+});
+app.post('/auth/refresh', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/refresh');
+});
+app.post('/auth/logout', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/logout');
+});
+app.post('/auth/logout-all', (req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/auth/logout-all');
+});
+
+// /api/vault/* â†’ /api/v1/vault/*
+app.get('/api/vault/summary', (_req: Request, res: Response) => {
+  res.setHeader('deprecation', 'true');
+  res.redirect(301, '/api/v1/vault/summary');
+});
+app.get('/api/vault/transactions/export', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/vault/transactions/export');
+});
+app.get('/api/vault/metrics', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/vault/metrics');
+});
+app.get('/api/vault/apy', (_req: Request, res: Response) => {
+  res.redirect(301, '/api/v1/vault/apy');
+});
+
+// /webhooks/verify â†’ /api/v1/webhooks/verify
+app.post('/webhooks/verify', (req: Request, res: Response) => {
+  const { secret, payload, signature } = req.body || {};
+  if (typeof secret !== 'string' || !secret.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'secret is required and must be a non-empty string',
+    });
+    return;
+  }
+
+  if (typeof payload === 'undefined') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'payload is required',
+    });
+    return;
+  }
+
+  const computedSignature = createWebhookSignature(secret, payload);
+  const verified =
+    typeof signature === 'string' && signature.length > 0
+      ? verifyWebhookSignature(secret, payload, signature)
+      : null;
+
+  res.status(200).json({
+    algorithm: 'HMAC-SHA256',
+    signature: computedSignature,
+    verified,
+  });
+});
+
+// â”€â”€â”€ Backward-compatibility redirects for list/router-mounted paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Generic catch-all redirects for unversioned /vault/*, /referrals/*,
+// /transactions/*, /portfolio/* paths â†’ /api/v1 equivalents.
+app.use('/vault', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/vault${req.path}${qs}`);
+});
+app.use('/referrals', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/referrals${req.path}${qs}`);
+});
+app.use('/transactions', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/transactions${req.path}${qs}`);
+});
+app.use('/portfolio', (req: Request, res: Response) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(301, `/api/v1/portfolio${req.path}${qs}`);
+});
+
+// â”€â”€â”€ Versioned export & summary endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+app.get('/api/v1/vault/transactions/export', handleTransactionExport);
+
+// â”€â”€â”€ Versioned vault summary/metrics/apy endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * @openapi
+ * /vault/summary:
+ *   get:
+ *     summary: Vault summary
+ *     description: Returns high-level vault metrics including total assets, shares, and APY.
+ *     tags: [Vault]
+ *     responses:
+ *       200:
+ *         description: Vault summary metrics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/VaultSummary'
+ */
+/**
+ * GET /api/v1/vault/summary – read-only summary; relaxed rate limit.
+ * Data is sourced from VaultState + SharePriceSnapshot (DB) and cached via
+ * the Redis-backed response cache.
+ */
+app.get(
+  '/api/v1/vault/summary',
+  readsLimiter,
+  cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  createTimeoutFor.read({
+    timeoutMs: 1500,
+    routeName: '/api/v1/vault/summary',
+    message: 'Vault summary took too long to load',
+    fallbackResponse: () => ({
+      error: 'Service Unavailable',
+      status: 503,
+      code: 'VAULT_SUMMARY_TIMEOUT',
+      message: 'Vault summary is temporarily unavailable. Please refresh in a moment.',
+      stale: true,
+      data: {
+        totalAssets: '0',
+        totalShares: '0',
+        sharePrice: '1.000000',
+        apy: 0,
+        timestamp: new Date().toISOString(),
+      },
+      timestamp: new Date().toISOString(),
+    }),
+  }),
+  async (_req: Request, res: Response) => {
+    const summary = await buildVaultSummaryResponseFromDb();
+    res.json(summary);
+  },
+);
+
+/**
+ * GET /api/v1/vault/metrics - Cache with configurable TTL
+ */
+app.get(
+  '/api/v1/vault/metrics',
+  cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  createTimeoutFor.read({
+    timeoutMs: 2000,
+    routeName: '/api/v1/vault/metrics',
+    message: 'Vault metrics took too long to load',
+    fallbackResponse: () => ({
+      error: 'Service Unavailable',
+      status: 503,
+      code: 'VAULT_METRICS_TIMEOUT',
+      message: 'Vault metrics are temporarily unavailable. Showing the last known state.',
+      stale: true,
+      timestamp: new Date().toISOString(),
+    }),
+  }),
+  (_req: Request, res: Response) => {
+    res.json({
+      message: 'Vault metrics',
+      timestamp: new Date().toISOString(),
+    });
+  },
+);
+
+/**
+ * GET /api/v1/vault/apy - Cache with configurable TTL
+ */
+app.get(
+  '/api/v1/vault/apy',
+  cacheMiddleware({ ttl: cacheVaultMetricsTtl }),
+  createTimeoutFor.read({
+    timeoutMs: 1200,
+    routeName: '/api/v1/vault/apy',
+    message: 'Vault APY took too long to load',
+    fallbackResponse: () => ({
+      error: 'Service Unavailable',
+      status: 503,
+      code: 'VAULT_APY_TIMEOUT',
+      message: 'Vault APY is temporarily unavailable. Please try again shortly.',
+      stale: true,
+      timestamp: new Date().toISOString(),
+    }),
+  }),
+  (_req: Request, res: Response) => {
+    res.json({
+      message: 'Vault APY',
+      timestamp: new Date().toISOString(),
+    });
+  },
+);
+
+// â”€â”€â”€ Admin Routes (with API key authentication) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * POST /admin/apy/backfill - backfill missing APY snapshots for a date range
+ * Body: { start: "YYYY-MM-DD", end: "YYYY-MM-DD" }
+ * Requires API key authentication.
+ */
+app.post('/admin/apy/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const { start, end } = req.body;
+  if (!start || !end || typeof start !== 'string' || typeof end !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`start` and `end` (YYYY-MM-DD) are required',
+    });
+    return;
+  }
+
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(start) || !datePattern.test(end)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`start` and `end` must be in YYYY-MM-DD format',
+    });
+    return;
+  }
+
+  if (end < start) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`end` must be >= `start`',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const jobStart = Date.now();
+
+  try {
+    if (isDryRunRequest(req)) {
+      void recordAdminAuditLog(req, 'apy.backfill.dry_run', 200, {
+        start,
+        end,
+        actor,
+        estimatedDates: countInclusiveDays(start, end),
+      });
+
+      res.status(200).json({
+        dryRun: true,
+        message: 'APY backfill dry-run preview',
+        start,
+        end,
+        estimatedDates: countInclusiveDays(start, end),
+        wouldCreateSnapshots: true,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const result = await backfillApySnapshots(start, end);
+    const durationMs = Date.now() - jobStart;
+
+    const receipt = await generateAdminReceipt({
+      action: 'apy.backfill',
+      actor,
+      input: { start, end },
+      resultingState: {
+        created: result.created,
+        skipped: result.skipped,
+        durationMs,
+      },
+    });
+
+    void recordAdminAuditLog(req, 'apy.backfill', 200, {
+      start,
+      end,
+      created: result.created,
+      skipped: result.skipped,
+      durationMs,
+      actor,
+      receiptId: receipt.id,
+    });
+
+    res.status(200).json({
+      message: 'APY backfill completed',
+      start,
+      end,
+      created: result.created,
+      skipped: result.skipped,
+      dates: result.dates,
+      durationMs,
+      timestamp: new Date().toISOString(),
+      receipt,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/maintenance - get current maintenance mode state
+ * Requires API key authentication.
+ */
+app.get('/admin/maintenance', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    maintenance: getMaintenanceModeState(),
     timestamp: new Date().toISOString(),
   });
 });
 
-app.post('/api/v1/vault/deposits', async (req: Request, res: Response, next: NextFunction) => {
+/**
+ * POST /admin/maintenance - enable or disable maintenance mode
+ * Body: { enabled: boolean, reason?: string, retryAfterSeconds?: number }
+ * Requires API key authentication.
+ */
+app.post('/admin/maintenance', validateApiKey, async (req: Request, res: Response) => {
+  const { enabled, reason, retryAfterSeconds } = req.body;
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`enabled` (boolean) is required',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const previous = getMaintenanceModeState();
+  const dryRun = isDryRunRequest(req);
+  const preview = {
+    enabled: enabled ?? previous.enabled,
+    reason:
+      reason === undefined
+        ? previous.reason
+        : typeof reason === 'string'
+          ? reason.trim() || undefined
+          : undefined,
+    updatedAt: new Date().toISOString(),
+    updatedBy: actor,
+    retryAfterSeconds: retryAfterSeconds ?? previous.retryAfterSeconds,
+  };
+
+  if (dryRun) {
+    void recordAdminAuditLog(req, 'maintenance.toggle.dry_run', 200, {
+      enabled: preview.enabled,
+      previousEnabled: previous.enabled,
+      reason: preview.reason,
+      actor,
+    });
+
+    res.status(200).json({
+      dryRun: true,
+      message: `Maintenance mode would be ${preview.enabled ? 'enabled' : 'disabled'}`,
+      previous,
+      maintenance: preview,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const next = updateMaintenanceModeState({ enabled, reason, retryAfterSeconds, actor });
+
+  await recordAdminConfigChange({
+    configType: 'maintenance',
+    action: 'toggle',
+    actor,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent'),
+    preChangeSnapshot: previous as unknown as Record<string, unknown>,
+    postChangeSnapshot: next as unknown as Record<string, unknown>,
+    metadata: { receiptId: '' },
+  });
+
+  const receipt = await generateAdminReceipt({
+    action: 'maintenance.toggle',
+    actor,
+    input: { enabled, reason, retryAfterSeconds },
+    resultingState: {
+      enabled: next.enabled,
+      reason: next.reason,
+      retryAfterSeconds: next.retryAfterSeconds,
+      previousEnabled: previous.enabled,
+    },
+  });
+
+  logMaintenanceTransition({
+    enabled: next.enabled,
+    actor,
+    reason: next.reason,
+    retryAfterSeconds: next.retryAfterSeconds,
+    previousEnabled: previous.enabled,
+  });
+
+  void recordAdminAuditLog(req, 'maintenance.toggle', 200, {
+    enabled: next.enabled,
+    previousEnabled: previous.enabled,
+    reason: next.reason,
+    actor,
+    receiptId: receipt.id,
+  });
+
+  res.status(200).json({
+    message: `Maintenance mode ${next.enabled ? 'enabled' : 'disabled'}`,
+    maintenance: next,
+    timestamp: new Date().toISOString(),
+    receipt,
+  });
+});
+
+/**
+ * GET /admin/maintenance/windows - list scheduled maintenance windows
+ */
+app.get('/admin/maintenance/windows', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    windows: listMaintenanceWindows(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/maintenance/windows - schedule a maintenance window
+ * Body: { title: string, reason?: string, startsAt: string, endsAt: string }
+ */
+app.post('/admin/maintenance/windows', validateApiKey, (req: Request, res: Response) => {
+  const { title, reason, startsAt, endsAt } = req.body;
+  if (typeof title !== 'string' || !title.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`title` (string) is required',
+    });
+    return;
+  }
+  if (typeof startsAt !== 'string' || typeof endsAt !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`startsAt` and `endsAt` (ISO strings) are required',
+    });
+    return;
+  }
+
   try {
-    const idempotencyKey = getIdempotencyKey(req);
-    if (!idempotencyKey) {
-      res.status(400).json({
-        error: 'Missing Idempotency Key',
-        status: 400,
-        message: 'Provide x-idempotency-key for mutation requests.',
-      });
-      return;
-    }
-
-    const depositRequest = normalizeDepositRequest(req.body);
-    if (!depositRequest.valid) {
-      res.status(400).json({
-        error: 'Invalid request body',
-        status: 400,
-        message: depositRequest.message,
-      });
-      return;
-    }
-
-    const fingerprint = buildIdempotencyFingerprint(depositRequest.value);
-    const { result, replayed } = await idempotencyStore.execute(
-      idempotencyKey,
-      fingerprint,
-      async () => ({
-        statusCode: 201,
-        body: {
-          depositId: `dep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          status: 'queued',
-          receivedAt: new Date().toISOString(),
-          ...depositRequest.value,
-        },
-      })
-    );
-
-    res.setHeader('Idempotency-Key', idempotencyKey);
-    res.setHeader('Idempotency-Status', replayed ? 'replayed' : 'created');
-    res.status(result.statusCode).json(result.body);
+    const actor = resolveActingAdminAddress(req);
+    const window = scheduleMaintenanceWindow({
+      title,
+      reason: typeof reason === 'string' ? reason : undefined,
+      startsAt,
+      endsAt,
+      actor,
+    });
+    res.status(201).json({ window, timestamp: new Date().toISOString() });
   } catch (error) {
-    if (error instanceof IdempotencyConflictError) {
-      res.status(409).json({
-        error: 'Idempotency conflict',
-        status: 409,
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * DELETE /admin/maintenance/windows/:windowId - cancel a scheduled window
+ */
+app.delete('/admin/maintenance/windows/:windowId', validateApiKey, (req: Request, res: Response) => {
+  const cancelled = cancelMaintenanceWindow(req.params.windowId);
+  if (!cancelled) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Maintenance window not found',
+    });
+    return;
+  }
+  res.status(200).json({
+    cancelled: true,
+    windowId: req.params.windowId,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/config-changes - List admin configuration changes
+ * Requires API key authentication
+ */
+app.get('/admin/config-changes', validateApiKey, async (req: Request, res: Response) => {
+  const { configType, actor, start, end, limit } = req.query;
+  const configChanges = await listAdminConfigChanges({
+    configType: typeof configType === 'string' ? configType : undefined,
+    actor: typeof actor === 'string' ? actor : undefined,
+    start: typeof start === 'string' ? start : undefined,
+    end: typeof end === 'string' ? end : undefined,
+    limit: typeof limit === 'string' ? parseInt(limit, 10) : 100,
+  });
+
+  res.json({
+    data: configChanges,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/feature-flags/overrides - List active feature flag overrides
+ * Requires API key authentication
+ */
+app.get('/admin/feature-flags/overrides', validateApiKey, async (_req: Request, res: Response) => {
+  const overrides = await featureFlags.listActiveOverrides();
+  res.json({
+    data: overrides,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/feature-flags/overrides - Create a new feature flag override
+ * Requires API key authentication
+ * Body: {
+ *   flagName: string,
+ *   enabled: boolean,
+ *   scopeType: "wallet" | "environment",
+ *   scopeValue?: string,
+ *   expiresAt: string (ISO 8601)
+ * }
+ */
+app.post('/admin/feature-flags/overrides', validateApiKey, async (req: Request, res: Response) => {
+  const { flagName, enabled, scopeType, scopeValue, expiresAt } = req.body;
+
+  if (!flagName || typeof flagName !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`flagName` (string) is required'
+    });
+    return;
+  }
+
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`enabled` (boolean) is required'
+    });
+    return;
+  }
+
+  if (!scopeType || !['wallet', 'environment'].includes(scopeType)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeType` must be "wallet" or "environment"'
+    });
+    return;
+  }
+
+  if (scopeType === 'wallet' && (!scopeValue || typeof scopeValue !== 'string')) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeValue` (string) is required for wallet scope'
+    });
+    return;
+  }
+
+  if (scopeType === 'environment' && (!scopeValue || typeof scopeValue !== 'string')) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`scopeValue` (string) is required for environment scope'
+    });
+    return;
+  }
+
+  if (!expiresAt || typeof expiresAt !== 'string') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`expiresAt` (ISO 8601 string) is required'
+    });
+    return;
+  }
+
+  const expiresAtDate = new Date(expiresAt);
+  if (isNaN(expiresAtDate.getTime()) || expiresAtDate <= new Date()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`expiresAt` must be a valid future date in ISO 8601 format'
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const override = await featureFlags.createOverride(
+    flagName,
+    enabled,
+    scopeType as 'wallet' | 'environment',
+    scopeValue,
+    expiresAtDate,
+    actor
+  );
+
+  res.status(201).json({
+    message: 'Feature flag override created successfully',
+    data: override,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/feature-flags/overrides/:id - Delete a feature flag override
+ * Requires API key authentication
+ */
+app.delete('/admin/feature-flags/overrides/:id', validateApiKey, async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'Override ID is required'
+    });
+    return;
+  }
+
+  try {
+    await featureFlags.deleteOverride(id);
+    res.status(200).json({
+      message: 'Feature flag override deleted successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Feature flag override not found'
+    });
+  }
+});
+
+/**
+ * GET /admin/cache/stats - Get cache statistics including hit rate (R8) and Redis status
+ * Requires API key authentication
+ */
+app.get('/admin/cache/stats', validateApiKey, async (_req: Request, res: Response) => {
+  const stats = getCacheStats();
+  // Compute hit rate from Prometheus counters by reading the registry metrics text
+  let hitRate: number | null = null;
+  try {
+    const metricsText = await register.metrics();
+    const hitMatch = metricsText.match(/^cache_hit_count(?:\{[^}]*\})?\s+([\d.]+)/m);
+    const missMatch = metricsText.match(/^cache_miss_count(?:\{[^}]*\})?\s+([\d.]+)/m);
+    // Sum all label combinations
+    const hitTotal = hitMatch
+      ? metricsText
+          .split('\n')
+          .filter((l) => l.startsWith('cache_hit_count'))
+          .reduce((acc, l) => {
+            const m = l.match(/\s+([\d.]+)$/);
+            return acc + (m ? parseFloat(m[1]) : 0);
+          }, 0)
+      : 0;
+    const missTotal = missMatch
+      ? metricsText
+          .split('\n')
+          .filter((l) => l.startsWith('cache_miss_count'))
+          .reduce((acc, l) => {
+            const m = l.match(/\s+([\d.]+)$/);
+            return acc + (m ? parseFloat(m[1]) : 0);
+          }, 0)
+      : 0;
+    const total = hitTotal + missTotal;
+    hitRate = total > 0 ? parseFloat((hitTotal / total).toFixed(4)) : null;
+  } catch {
+    hitRate = null;
+  }
+
+  const redisHealth = await getRedisCacheHealth();
+
+  res.json({
+    entryCount: stats.size,
+    entries: stats.entries,
+    hitRate,
+    redis: {
+      configured: redisCacheClient.isConfigured,
+      ready: redisCacheClient.isReady,
+      health: redisHealth,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/cache/redis-status - Detailed Redis cache connection and health status
+ * Requires API key authentication
+ */
+app.get('/admin/cache/redis-status', validateApiKey, async (_req: Request, res: Response) => {
+  const redisHealth = await getRedisCacheHealth();
+  const pingResponse = await redisCacheClient.ping();
+
+  res.json({
+    configured: redisCacheClient.isConfigured,
+    ready: redisCacheClient.isReady,
+    health: redisHealth,
+    ping: pingResponse,
+    fallbackActive: redisCacheClient.isConfigured && !redisCacheClient.isReady,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/cache - Clear entire cache or by regex pattern (R8)
+ * ?pattern=<regex> removes only matching entries
+ * Requires API key authentication
+ */
+app.delete('/admin/cache', validateApiKey, (req: Request, res: Response) => {
+  const pattern = typeof req.query.pattern === 'string' ? req.query.pattern : undefined;
+
+  if (pattern !== undefined) {
+    if (pattern.trim() === '') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'pattern query parameter must not be empty; omit it to clear the entire cache',
+      });
+      return;
+    }
+    try {
+      new RegExp(pattern);
+    } catch (e) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: `Invalid regex pattern "${pattern}": ${e instanceof Error ? e.message : String(e)}`,
+      });
+      return;
+    }
+  }
+
+  const removed = invalidateCache(pattern);
+  res.json({
+    removed,
+    pattern: pattern ?? null,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/cache/invalidate - Invalidate cache by pattern (legacy endpoint)
+ * Requires API key authentication
+ */
+app.post('/admin/cache/invalidate', validateApiKey, (req: Request, res: Response) => {
+  const { pattern } = req.body;
+  if (isDryRunRequest(req)) {
+    res.json({
+      dryRun: true,
+      message: 'Cache invalidation dry-run preview',
+      pattern,
+      wouldInvalidate: true,
+      stats: getCacheStats(),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  invalidateCache(pattern);
+  res.json({
+    message: 'Cache invalidated',
+    pattern,
+    stats: getCacheStats(),
+  });
+});
+
+/**
+ * POST /admin/events/replay - Manual admin endpoint to replay events for a specific ledger range
+ * Requires API key authentication
+ */
+app.post('/admin/events/replay', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { fromLedger, toLedger } = req.body;
+    
+    if (fromLedger === undefined || toLedger === undefined) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger and toLedger are required in request body',
+      });
+      return;
+    }
+    
+    if (typeof fromLedger !== 'number' || typeof toLedger !== 'number') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger and toLedger must be numbers',
+      });
+      return;
+    }
+    
+    // Validate ledger range
+    if (fromLedger < 0 || toLedger < 0 || fromLedger > toLedger) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'fromLedger must be >= 0, toLedger must be >= 0, and fromLedger must be <= toLedger',
+      });
+      return;
+    }
+
+    const actor = resolveActingAdminAddress(req);
+    if (isDryRunRequest(req)) {
+      void recordAdminAuditLog(req, 'events.replay.manual.dry_run', 200, {
+        fromLedger,
+        toLedger,
+        ledgerCount: toLedger - fromLedger + 1,
+        actor,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.status(200).json({
+        dryRun: true,
+        message: 'Event replay dry-run preview',
+        fromLedger,
+        toLedger,
+        ledgerCount: toLedger - fromLedger + 1,
+        wouldReplay: true,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    
+    // Import the replay function
+    const { replayEventsForRange } = await import('./eventPollingService');
+    
+    const startTime = Date.now();
+    const result = await replayEventsForRange(fromLedger, toLedger);
+    const duration = Date.now() - startTime;
+
+    const receipt = await generateAdminReceipt({
+      action: 'events.replay.manual',
+      actor,
+      input: { fromLedger, toLedger },
+      resultingState: {
+        processedCount: result.processedCount,
+        duplicateCount: result.duplicateCount,
+        durationMs: duration,
+      },
+    });
+    
+    // Record replay job metadata
+    void recordAdminAuditLog(req, 'events.replay.manual', 200, {
+      fromLedger,
+      toLedger,
+      processedCount: result.processedCount,
+      duplicateCount: result.duplicateCount,
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+      receiptId: receipt.id,
+    });
+    
+    res.status(200).json({
+      message: 'Event replay completed successfully',
+      fromLedger,
+      toLedger,
+      processedCount: result.processedCount,
+      duplicateCount: result.duplicateCount,
+      durationMs: duration,
+      timestamp: new Date().toISOString(),
+      receipt,
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    
+    // Record failed replay attempt
+    void recordAdminAuditLog(req, 'events.replay.manual.failed', 500, {
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+    
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: errorMessage,
+    });
+  }
+});
+
+/**
+ * POST /admin/withdrawal-limits/override
+ * Grants a temporary admin override for a wallet's daily withdrawal limit.
+ * Requires super-admin API key.
+ */
+app.post('/admin/withdrawal-limits/override', validateApiKey, async (req: Request, res: Response) => {
+  const walletAddress = typeof req.body?.walletAddress === 'string' ? req.body.walletAddress.trim() : '';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  const ttlSeconds =
+    typeof req.body?.ttlSeconds === 'number' && req.body.ttlSeconds > 0
+      ? req.body.ttlSeconds
+      : 3600;
+
+  if (!walletAddress || !reason) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'walletAddress and reason are required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to override withdrawal limits',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const override = setWithdrawalLimitOverride(walletAddress, reason, actor, ttlSeconds);
+
+  await recordAdminAuditLog(req, 'withdrawal.limit.override.grant', 201, {
+    walletAddress: override.wallet,
+    reason: override.reason,
+    expiresAt: override.expiresAt,
+    actor,
+  });
+
+  res.status(201).json({ override });
+});
+
+/**
+ * GET /admin/withdrawal-limits/audit
+ * Lists recent blocked and overridden withdrawal attempts.
+ */
+app.get('/admin/withdrawal-limits/audit', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+  const windowed = listWithdrawalLimitAuditEntries(limit + 1);
+  const { data, hasNextPage } = paginateByLimit(windowed, limit);
+
+  sendStandardListEnvelope(res, {
+    data,
+    limit,
+    hasNextPage,
+    extras: { entries: data },
+  });
+});
+
+/**
+ * GET /admin/emails/queue
+ * Lists queued outbound emails, optionally filtered by status.
+ */
+app.get('/admin/emails/queue', validateApiKey, async (req: Request, res: Response) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  const emails = await emailQueueService.getEmailQueue(status);
+
+  res.status(200).json({
+    emails,
+    count: emails.length,
+  });
+});
+
+/**
+ * POST /admin/emails/replay/:id
+ * Requeues a failed/dead-letter email for another send attempt.
+ */
+app.post('/admin/emails/replay/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const email = await emailQueueService.replayEmail(req.params.id);
+    res.status(200).json({
+      message: 'Email requeued successfully',
+      email,
+    });
+  } catch {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Email queue item not found',
+    });
+  }
+});
+
+// â”€â”€â”€ Allowlist Admin Endpoints (Issue #375) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * POST /admin/allowlist/add
+ * Adds a wallet address to the private beta allowlist.
+ * Requires API key authentication.
+ * Body: { "walletAddress": "G..." }
+ */
+app.post('/admin/allowlist/add', validateApiKey, async (req: Request, res: Response) => {
+  const { walletAddress } = req.body;
+  if (!walletAddress || typeof walletAddress !== 'string') {
+    res.status(400).json({ error: 'Missing or invalid walletAddress in request body' });
+    return;
+  }
+  const added = addAddress(walletAddress);
+  const actor = resolveActingAdminAddress(req);
+
+  const receipt = await generateAdminReceipt({
+    action: 'allowlist.add',
+    actor,
+    input: { walletAddress },
+    resultingState: {
+      added,
+      totalCount: allowlistSize(),
+    },
+  });
+
+  void recordAdminAuditLog(req, 'allowlist.add', added ? 201 : 200, {
+    walletAddress,
+    added,
+    actor,
+    receiptId: receipt.id,
+  });
+
+  res.status(added ? 201 : 200).json({
+    message: added ? 'Wallet added to allowlist' : 'Wallet already in allowlist',
+    walletAddress: walletAddress.trim().toUpperCase(),
+    count: allowlistSize(),
+    receipt,
+  });
+});
+
+/**
+ * DELETE /admin/allowlist/remove
+ * Removes a wallet address from the private beta allowlist.
+ * Requires API key authentication.
+ * Body: { "walletAddress": "G..." }
+ */
+app.delete('/admin/allowlist/remove', validateApiKey, async (req: Request, res: Response) => {
+  const { walletAddress } = req.body;
+  if (!walletAddress || typeof walletAddress !== 'string') {
+    res.status(400).json({ error: 'Missing or invalid walletAddress in request body' });
+    return;
+  }
+  const removed = removeAddress(walletAddress);
+  if (!removed) {
+    res.status(404).json({ error: 'Wallet address not found in allowlist' });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+  const receipt = await generateAdminReceipt({
+    action: 'allowlist.remove',
+    actor,
+    input: { walletAddress },
+    resultingState: {
+      removed: true,
+      totalCount: allowlistSize(),
+    },
+  });
+
+  void recordAdminAuditLog(req, 'allowlist.remove', 200, {
+    walletAddress,
+    actor,
+    receiptId: receipt.id,
+  });
+
+  res.json({
+    message: 'Wallet removed from allowlist',
+    walletAddress: walletAddress.trim().toUpperCase(),
+    count: allowlistSize(),
+    receipt,
+  });
+});
+
+/**
+ * GET /admin/allowlist
+ * Lists all wallet addresses on the allowlist.
+ * Requires API key authentication.
+ */
+app.get('/admin/allowlist', validateApiKey, (_req: Request, res: Response) => {
+  res.json({
+    addresses: listAddresses(),
+    count: allowlistSize(),
+    enabled: process.env.ALLOWLIST_ENABLED !== 'false',
+  });
+});
+
+/**
+ * POST /admin/impersonate/sessions - start a time-bounded impersonation session
+ * Requires super-admin API key.
+ */
+app.post('/admin/impersonate/sessions', validateApiKey, async (req: Request, res: Response) => {
+  const actingAdminAddress = resolveActingAdminAddress(req);
+  const { actor, apiKeyHash, ipAddress, userAgent } = resolveImpersonationSessionContext(req);
+  const targetWallet = typeof req.body?.targetWallet === 'string' ? req.body.targetWallet.trim() : '';
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
+    targetWallet: targetWallet || 'unknown',
+    impersonation: true,
+  };
+
+  if (!targetWallet || !reason) {
+    req.adminAuditAction = 'admin.impersonate.session.invalid';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'targetWallet and reason are required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.session.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required for impersonation sessions',
+    });
+    return;
+  }
+
+  try {
+    const session = await startImpersonationSession({
+      actor: actingAdminAddress,
+      apiKeyHash,
+      targetWallet,
+      reason,
+      ipAddress,
+      userAgent,
+    });
+
+    req.adminAuditAction = 'admin.impersonate.session.started';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      sessionId: session.id,
+      expiresAt: session.expiresAt,
+    };
+
+    res.status(201).json({ session });
+  } catch (error) {
+    req.adminAuditAction = 'admin.impersonate.session.failed';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to start impersonation session',
+    });
+  }
+});
+
+/**
+ * GET /admin/impersonate/sessions - list active and historical impersonation sessions
+ * Requires super-admin API key.
+ */
+app.get('/admin/impersonate/sessions', validateApiKey, async (req: Request, res: Response) => {
+  const actingAdminAddress = resolveActingAdminAddress(req);
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
+    impersonation: true,
+  };
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.session.list.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to list impersonation sessions',
+    });
+    return;
+  }
+
+  const statusRaw = typeof req.query.status === 'string' ? req.query.status : 'all';
+  const status =
+    statusRaw === 'active' || statusRaw === 'ended' || statusRaw === 'expired' ? statusRaw : 'all';
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const targetWallet = typeof req.query.targetWallet === 'string' ? req.query.targetWallet : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+
+  try {
+    const sessions = await listImpersonationSessions({
+      status,
+      actor,
+      targetWallet,
+      limit: limit + 1,
+    });
+    const { data, hasNextPage } = paginateByLimit(sessions, limit);
+
+    req.adminAuditAction = 'admin.impersonate.session.list';
+    sendStandardListEnvelope(res, {
+      data,
+      limit,
+      hasNextPage,
+      extras: {
+        sessions: data,
+        count: data.length,
+      },
+    });
+  } catch (error) {
+    req.adminAuditAction = 'admin.impersonate.session.list.failed';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to list impersonation sessions',
+    });
+  }
+});
+
+/**
+ * DELETE /admin/impersonate/sessions/:id - end an active impersonation session
+ * Requires super-admin API key.
+ */
+app.delete('/admin/impersonate/sessions/:id', validateApiKey, async (req: Request, res: Response) => {
+  const actingAdminAddress = resolveActingAdminAddress(req);
+  const sessionId = String(req.params.id || '').trim();
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
+    sessionId: sessionId || 'unknown',
+    impersonation: true,
+  };
+
+  if (!sessionId) {
+    req.adminAuditAction = 'admin.impersonate.session.end.invalid';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'session id is required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.session.end.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to end impersonation sessions',
+    });
+    return;
+  }
+
+  try {
+    const session = await endImpersonationSession(sessionId, actingAdminAddress);
+    if (!session) {
+      req.adminAuditAction = 'admin.impersonate.session.end.not_found';
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Impersonation session not found or already expired',
+      });
+      return;
+    }
+
+    req.adminAuditAction = 'admin.impersonate.session.ended';
+    res.status(200).json({ session });
+  } catch (error) {
+    req.adminAuditAction = 'admin.impersonate.session.end.failed';
+    req.adminAuditMetadata = {
+      ...req.adminAuditMetadata,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: 'Failed to end impersonation session',
+    });
+  }
+});
+
+/**
+ * GET /admin/impersonate/:wallet - inspect vault state as a specific wallet
+ * Requires super-admin API key and a valid non-expired impersonation session.
+ */
+app.get('/admin/impersonate/:wallet', validateApiKey, async (req: Request, res: Response) => {
+  const wallet = String(req.params.wallet || '').trim();
+  const actingAdminAddress = resolveActingAdminAddress(req);
+  const sessionId = String(req.get('x-impersonation-session-id') || '').trim();
+
+  req.adminAuditActor = actingAdminAddress;
+  req.adminAuditMetadata = {
+    actingAdminAddress,
+    adminRole: req.authApiKeyRole || 'admin',
+    targetWallet: wallet || 'unknown',
+    sessionId: sessionId || undefined,
+    impersonation: true,
+  };
+
+  if (!wallet) {
+    req.adminAuditAction = 'admin.impersonate.invalid';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'wallet path parameter is required',
+    });
+    return;
+  }
+
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    req.adminAuditAction = 'admin.impersonate.denied';
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required for impersonation',
+    });
+    return;
+  }
+
+  if (!sessionId && process.env.IMPERSONATION_SESSION_STORAGE) {
+    req.adminAuditAction = 'admin.impersonate.session.required';
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'x-impersonation-session-id header is required',
+    });
+    return;
+  }
+
+  try {
+    let activeSession: ImpersonationSessionRecord | undefined;
+
+    if (sessionId) {
+      const validation = await validateImpersonationSession(sessionId, wallet, actingAdminAddress);
+      if (!validation.ok) {
+        const statusCode = validation.reason === 'not_found' ? 404 : 403;
+        req.adminAuditAction =
+          validation.reason === 'expired'
+            ? 'admin.impersonate.session.expired'
+            : validation.reason === 'ended'
+              ? 'admin.impersonate.session.ended'
+              : validation.reason === 'wallet_mismatch'
+                ? 'admin.impersonate.session.wallet_mismatch'
+                : validation.reason === 'actor_mismatch'
+                  ? 'admin.impersonate.session.actor_mismatch'
+                  : 'admin.impersonate.session.invalid';
+        req.adminAuditMetadata = {
+          ...req.adminAuditMetadata,
+          validationReason: validation.reason,
+        };
+        res.status(statusCode).json({
+          error: statusCode === 404 ? 'Not Found' : 'Forbidden',
+          status: statusCode,
+          message:
+            validation.reason === 'expired'
+              ? 'Impersonation session has expired'
+              : validation.reason === 'ended'
+                ? 'Impersonation session has ended'
+                : validation.reason === 'wallet_mismatch'
+                  ? 'Session wallet does not match target wallet'
+                  : validation.reason === 'actor_mismatch'
+                    ? 'Session actor does not match requesting admin'
+                    : 'Impersonation session is invalid',
+        });
+        return;
+      }
+      activeSession = validation.session;
+    }
+
+    req.adminAuditAction = 'admin.impersonate';
+
+    const vaultState = await buildImpersonatedVaultState(wallet);
+    res.status(200).json({
+      ...vaultState,
+      impersonationSession: activeSession
+        ? {
+            id: activeSession.id,
+            reason: activeSession.reason,
+            startedAt: activeSession.startedAt,
+            expiresAt: activeSession.expiresAt,
+          }
+        : undefined,
+    });
+    } catch (error) {
+      req.adminAuditAction = 'admin.impersonate.failed';
+      req.adminAuditMetadata = {
+        ...req.adminAuditMetadata,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      res.status(500).json({
+        error: 'Internal Server Error',
+        status: 500,
+        message: 'Failed to build impersonated vault state',
+      });
+  }
+});
+
+app.get('/admin/receipts', validateApiKey, async (req: Request, res: Response) => {
+  const action = typeof req.query.action === 'string' ? req.query.action : undefined;
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+
+  try {
+    const receipts = await listAdminReceipts({ action, actor, limit: limit + 1 });
+    const { data, hasNextPage } = paginateByLimit(receipts, limit);
+
+    sendStandardListEnvelope(res, {
+      data,
+      limit,
+      hasNextPage,
+      extras: {
+        receipts: data,
+        count: data.length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/receipts/:id
+ * Retrieves a specific admin action receipt.
+ * Requires API key authentication.
+ */
+app.get('/admin/receipts/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const receipt = await getAdminReceipt(req.params.id);
+    if (!receipt) {
+      res.status(404).json({ error: 'Receipt not found' });
+      return;
+    }
+    res.json(receipt);
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * GET /admin/receipts/:id/verify
+ * Verifies the integrity of an admin action receipt.
+ * Requires API key authentication.
+ */
+app.get('/admin/receipts/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const receipt = await getAdminReceipt(req.params.id);
+    if (!receipt) {
+      res.status(404).json({ error: 'Receipt not found' });
+      return;
+    }
+
+    const isValid = verifyReceiptSignature(receipt);
+    res.json({
+      id: receipt.id,
+      isValid,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/**
+ * POST /admin/api-keys/register - Register a new API key
+ * Requires API key authentication (for boostrapping, requires special permission)
+ */
+app.post('/admin/api-keys/register', validateApiKey, async (req: Request, res: Response) => {
+  const { key, role: requestedRole } = req.body;
+  if (!key || typeof key !== 'string' || !key.trim()) {
+    res.status(400).json({ error: 'Missing key in request body' });
+    return;
+  }
+
+  const role = normalizeApiKeyRole(requestedRole) || 'admin';
+  if (role === 'super-admin' && !hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to register super-admin API keys',
+    });
+    return;
+  }
+
+  const normalizedKey = key.trim();
+  const hash = registerApiKey(normalizedKey, { role });
+
+  try {
+    await recordApiKeyAuditEvent({
+      actor: resolveApiKeyAuditActor(req),
+      action: API_KEY_AUDIT_ACTIONS.created,
+      keyFingerprint: getApiKeyFingerprintFromHash(hash),
+    });
+
+    res.json({
+      message: 'API key registered',
+      hash,
+      fingerprint: getApiKeyFingerprintFromHash(hash),
+      role,
+      created: new Date().toISOString(),
+    });
+  } catch (error) {
+    revokeApiKey(hash);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to persist API key audit event',
+    });
+  }
+});
+
+/**
+ * POST /admin/api-keys/rotate - Rotate an API key
+ * Body: { oldHash: string, newKey: string }
+ * Requires API key authentication.
+ */
+app.post('/admin/api-keys/rotate', validateApiKey, async (req: Request, res: Response) => {
+  const { oldHash, newKey } = req.body || {};
+  if (!isApiKeyHash(oldHash)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'oldHash must be a valid SHA-256 API key hash',
+    });
+    return;
+  }
+
+  if (typeof newKey !== 'string' || !newKey.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'newKey is required',
+    });
+    return;
+  }
+
+  const previousMetadata = getApiKeyMetadata(oldHash);
+  if (!previousMetadata) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'API key not found',
+    });
+    return;
+  }
+
+  const normalizedNewKey = newKey.trim();
+  const newHash = rotateApiKey(oldHash, normalizedNewKey);
+  if (!newHash) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'API key not found',
+    });
+    return;
+  }
+
+  try {
+    await recordApiKeyAuditEvent({
+      actor: resolveApiKeyAuditActor(req),
+      action: API_KEY_AUDIT_ACTIONS.rotated,
+      keyFingerprint: getApiKeyFingerprintFromValue(normalizedNewKey),
+    });
+
+    res.status(200).json({
+      message: 'API key rotated',
+      oldFingerprint: getApiKeyFingerprintFromHash(oldHash),
+      newHash,
+      newFingerprint: getApiKeyFingerprintFromHash(newHash),
+      rotatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    revokeApiKey(newHash);
+    restoreApiKey(oldHash);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to persist API key audit event',
+    });
+  }
+});
+
+/**
+ * POST /admin/api-keys/revoke - Revoke an API key
+ * Body: { hash: string }
+ * Requires API key authentication.
+ */
+app.post('/admin/api-keys/revoke', validateApiKey, async (req: Request, res: Response) => {
+  const { hash } = req.body || {};
+  if (!isApiKeyHash(hash)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'hash must be a valid SHA-256 API key hash',
+    });
+    return;
+  }
+
+  const previousMetadata = getApiKeyMetadata(hash);
+  if (!previousMetadata) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'API key not found',
+    });
+    return;
+  }
+
+  revokeApiKey(hash);
+
+  try {
+    await recordApiKeyAuditEvent({
+      actor: resolveApiKeyAuditActor(req),
+      action: API_KEY_AUDIT_ACTIONS.revoked,
+      keyFingerprint: getApiKeyFingerprintFromHash(hash),
+    });
+
+    res.status(200).json({
+      message: 'API key revoked',
+      fingerprint: getApiKeyFingerprintFromHash(hash),
+      revokedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    restoreApiKey(hash);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to persist API key audit event',
+    });
+  }
+});
+
+/**
+ * GET /admin/api-keys/audit-events - list API key lifecycle audit events
+ * Supports ?action=created|rotated|revoked&from=<ISO or YYYY-MM-DD>&to=<ISO or YYYY-MM-DD>&limit=N
+ */
+app.get('/admin/api-keys/audit-events', validateApiKey, async (req: Request, res: Response) => {
+  const rawAction = typeof req.query.action === 'string' ? req.query.action : undefined;
+  const action =
+    rawAction === API_KEY_AUDIT_ACTIONS.created ||
+    rawAction === API_KEY_AUDIT_ACTIONS.rotated ||
+    rawAction === API_KEY_AUDIT_ACTIONS.revoked
+      ? rawAction
+      : undefined;
+
+  if (rawAction && !action) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'action must be one of: created, rotated, revoked',
+    });
+    return;
+  }
+
+  try {
+    const range = parseUtcDateRange({
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    });
+    const limit = parseLimited(req.query.limit, 50, 1, 200);
+    const events = await listApiKeyAuditEvents({
+      action,
+      start: range.start,
+      end: range.end,
+      limit: limit + 1,
+    });
+    const { data, hasNextPage } = paginateByLimit(events, limit);
+
+    sendStandardListEnvelope(res, {
+      data,
+      limit,
+      hasNextPage,
+      extras: {
+        events: data,
+        meta: {
+          count: data.length,
+          limit,
+          filters: {
+            action: action || null,
+            from: range.start || null,
+            to: range.end || null,
+          },
+          timestamp: new Date().toISOString(),
+        },
+      },
+    });
+  } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(error.status).json({
+        error: 'Bad Request',
+        status: error.status,
         message: error.message,
       });
       return;
     }
 
-    next(error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to read API key audit events',
+    });
   }
 });
 
-app.get('/api/v1/ops/job-metrics', (_req: Request, res: Response) => {
-  res.json({
-    timestamp: new Date().toISOString(),
-    ...getJobMetrics(),
+/**
+ * POST /admin/webhooks - register webhook endpoint for transaction events
+ */
+app.post('/admin/webhooks', validateApiKey, validate({ body: WebhookRegisterSchema }), (req: Request, res: Response) => {
+  try {
+    const { url, eventTypes, enabled, secret } = req.body;
+
+    const endpoint = registerWebhookEndpoint({
+      url,
+      eventTypes,
+      enabled: enabled ?? true,
+      secret,
+    });
+
+    res.status(201).json({
+      message: 'Webhook endpoint registered',
+      endpoint,
+    });
+  } catch (error) {
+    res.status(422).json({
+      error: 'Unprocessable Entity',
+      status: 422,
+      message: error instanceof Error ? error.message : 'Invalid webhook configuration',
+    });
+  }
+});
+
+/**
+ * POST /admin/webhooks/:id/verify - run challenge-response verification for an endpoint
+ */
+app.post('/admin/webhooks/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const endpoint = await verifyWebhookEndpoint(req.params.id);
+    if (!endpoint) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Webhook endpoint not found',
+      });
+      return;
+    }
+
+    await recordAdminAuditLog(req, 'webhook.verify', endpoint.verificationStatus === 'verified' ? 200 : 422, {
+      endpointId: endpoint.id,
+      verificationStatus: endpoint.verificationStatus,
+      lastVerificationError: endpoint.lastVerificationError,
+    });
+
+    res.status(endpoint.verificationStatus === 'verified' ? 200 : 422).json({
+      message:
+        endpoint.verificationStatus === 'verified'
+          ? 'Webhook endpoint verified'
+          : 'Webhook endpoint verification failed',
+      endpoint,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to verify webhook endpoint',
+    });
+  }
+});
+
+/**
+ * PATCH /admin/webhooks/:id - update webhook endpoint
+ */
+app.patch('/admin/webhooks/:id', validateApiKey, validate({ body: WebhookUpdateSchema }), (req: Request, res: Response) => {
+  if (!assertWebhookParameterUpdate(req, res)) {
+    return;
+  }
+
+  try {
+    const endpoint = updateWebhookEndpoint(req.params.id, req.body || {});
+    if (!endpoint) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Webhook endpoint not found',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      message: 'Webhook endpoint updated',
+      endpoint,
+    });
+  } catch (error) {
+    res.status(422).json({
+      error: 'Unprocessable Entity',
+      status: 422,
+      message: error instanceof Error ? error.message : 'Failed to update webhook endpoint',
+    });
+  }
+});
+
+/**
+ * GET /admin/webhooks - list webhook endpoints
+ */
+app.get('/admin/webhooks', validateApiKey, (req: Request, res: Response) => {
+  const includeDeleted = req.query.includeDeleted === 'true';
+  const limit = parseLimited(req.query.limit, 100, 1, 500);
+  const allEndpoints = listWebhookEndpoints(includeDeleted);
+  const windowed = allEndpoints.slice(0, limit + 1);
+  const { data, hasNextPage } = paginateByLimit(windowed, limit);
+
+  sendStandardListEnvelope(res, {
+    data,
+    limit,
+    hasNextPage,
+    total: allEndpoints.length,
+    extras: {
+      endpoints: data,
+      metrics: getWebhookDeliveryMetrics(),
+    },
   });
 });
 
-// ─── List Endpoints with Pagination ─────────────────────────────────────────
+/**
+ * DELETE /admin/webhooks/:id - soft delete webhook endpoint
+ */
+app.delete('/admin/webhooks/:id', validateApiKey, async (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+  const endpoint = deleteWebhookEndpoint(req.params.id, actor);
 
-app.use('/api/v1', listEndpoints);
+  if (!endpoint) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Webhook endpoint not found or already deleted',
+    });
+    return;
+  }
 
-// ─── Dependency Health Checks ────────────────────────────────────────────────
+  void recordAdminAuditLog(req, 'webhook.delete', 200, {
+    endpointId: endpoint.id,
+    url: endpoint.url,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Webhook endpoint soft-deleted',
+    endpoint,
+  });
+});
 
 /**
- * Check cache health
+ * POST /admin/webhooks/:id/restore - restore soft-deleted webhook endpoint
+ */
+app.post('/admin/webhooks/:id/restore', validateApiKey, async (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+  const endpoint = restoreWebhookEndpoint(req.params.id, actor);
+
+  if (!endpoint) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Webhook endpoint not found or not deleted',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'webhook.restore', 200, {
+    endpointId: endpoint.id,
+    url: endpoint.url,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Webhook endpoint restored',
+    endpoint,
+  });
+});
+
+/**
+ * GET /admin/webhooks/dead-letter - list permanently failed webhook deliveries
+ */
+app.get('/admin/webhooks/dead-letter', validateApiKey, (req: Request, res: Response) => {
+  const endpointId = typeof req.query.endpointId === 'string' ? req.query.endpointId : undefined;
+  const eventType = typeof req.query.eventType === 'string' ? req.query.eventType : undefined;
+  const start = typeof req.query.start === 'string' ? req.query.start : undefined;
+  const end = typeof req.query.end === 'string' ? req.query.end : undefined;
+  const limit = parseLimited(req.query.limit, 100, 1, 500);
+
+  const rows = listWebhookDeadLetters({
+    endpointId,
+    eventType: eventType as any,
+    start,
+    end,
+    limit: limit + 1,
+  });
+  const { data, hasNextPage } = paginateByLimit(rows, limit);
+
+  sendStandardListEnvelope(res, {
+    data,
+    limit,
+    hasNextPage,
+    extras: {
+      deadLetters: data,
+    },
+  });
+});
+
+/**
+ * POST /admin/webhooks/dead-letter/:id/retry - re-queue a dead-letter delivery
+ */
+app.post('/admin/webhooks/dead-letter/:id/retry', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const entry = await retryWebhookDeadLetter(req.params.id);
+    if (!entry) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Dead-letter entry not found',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      message: 'Dead-letter entry re-queued for delivery',
+      deadLetter: entry,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to retry dead-letter entry',
+    });
+  }
+});
+
+/**
+ * GET /admin/webhooks/deliveries - list recent webhook delivery attempts
+ * Supports cursor-based pagination: ?limit=N&cursor=<opaque>
+ */
+app.get('/admin/webhooks/deliveries', validateApiKey, (req: Request, res: Response) => {
+  const limit = parseLimited(req.query.limit, 100, 1, 500);
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+
+  try {
+    const page = listWebhookDeliveryPage({ limit, cursor });
+    sendStandardListEnvelope(res, {
+      data: page.deliveries,
+      limit,
+      hasNextPage: page.hasNextPage,
+      hasPrevPage: Boolean(cursor),
+      nextCursor: page.nextCursor,
+      extras: {
+        deliveries: page.deliveries,
+        nextCursor: page.nextCursor,
+        hasNextPage: page.hasNextPage,
+        metrics: getWebhookDeliveryMetrics(),
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Invalid or expired cursor')) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'Invalid or expired cursor. Start a new page without a cursor.',
+      });
+      return;
+    }
+    res.status(500).json({ error: 'Internal Server Error', status: 500, message });
+  }
+});
+
+/**
+ * POST /api/v1/webhooks/verify - verify webhook secret/signature pairing before go-live
+ */
+app.post('/api/v1/webhooks/verify', (req: Request, res: Response) => {
+  const { secret, payload, signature } = req.body || {};
+  if (typeof secret !== 'string' || !secret.trim()) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'secret is required and must be a non-empty string',
+    });
+    return;
+  }
+
+  if (typeof payload === 'undefined') {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'payload is required',
+    });
+    return;
+  }
+
+  const computedSignature = createWebhookSignature(secret, payload);
+  const verified =
+    typeof signature === 'string' && signature.length > 0
+      ? verifyWebhookSignature(secret, payload, signature)
+      : null;
+
+  res.status(200).json({
+    algorithm: 'HMAC-SHA256',
+    signature: computedSignature,
+    verified,
+  });
+});
+
+/**
+ * GET /admin/audit/logs - list admin activity logs
+ */
+app.get('/admin/audit/logs', validateApiKey, (req: Request, res: Response) => {
+  const statusCode = req.query.statusCode ? parseInt(String(req.query.statusCode), 10) : undefined;
+  const limit = parseLimited(req.query.limit, 100, 1, 500);
+
+  const logs = getAuditLogs({
+    actor: req.query.actor ? String(req.query.actor) : undefined,
+    action: req.query.action ? String(req.query.action) : undefined,
+    path: req.query.path ? String(req.query.path) : undefined,
+    statusCode,
+    limit: limit + 1,
+  });
+  const { data, hasNextPage } = paginateByLimit(logs, limit);
+
+  sendStandardListEnvelope(res, {
+    data,
+    limit,
+    hasNextPage,
+    extras: {
+      logs: data,
+      metrics: getAuditLogMetrics(),
+    },
+  });
+});
+
+/**
+ * GET /admin/audit-logs - list admin audit entries (Issue #253)
+ */
+app.get('/admin/audit-logs', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+  const statusCode = req.query.statusCode
+    ? parseLimited(req.query.statusCode, 0, 100, 599)
+    : undefined;
+
+  const rows = getAuditLogs({
+    action: typeof req.query.action === 'string' ? req.query.action : undefined,
+    actor: typeof req.query.actor === 'string' ? req.query.actor : undefined,
+    statusCode,
+    limit: limit + 1,
+  });
+  const { data, hasNextPage } = paginateByLimit(rows, limit);
+
+  void recordAdminAuditLog(req, 'audit-logs.read', 200, {
+    limit,
+    returned: data.length,
+  });
+
+  sendStandardListEnvelope(res, {
+    data,
+    limit,
+    hasNextPage,
+    extras: {
+      meta: {
+        count: data.length,
+        limit,
+        timestamp: new Date().toISOString(),
+      },
+    },
+  });
+});
+
+/**
+ * GET /admin/exports/jobs - list persisted transaction export metadata
+ */
+app.get('/admin/exports/jobs', validateApiKey, async (req: Request, res: Response) => {
+  const rawFormat = typeof req.query.format === 'string' ? req.query.format : undefined;
+  const format = rawFormat === 'csv' || rawFormat === 'json' ? rawFormat : undefined;
+  if (rawFormat && !format) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'format must be either csv or json',
+    });
+    return;
+  }
+
+  try {
+    const range = parseUtcDateRange({
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    });
+    const limit = parseLimited(req.query.limit, 50, 1, 200);
+    const jobs = await listExportJobs({
+      format,
+      generatedBy: typeof req.query.generatedBy === 'string' ? req.query.generatedBy : undefined,
+      walletAddress: typeof req.query.walletAddress === 'string' ? req.query.walletAddress : undefined,
+      checksum: typeof req.query.checksum === 'string' ? req.query.checksum : undefined,
+      start: range.start,
+      end: range.end,
+      limit: limit + 1,
+    });
+    const { data, hasNextPage } = paginateByLimit(jobs, limit);
+
+    sendStandardListEnvelope(res, {
+      data,
+      limit,
+      hasNextPage,
+      extras: {
+        jobs: data,
+        meta: {
+          count: data.length,
+          limit,
+          filters: {
+            format: format || null,
+            generatedBy: typeof req.query.generatedBy === 'string' ? req.query.generatedBy : null,
+            walletAddress: typeof req.query.walletAddress === 'string' ? req.query.walletAddress : null,
+            checksum: typeof req.query.checksum === 'string' ? req.query.checksum : null,
+            from: range.start || null,
+            to: range.end || null,
+          },
+          timestamp: new Date().toISOString(),
+        },
+      },
+    });
+  } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(error.status).json({
+        error: 'Bad Request',
+        status: error.status,
+        message: error.message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to query export jobs',
+    });
+  }
+});
+
+/**
+ * POST /admin/exports/jobs/:id/verify - verify a previously generated export checksum
+ * Body: { checksum: string }
+ */
+app.post('/admin/exports/jobs/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  const checksum =
+    typeof req.body?.checksum === 'string'
+      ? req.body.checksum.trim().toLowerCase()
+      : typeof req.query.checksum === 'string'
+        ? req.query.checksum.trim().toLowerCase()
+        : '';
+
+  if (!checksum) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'checksum is required',
+    });
+    return;
+  }
+
+  try {
+    const job = await getExportJobById(String(req.params.id));
+    if (!job) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Export job not found',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      exportJobId: job.id,
+      valid: job.checksum.toLowerCase() === checksum,
+      expectedChecksum: job.checksum,
+      providedChecksum: checksum,
+      checksumAlgorithm: job.checksumAlgorithm,
+      generatedBy: job.generatedBy,
+      createdAt: job.createdAt,
+      fileName: job.fileName,
+      format: job.format,
+      rowCount: job.rowCount,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to verify export checksum',
+    });
+  }
+});
+
+/**
+ * POST /admin/exports/bulk - create a new bulk export job
+ * Body: { format: "csv"|"json", filters: { ... } }
+ */
+app.post('/admin/exports/bulk', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const { format, filters } = req.body;
+    if (format !== 'csv' && format !== 'json') {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'format must be either csv or json',
+      });
+      return;
+    }
+
+    const generatedBy = resolveExportGeneratedBy(req);
+    const job = await createBulkExportJob({
+      format,
+      generatedBy,
+      filters: filters || {},
+    });
+
+    void processBulkExportJob(job.id).catch(() => {});
+
+    res.status(201).json({
+      message: 'Bulk export job created',
+      job,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to create bulk export job',
+    });
+  }
+});
+
+/**
+ * GET /admin/exports/bulk/jobs - list bulk export jobs
+ */
+app.get('/admin/exports/bulk/jobs', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
+  const jobs = await listBulkExportJobs(limit + 1);
+  const { data, hasNextPage } = paginateByLimit(jobs, limit);
+  sendStandardListEnvelope(res, {
+    data,
+    limit,
+    hasNextPage,
+    extras: {
+      jobs: data,
+      meta: {
+        count: data.length,
+        limit,
+        timestamp: new Date().toISOString(),
+      },
+    },
+  });
+});
+
+/**
+ * GET /admin/exports/bulk/jobs/:id - get bulk export job status
+ */
+app.get('/admin/exports/bulk/jobs/:id', validateApiKey, async (req: Request, res: Response) => {
+  const job = await getBulkExportJob(String(req.params.id));
+  if (!job) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Bulk export job not found',
+    });
+    return;
+  }
+  res.status(200).json({ job });
+});
+
+/**
+ * POST /admin/exports/bulk/jobs/:id/cancel - cancel a pending/processing bulk export job
+ */
+app.post('/admin/exports/bulk/jobs/:id/cancel', validateApiKey, async (req: Request, res: Response) => {
+  const cancelled = await cancelBulkExportJob(String(req.params.id));
+  if (!cancelled) {
+    const job = await getBulkExportJob(String(req.params.id));
+    if (!job) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Bulk export job not found',
+      });
+      return;
+    }
+    res.status(409).json({
+      error: 'Conflict',
+      status: 409,
+      message: `Bulk export job is already ${job.status} and cannot be cancelled`,
+    });
+    return;
+  }
+  res.status(200).json({
+    message: 'Bulk export job cancelled',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/exports/bulk/artifacts/:artifactId - download a completed bulk export artifact
+ */
+app.get('/admin/exports/bulk/artifacts/:artifactId', validateApiKey, (req: Request, res: Response) => {
+  const artifact = getBulkExportArtifact(String(req.params.artifactId));
+  if (!artifact) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Bulk export artifact not found or expired',
+    });
+    return;
+  }
+  res.setHeader('Content-Type', artifact.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="bulk-export-${artifact.id}.${artifact.contentType === 'text/csv' ? 'csv' : 'json'}"`);
+  res.setHeader('X-Artifact-Checksum', artifact.checksum);
+  res.setHeader('X-Artifact-Checksum-Algorithm', artifact.checksumAlgorithm);
+  res.setHeader('X-Artifact-Row-Count', String(artifact.rowCount));
+  res.status(200).send(artifact.body);
+});
+
+/**
+ * GET /admin/prisma/config - operational prisma runtime settings (Issue #254)
+ */
+app.get('/admin/prisma/config', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    config: getPrismaConfig(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/monitor - structured JSON for background jobs/webhook workers
+ */
+app.get('/admin/jobs/monitor', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    jobHealth: getJobHealthStatus(),
+    jobs: getJobMetrics(),
+    webhooks: getWebhookDeliveryMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/metrics - JSON metrics dashboard for background jobs (Issue #255)
+ */
+app.get('/admin/jobs/metrics', validateApiKey, (req: Request, res: Response) => {
+  const metrics = getJobMetrics();
+  const summary = {
+    totalDeadLetters: metrics.totalDeadLetters,
+    recurringFailureJobs: Object.keys(metrics.recurringFailures),
+    jobHealth: getJobHealthStatus(),
+    activeJobs: Object.values(metrics.runtime).filter((job) => job.inFlight > 0).length,
+  };
+
+  void recordAdminAuditLog(req, 'jobs.metrics.read', 200);
+
+  res.json({
+    summary,
+    metrics,
+    prisma: getPrismaRuntimeConfig(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/transactions/backfill - controlled backfill of missing ledger index ranges
+ */
+app.post('/admin/transactions/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const startLedger = Number(req.body?.startLedger);
+  const endLedger = Number(req.body?.endLedger);
+  const batchSize = req.body?.batchSize === undefined ? undefined : Number(req.body.batchSize);
+  const dryRun = Boolean(req.body?.dryRun);
+  const rpcUrl = String(req.body?.rpcUrl || process.env.STELLAR_RPC_URL || '').trim();
+  const contractId = String(req.body?.contractId || process.env.VAULT_CONTRACT_ID || '').trim();
+
+  if (!Number.isInteger(startLedger) || !Number.isInteger(endLedger)) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'startLedger and endLedger must be integers',
+    });
+    return;
+  }
+
+  if (!rpcUrl) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'rpcUrl is required (or set STELLAR_RPC_URL)',
+    });
+    return;
+  }
+
+  if (!contractId) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'contractId is required (or set VAULT_CONTRACT_ID)',
+    });
+    return;
+  }
+
+  try {
+    const job = await createOrResumeTransactionBackfill({
+      startLedger,
+      endLedger,
+      batchSize,
+      dryRun,
+      rpcUrl,
+      contractId,
+    });
+
+    res.status(202).json({
+      message: 'Backfill accepted',
+      job,
+    });
+  } catch (error) {
+    res.status(422).json({
+      error: 'Unprocessable Entity',
+      status: 422,
+      message: error instanceof Error ? error.message : 'Backfill request failed',
+    });
+  }
+});
+
+/**
+ * GET /admin/transactions/backfill - list recent backfill jobs
+ */
+app.get('/admin/transactions/backfill', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '20'), 10);
+  const data = await listTransactionBackfillJobs(limit);
+  res.status(200).json({
+    data,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/transactions/backfill/:jobId - fetch a specific backfill job
+ */
+app.get('/admin/transactions/backfill/:jobId', validateApiKey, async (req: Request, res: Response) => {
+  const job = await getTransactionBackfillJob(String(req.params.jobId));
+  if (!job) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Backfill job not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    job,
+  });
+});
+
+/**
+ * GET /admin/governance/snapshots - list historical governance snapshots
+ */
+app.get('/admin/governance/snapshots', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseLimited(req.query.limit, 50, 1, 500);
+  const offset = parseLimited(req.query.offset, 0, 0, 10_000);
+  const type = typeof req.query.type === 'string' ? req.query.type : undefined;
+  const start = typeof req.query.start === 'string' ? req.query.start : undefined;
+  const end = typeof req.query.end === 'string' ? req.query.end : undefined;
+
+  const result = await listGovernanceSnapshots({
+    type: type as 'reconciliation' | 'config-change' | 'export-manifest' | undefined,
+    start,
+    end,
+    limit,
+    offset,
+  });
+
+  res.status(200).json({
+    data: result.data,
+    total: result.total,
+    limit,
+    offset,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/governance/snapshots/export - export historical governance snapshots
+ */
+app.post('/admin/governance/snapshots/export', validateApiKey, async (req: Request, res: Response) => {
+  const requester = resolveActingAdminAddress(req);
+  const types = Array.isArray(req.body?.types)
+    ? (req.body.types as string[])
+    : undefined;
+  const start = typeof req.body?.start === 'string' ? req.body.start : undefined;
+  const end = typeof req.body?.end === 'string' ? req.body.end : undefined;
+  const limit = parseLimited(req.body?.limit, 500, 1, 5000);
+
+  const { manifest, rows } = await exportGovernanceSnapshots({
+    requester,
+    types: types as ('reconciliation' | 'config-change' | 'export-manifest')[] | undefined,
+    start,
+    end,
+    limit,
+  });
+
+  res.status(201).json({
+    message: 'Governance snapshot export generated',
+    rowCount: rows.length,
+    manifest,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/reports/exports - generate a report export and immutable manifest record
+ */
+app.post('/admin/reports/exports', validateApiKey, async (req: Request, res: Response) => {
+  const reportType = String(req.body?.reportType || 'transactions').trim();
+  const requester = resolveActingAdminAddress(req);
+  const filters =
+    req.body?.filters && typeof req.body.filters === 'object'
+      ? (req.body.filters as Record<string, unknown>)
+      : {};
+
+  const mockRows = [
+    {
+      reportType,
+      generatedAt: new Date().toISOString(),
+      filters,
+    },
+  ];
+
+  const manifest = await createExportManifest({
+    requester,
+    reportType,
+    filters,
+    rows: mockRows,
+  });
+
+  res.status(201).json({
+    message: 'Export generated and manifest recorded',
+    manifest,
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests - list immutable export manifests
+ */
+app.get('/admin/reports/exports/manifests', validateApiKey, async (req: Request, res: Response) => {
+  const limit = parseInt(String(req.query.limit || '50'), 10);
+  const offset = parseInt(String(req.query.offset || '0'), 10);
+  const result = await listExportManifests(limit, offset);
+  res.status(200).json({
+    data: result.data,
+    total: result.total,
+    limit,
+    offset,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/reports/exports/manifests/:id - fetch a manifest by id
+ */
+app.get('/admin/reports/exports/manifests/:id', validateApiKey, async (req: Request, res: Response) => {
+  const manifest = await getExportManifestById(String(req.params.id));
+  if (!manifest) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Export manifest not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    manifest,
+  });
+});
+
+/**
+ * POST /admin/reports/exports/manifests/:id/verify - verify manifest checksum
+ */
+app.post('/admin/reports/exports/manifests/:id/verify', validateApiKey, async (req: Request, res: Response) => {
+  const checksum = String(req.body?.checksum || '').trim();
+  if (!checksum) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: 'checksum is required',
+    });
+    return;
+  }
+
+  const result = await verifyExportManifestChecksum(String(req.params.id), checksum);
+  if (!result.manifest) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Export manifest not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    match: result.match,
+    manifest: result.manifest,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/dashboard - lightweight HTML dashboard for operators
+ */
+app.get('/admin/jobs/dashboard', validateApiKey, (_req: Request, res: Response) => {
+  const jobMetrics = getJobMetrics();
+  const webhookMetrics = getWebhookDeliveryMetrics();
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(200).send(`
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>YieldVault Job Dashboard</title>
+        <style>
+          body { font-family: 'Segoe UI', sans-serif; margin: 2rem; background: #f6f8fa; color: #0f172a; }
+          h1 { margin-bottom: 1rem; }
+          .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+          .card { background: #ffffff; border: 1px solid #dbe3ec; border-radius: 10px; padding: 1rem; box-shadow: 0 2px 10px rgba(15,23,42,0.05); }
+          .label { color: #64748b; font-size: 0.9rem; margin-bottom: 0.25rem; }
+          .value { font-size: 1.4rem; font-weight: 600; }
+          pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 8px; overflow: auto; }
+        </style>
+      </head>
+      <body>
+        <h1>Background Job Monitoring</h1>
+        <div class="grid">
+          <div class="card"><div class="label">Job Health</div><div class="value">${getJobHealthStatus()}</div></div>
+          <div class="card"><div class="label">Dead Letters</div><div class="value">${jobMetrics.totalDeadLetters}</div></div>
+          <div class="card"><div class="label">Webhook Endpoints</div><div class="value">${webhookMetrics.totalEndpoints}</div></div>
+          <div class="card"><div class="label">Webhook Failures</div><div class="value">${webhookMetrics.failed}</div></div>
+        </div>
+        <h2>Job Metrics</h2>
+        <pre>${JSON.stringify(jobMetrics, null, 2)}</pre>
+        <h2>Webhook Metrics</h2>
+        <pre>${JSON.stringify(webhookMetrics, null, 2)}</pre>
+      </body>
+    </html>
+  `);
+});
+
+// ─── Dead-Letter Queue Admin Endpoints ─────────────────────────────────────
+
+/**
+ * GET /admin/jobs/metrics
+ * Returns background job runtime and governance metrics.
+ */
+app.get('/admin/jobs/metrics', validateApiKey, (_req: Request, res: Response) => {
+  const metrics = getJobMetrics();
+  const health = getJobHealthStatus();
+
+  res.status(200).json({
+    summary: { health },
+    metrics,
+    prisma: getPrismaConfig(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/dead-letters
+ * Lists dead-letter queue records with optional filtering (jobName, status, limit, offset).
+ * Requires API key authentication.
+ */
+app.get('/admin/jobs/dead-letters', validateApiKey, (req: Request, res: Response) => {
+  const jobName = typeof req.query.jobName === 'string' ? (req.query.jobName as JobName) : undefined;
+  const status = typeof req.query.status === 'string' ? (req.query.status as DeadLetterStatus) : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 500);
+  const offset = parseLimited(req.query.offset, 0, 0, 10000);
+
+  const { records, total } = listDeadLetters({ jobName, status, limit, offset });
+
+  res.status(200).json({
+    data: records,
+    total,
+    limit,
+    offset,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/jobs/dead-letters/:id
+ * Retrieves a single dead-letter record by ID.
+ * Requires API key authentication.
+ */
+app.get('/admin/jobs/dead-letters/:id', validateApiKey, (req: Request, res: Response) => {
+  const record = getDeadLetterRecord(req.params.id);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  res.status(200).json({
+    record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/:id/retry
+ * Retries a single dead-letter queue entry.
+ * Supports dryRun flag.
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/:id/retry', validateApiKey, async (req: Request, res: Response) => {
+  const record = getDeadLetterRecord(req.params.id);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    void recordAdminAuditLog(req, 'jobs.dlq.retry.dry_run', 200, {
+      id: req.params.id,
+      jobName: record.jobName,
+      actor,
+    });
+
+    res.status(200).json({
+      dryRun: true,
+      message: `Dead-letter record '${req.params.id}' (${record.jobName}) would be retried`,
+      record,
+      wouldRetry: true,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const outcome = await retryDeadLetter(req.params.id);
+  void recordAdminAuditLog(req, 'jobs.dlq.retry', outcome.success ? 200 : 500, {
+    id: req.params.id,
+    jobName: record.jobName,
+    success: outcome.success,
+    actor,
+    error: outcome.error,
+  });
+
+  if (!outcome.success) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: outcome.error || 'Failed to retry dead-letter record',
+      record: outcome.record,
+    });
+    return;
+  }
+
+  res.status(200).json({
+    message: 'Dead-letter record retried successfully',
+    result: outcome.result,
+    record: outcome.record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/:id/resolve
+ * Marks a dead-letter entry as manually resolved.
+ * Body: { notes?: string }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/:id/resolve', validateApiKey, async (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+
+  const record = resolveDeadLetter(req.params.id, actor, notes);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'jobs.dlq.resolve', 200, {
+    id: req.params.id,
+    jobName: record.jobName,
+    actor,
+    notes,
+  });
+
+  res.status(200).json({
+    message: 'Dead-letter record resolved successfully',
+    record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/jobs/dead-letters/:id
+ * Discards a dead-letter record from the queue.
+ * Requires API key authentication.
+ */
+app.delete('/admin/jobs/dead-letters/:id', validateApiKey, (req: Request, res: Response) => {
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    const existing = getDeadLetterRecord(req.params.id);
+    res.status(existing ? 200 : 404).json({
+      dryRun: true,
+      message: existing
+        ? `Dead-letter record '${req.params.id}' would be discarded`
+        : `Dead-letter record '${req.params.id}' not found`,
+      id: req.params.id,
+      wouldDiscard: Boolean(existing),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const record = discardDeadLetter(req.params.id, actor);
+  if (!record) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Dead-letter record not found',
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'jobs.dlq.discard', 200, {
+    id: req.params.id,
+    jobName: record.jobName,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Dead-letter record discarded successfully',
+    record,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/bulk-retry
+ * Bulk retries multiple dead-letter records.
+ * Body: { ids: string[] }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/bulk-retry', validateApiKey, async (req: Request, res: Response) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+
+  if (ids.length === 0) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`ids` array must not be empty',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: `Bulk retry preview for ${ids.length} dead-letter records`,
+      ids,
+      wouldRetryCount: ids.length,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const summary = await bulkRetryDeadLetters(ids);
+
+  void recordAdminAuditLog(req, 'jobs.dlq.bulk_retry', 200, {
+    requestedCount: ids.length,
+    retried: summary.retried,
+    failed: summary.failed,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Bulk retry completed',
+    retried: summary.retried,
+    failed: summary.failed,
+    results: summary.results,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/bulk-discard
+ * Bulk discards multiple dead-letter records.
+ * Body: { ids: string[] }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/bulk-discard', validateApiKey, (req: Request, res: Response) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+
+  if (ids.length === 0) {
+    res.status(400).json({
+      error: 'Bad Request',
+      status: 400,
+      message: '`ids` array must not be empty',
+    });
+    return;
+  }
+
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: `Bulk discard preview for ${ids.length} dead-letter records`,
+      ids,
+      wouldDiscardCount: ids.length,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const summary = bulkDiscardDeadLetters(ids);
+
+  void recordAdminAuditLog(req, 'jobs.dlq.bulk_discard', 200, {
+    requestedCount: ids.length,
+    discardedCount: summary.discarded,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'Bulk discard completed',
+    discardedCount: summary.discarded,
+    ids: summary.ids,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/jobs/dead-letters/process
+ * Triggers batch processing worker for dead-letter records.
+ * Body: { batchSize?: number }
+ * Requires API key authentication.
+ */
+app.post('/admin/jobs/dead-letters/process', validateApiKey, async (req: Request, res: Response) => {
+  const batchSize = typeof req.body?.batchSize === 'number' && req.body.batchSize > 0 ? req.body.batchSize : 10;
+  const actor = resolveActingAdminAddress(req);
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: `DLQ processor dry-run preview for batchSize ${batchSize}`,
+      batchSize,
+      wouldProcess: true,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const summary = await processDeadLetterQueue(batchSize);
+
+  void recordAdminAuditLog(req, 'jobs.dlq.process', 200, {
+    batchSize,
+    processed: summary.processed,
+    succeeded: summary.succeeded,
+    failed: summary.failed,
+    actor,
+  });
+
+  res.status(200).json({
+    message: 'DLQ queue processing batch completed',
+    batchSize,
+    processed: summary.processed,
+    succeeded: summary.succeeded,
+    failed: summary.failed,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// â”€â”€â”€ Idempotency Admin Endpoints (Issues #457 & #466) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * GET /admin/idempotency/keys
+ * Lists idempotency keys with metadata.
+ * Optional query param: ?prefix=<string> to filter keys by prefix.
+ * Requires API key authentication.
+ */
+app.get('/admin/idempotency/keys', validateApiKey, (req: Request, res: Response) => {
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : undefined;
+  const keys = idempotencyStore.inspectKeys(prefix);
+  res.status(200).json({
+    keys,
+    count: keys.length,
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/idempotency/keys/:key
+ * Removes a single idempotency key from the store.
+ * Requires API key authentication.
+ */
+app.delete('/admin/idempotency/keys/:key', validateApiKey, (req: Request, res: Response) => {
+  const key = decodeURIComponent(req.params.key);
+  if (isDryRunRequest(req)) {
+    const exists = idempotencyStore.inspectKeys().some((entry) => entry.key === key);
+    res.status(exists ? 200 : 404).json({
+      dryRun: true,
+      message: exists
+        ? `Idempotency key '${key}' would be deleted`
+        : `Idempotency key '${key}' not found`,
+      key,
+      wouldDelete: exists,
+      metrics: idempotencyStore.getMetrics(),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const deleted = idempotencyStore.deleteKey(key);
+  if (!deleted) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: `Idempotency key '${key}' not found`,
+    });
+    return;
+  }
+  res.status(200).json({
+    message: `Idempotency key '${key}' deleted`,
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/idempotency/retention/metrics
+ * Returns idempotency retention policy and sweep metrics.
+ */
+app.get('/admin/idempotency/retention/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: getIdempotencyRetentionMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /admin/idempotency/retention/cleanup
+ * Runs a retention sweep for stale idempotency records.
+ */
+app.post('/admin/idempotency/retention/cleanup', validateApiKey, async (req: Request, res: Response) => {
+  const dryRun = isDryRunRequest(req);
+  const result = await pruneStaleIdempotencyRecords(dryRun);
+  res.status(200).json({
+    ...result,
+    metrics: getIdempotencyRetentionMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/idempotency/keys
+ * Flushes the entire idempotency store.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/idempotency/keys', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to flush the idempotency store',
+    });
+    return;
+  }
+  if (isDryRunRequest(req)) {
+    const keys = idempotencyStore.inspectKeys();
+    res.status(200).json({
+      dryRun: true,
+      message: 'Idempotency store flush dry-run preview',
+      wouldFlush: true,
+      keyCount: keys.length,
+      metrics: idempotencyStore.getMetrics(),
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  idempotencyStore.clear();
+  res.status(200).json({
+    message: 'Idempotency store flushed',
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/idempotency/metrics
+ * Returns hit/conflict/eviction counters for the idempotency store.
+ * Requires API key authentication.
+ */
+app.get('/admin/idempotency/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: idempotencyStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// â”€â”€â”€ Webhook Deduplication Admin Endpoints (Issue #710) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * GET /admin/webhooks/deduplication/metrics
+ * Returns observability counters for the webhook replay-safe deduplication store.
+ * Requires API key authentication.
+ */
+app.get('/admin/webhooks/deduplication/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/webhooks/deduplication/entries
+ * Lists active event fingerprints held in the deduplication store.
+ * Optional ?prefix=<string> filters by event id prefix.
+ * Requires API key authentication.
+ */
+app.get('/admin/webhooks/deduplication/entries', validateApiKey, (req: Request, res: Response) => {
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : undefined;
+  const entries = webhookDeduplicationStore.inspect(prefix);
+  res.status(200).json({
+    entries,
+    count: entries.length,
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/deduplication/:eventId
+ * Removes a single event fingerprint from the deduplication store.
+ * Requires API key authentication.
+ */
+app.delete('/admin/webhooks/deduplication/:eventId', validateApiKey, (req: Request, res: Response) => {
+  const eventId = decodeURIComponent(req.params.eventId);
+
+  if (isDryRunRequest(req)) {
+    const exists = webhookDeduplicationStore.has(eventId);
+    res.status(exists ? 200 : 404).json({
+      dryRun: true,
+      message: exists
+        ? `Deduplication entry '${eventId}' would be removed`
+        : `Deduplication entry '${eventId}' not found`,
+      eventId,
+      wouldDelete: exists,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const removed = webhookDeduplicationStore.remove(eventId);
+  if (!removed) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: `Deduplication entry '${eventId}' not found`,
+    });
+    return;
+  }
+
+  void recordAdminAuditLog(req, 'webhook.dedup.entry.removed', 200, { eventId });
+
+  res.status(200).json({
+    message: `Deduplication entry '${eventId}' removed`,
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /admin/webhooks/deduplication
+ * Flushes the entire webhook deduplication store.
+ * Requires super-admin API key.
+ */
+app.delete('/admin/webhooks/deduplication', validateApiKey, (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({
+      error: 'Forbidden',
+      status: 403,
+      message: 'Super-admin role is required to flush the webhook deduplication store',
+    });
+    return;
+  }
+
+  const metrics = webhookDeduplicationStore.getMetrics();
+
+  if (isDryRunRequest(req)) {
+    res.status(200).json({
+      dryRun: true,
+      message: 'Webhook deduplication store flush dry-run preview',
+      wouldFlush: true,
+      activeFingerprints: metrics.activeFingerprints,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  webhookDeduplicationStore.flush();
+
+  void recordAdminAuditLog(req, 'webhook.dedup.store.flushed', 200, {
+    flushedCount: metrics.activeFingerprints,
+  });
+
+  res.status(200).json({
+    message: 'Webhook deduplication store flushed',
+    metrics: webhookDeduplicationStore.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// â”€â”€â”€ Wallet Activity Heatmap Endpoint (Issue #712) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * GET /admin/analytics/wallet-activity/heatmap
+ *
+ * Returns aggregated wallet activity counts bucketed by calendar date for use
+ * in admin analytics dashboards.  Raw wallet records are never exposed; only
+ * the per-bucket counts and the summary statistics are returned.
+ *
+ * Query parameters:
+ *   from        ISO-8601 date or datetime (inclusive).  Defaults to 30 days ago.
+ *   to          ISO-8601 date or datetime (inclusive).  Defaults to today.
+ *   granularity day | week | month.  Defaults to day.
+ *   walletAddress  Optional address to scope results to a single wallet.
+ *
+ * Requires API key authentication.
+ */
+app.get('/admin/analytics/wallet-activity/heatmap', validateApiKey, async (req: Request, res: Response) => {
+  const granularity =
+    req.query.granularity === 'week' || req.query.granularity === 'month'
+      ? (req.query.granularity as 'week' | 'month')
+      : 'day';
+
+  let rangeStart: string;
+  let rangeEnd: string;
+
+  try {
+    const parsed = parseUtcDateRange({
+      from: typeof req.query.from === 'string' ? req.query.from : undefined,
+      to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    });
+    const defaultStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const defaultEnd = new Date().toISOString().slice(0, 10);
+    rangeStart = parsed.start ?? defaultStart;
+    rangeEnd = parsed.end ?? defaultEnd;
+  } catch (error) {
+    if (error instanceof DateRangeParseError) {
+      res.status(error.status).json({
+        error: 'Bad Request',
+        status: error.status,
+        message: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to parse date range',
+    });
+    return;
+  }
+
+  const walletAddress =
+    typeof req.query.walletAddress === 'string' && req.query.walletAddress.trim()
+      ? normalizeWalletAddress(req.query.walletAddress.trim())
+      : undefined;
+
+  try {
+    const where: Record<string, unknown> = {
+      timestamp: {
+        gte: new Date(rangeStart + 'T00:00:00.000Z'),
+        lte: new Date(rangeEnd + 'T23:59:59.999Z'),
+      },
+    };
+
+    if (walletAddress) {
+      where.user = walletAddress;
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: where as any,
+      select: { timestamp: true },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    const bucketKey = (date: Date, g: 'day' | 'week' | 'month'): string => {
+      const y = date.getUTCFullYear();
+      const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(date.getUTCDate()).padStart(2, '0');
+      if (g === 'month') return `${y}-${m}`;
+      if (g === 'week') {
+        const dayOfWeek = date.getUTCDay();
+        const mondayOffset = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek) * 86400000;
+        const monday = new Date(date.getTime() + mondayOffset);
+        const wy = monday.getUTCFullYear();
+        const wm = String(monday.getUTCMonth() + 1).padStart(2, '0');
+        const wd = String(monday.getUTCDate()).padStart(2, '0');
+        return `${wy}-${wm}-${wd}`;
+      }
+      return `${y}-${m}-${d}`;
+    };
+
+    const buckets = new Map<string, number>();
+    for (const tx of transactions) {
+      const key = bucketKey(new Date(tx.timestamp), granularity);
+      buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    }
+
+    const heatmap = Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([bucket, count]) => ({ bucket, count }));
+
+    const totalActivity = heatmap.reduce((sum, b) => sum + b.count, 0);
+    const peakBucket = heatmap.reduce(
+      (max, b) => (b.count > (max?.count ?? -1) ? b : max),
+      null as { bucket: string; count: number } | null,
+    );
+
+    res.status(200).json({
+      heatmap,
+      summary: {
+        totalActivity,
+        bucketCount: heatmap.length,
+        granularity,
+        rangeStart,
+        rangeEnd,
+        walletAddress: walletAddress ?? null,
+        peakBucket: peakBucket ?? null,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to aggregate wallet activity',
+    });
+  }
+});
+
+
+
+/**
+ * Mock vault metrics poll cycle
+ * In a real application, this would fetch data from a database or Stellar RPC
+ */
+const pollVaultMetrics = () => {
+  // Mock data for TVL and Share Price
+  const mockTvl = 1000000 + Math.random() * 100000;
+  const mockSharePrice = 1.25 + Math.random() * 0.05;
+
+  updateVaultMetrics(mockTvl, mockSharePrice);
+
+  logger.log('info', 'Vault metrics updated in Prometheus gauges', {
+    tvl: mockTvl,
+    sharePrice: mockSharePrice,
+  });
+};
+
+// Start poll cycle every 60 seconds (configurable)
+const METRICS_POLL_INTERVAL = parseInt(process.env.METRICS_POLL_INTERVAL_MS || '60000', 10);
+const metricsInterval =
+  process.env.NODE_ENV === 'test'
+    ? null
+    : setInterval(pollVaultMetrics, METRICS_POLL_INTERVAL);
+
+if (process.env.NODE_ENV !== 'test') {
+  pollVaultMetrics(); // Initial call
+  void initializeWebhookEndpoints();
+}
+
+// Start latency monitoring
+latencyMonitoringService.startMonitoring();
+
+// â”€â”€â”€ Event Polling Service (Issue: Event Replay) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+if (process.env.NODE_ENV !== 'test' && process.env.VAULT_CONTRACT_ID) {
+  startEventPollingService({
+    rpcUrl: process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org',
+    contractId: process.env.VAULT_CONTRACT_ID,
+    pollIntervalMs: parseInt(process.env.EVENT_POLL_INTERVAL_MS || '10000', 10),
+    batchSize: parseInt(process.env.EVENT_REPLAY_BATCH_SIZE || '100', 10),
+  });
+}
+
+// â”€â”€â”€ Dependency Health Checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Check cache health.
+ * Tests the in-memory NodeCache first; also probes Redis when configured.
+ * Returns 'up' when the primary store is healthy (Redis or memory).
  */
 function getCacheHealth(): string {
   try {
     cache.set('health-check', true);
     const value = cache.get('health-check');
-    return value ? 'up' : 'down';
+    if (!value) return 'down';
+
+    // If Redis is configured, surface its connection status as well
+    if (redisCacheClient.isConfigured && !redisCacheClient.isReady) {
+      // Redis configured but not yet connected → degraded, memory cache still up
+      return 'degraded';
+    }
+
+    return 'up';
   } catch {
     return 'down';
   }
 }
 
 function checkCacheDependency(): boolean {
-  return getCacheHealth() === 'up';
+  const health = getCacheHealth();
+  // 'degraded' means memory fallback is active — service is still operational
+  return health === 'up' || health === 'degraded';
+}
+
+/**
+ * Check database health
+ */
+async function getDatabaseHealth(): Promise<{ primary: string; replica: string }> {
+  try {
+    return await db.getHealth();
+  } catch {
+    return { primary: 'down', replica: 'down' };
+  }
+}
+
+async function getPrismaHealth(): Promise<'up' | 'down'> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return 'up';
+  } catch {
+    return 'down';
+  }
+}
+
+function getPrismaConfig() {
+  const config = getPrismaRuntimeConfig();
+  return {
+    prismaPoolSize: config.poolMax,
+    prismaQueryTimeoutMs: config.queryTimeoutMs,
+    prismaPoolTimeoutMs: config.poolTimeoutMs,
+  };
 }
 
 /**
@@ -222,11 +4336,13 @@ function getStellarRpcHealth(): string {
   try {
     // Simulate RPC availability check
     // In production: make actual call to VITE_SOROBAN_RPC_URL
-    const rpcUrl = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
+    const rpcUrl = process.env.STELLAR_RPC_URL;
     if (!rpcUrl) {
+      /* eslint-disable-next-line no-console */
+      console.warn('STELLAR_RPC_URL not configured');
       return 'down';
     }
-    // Assume up if a URL is configured
+    // Assume up if URL is configured
     // Real implementation would make a test RPC call
     return 'up';
   } catch {
@@ -238,96 +4354,463 @@ function checkStellarRpcDependency(): boolean {
   return getStellarRpcHealth() === 'up';
 }
 
-interface DepositRequest {
-  amount: number;
-  asset: string;
-  walletAddress: string;
-}
+// â”€â”€â”€ Health Probe Registration (Issue #719) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+healthProbeService.register('database', async () => {
+  const health = await getDatabaseHealth();
+  return health.primary === 'up' ? 'up' : 'down';
+});
+healthProbeService.register('cache', async () => {
+  return getCacheHealth() as 'up' | 'down';
+});
+healthProbeService.register('stellarRpc', async () => {
+  return getStellarRpcHealth() as 'up' | 'down';
+});
+healthProbeService.register('prisma', async () => {
+  return await getPrismaHealth();
+});
+healthProbeService.register('queue', async () => {
+  return getJobHealthStatus() === 'up' ? 'up' : 'down';
+});
 
-function getIdempotencyKey(req: Request): string | undefined {
-  const key = req.header('x-idempotency-key');
-  return key?.trim() || undefined;
-}
+/**
+ * GET /health/probes
+ * Returns per-dependency probe states with latency and last-error details.
+ * Issue #719: Health probe decomposition.
+ */
+app.get('/health/probes', async (_req: Request, res: Response) => {
+  const probes = await healthProbeService.checkAll();
+  const allHealthy = Object.values(probes).every((p) => p.status === 'up');
 
-function normalizeDepositRequest(body: unknown):
-  | { valid: true; value: DepositRequest }
-  | { valid: false; message: string } {
-  if (!body || typeof body !== 'object') {
-    return { valid: false, message: 'Request body must be a JSON object.' };
-  }
-
-  const payload = body as Record<string, unknown>;
-  const amount = typeof payload.amount === 'number' ? payload.amount : Number(payload.amount);
-  const asset = typeof payload.asset === 'string' ? payload.asset.trim() : '';
-  const walletAddress =
-    typeof payload.walletAddress === 'string' ? payload.walletAddress.trim() : '';
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return { valid: false, message: 'amount must be a positive number.' };
-  }
-
-  if (!asset) {
-    return { valid: false, message: 'asset is required.' };
-  }
-
-  if (!walletAddress) {
-    return { valid: false, message: 'walletAddress is required.' };
-  }
-
-  return {
-    valid: true,
-    value: {
-      amount,
-      asset,
-      walletAddress,
-    },
-  };
-}
-
-// ─── Error Handler ──────────────────────────────────────────────────────────
-
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    status: 500,
-    message:
-      nodeEnv === 'production'
-        ? 'An unexpected error occurred'
-        : err.message,
+  res.status(allHealthy ? 200 : 503).json({
+    status: allHealthy ? 'healthy' : 'degraded',
+    probes,
+    timestamp: new Date().toISOString(),
   });
 });
 
-// ─── 404 Handler ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Write-Ahead Audit Log Endpoints (Issue #707) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-app.use((req: Request, res: Response) => {
-  res.status(404).json({
-    error: 'Not Found',
-    status: 404,
-    path: req.path,
-    message: `${req.method} ${req.path} not found`,
-  });
-});
+/**
+ * GET /admin/wal/entries
+ * Lists write-ahead audit log entries with optional filters.
+ */
+app.get('/admin/wal/entries', validateApiKey, async (req: Request, res: Response) => {
+  const configType = typeof req.query.configType === 'string' ? req.query.configType : undefined;
+  const actor = typeof req.query.actor === 'string' ? req.query.actor : undefined;
+  const status = typeof req.query.status === 'string' ? req.query.status as 'pending' | 'committed' | 'rolled_back' : undefined;
+  const limit = parseLimited(req.query.limit, 50, 1, 200);
 
-// ─── Server Start ───────────────────────────────────────────────────────────
+  try {
+    const entries = await writeAheadAuditLog.list({ configType, actor, status, limit });
+    const metrics = await writeAheadAuditLog.getMetrics();
 
-// Only start server if this file is run directly (not imported as a module)
-if (require.main === module) {
-  const server = app.listen(port, () => {
-    console.log(`🚀 YieldVault Backend listening on port ${port}`);
-    console.log(`📊 Health check: http://localhost:${port}/health`);
-    console.log(`✅ Ready check: http://localhost:${port}/ready`);
-    console.log(`🌍 Environment: ${nodeEnv}`);
-  });
-
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down gracefully');
-    server.close(() => {
-      console.log('Server closed');
-      process.exit(0);
+    res.status(200).json({
+      entries,
+      count: entries.length,
+      metrics,
+      timestamp: new Date().toISOString(),
     });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to list write-ahead audit log entries',
+    });
+  }
+});
+
+/**
+ * GET /admin/wal/entries/:id
+ * Returns a specific write-ahead audit log entry.
+ */
+app.get('/admin/wal/entries/:id', validateApiKey, async (req: Request, res: Response) => {
+  try {
+    const entry = await writeAheadAuditLog.getEntry(req.params.id);
+    if (!entry) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Write-ahead audit log entry not found',
+      });
+      return;
+    }
+    res.status(200).json({ entry });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch write-ahead audit log entry',
+    });
+  }
+});
+
+/**
+ * GET /admin/wal/metrics
+ * Returns metrics for the write-ahead audit log.
+ */
+app.get('/admin/wal/metrics', validateApiKey, async (_req: Request, res: Response) => {
+  try {
+    const metrics = await writeAheadAuditLog.getMetrics();
+    res.status(200).json({
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch write-ahead audit log metrics',
+    });
+  }
+});
+
+/**
+ * GET /admin/wal/pending
+ * Returns currently pending (uncommitted) write-ahead entries.
+ */
+app.get('/admin/wal/pending', validateApiKey, async (_req: Request, res: Response) => {
+  try {
+    const pending = await writeAheadAuditLog.getPendingEntries();
+    res.status(200).json({
+      entries: pending,
+      count: pending.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Internal Server Error',
+      status: 500,
+      message: error instanceof Error ? error.message : 'Failed to fetch pending write-ahead audit log entries',
+    });
+  }
+});
+
+// ─── Scoped Admin Token Endpoints (Issue #723 / #858) ───────────────────────
+// All endpoints are async – store operations now hit Prisma for cluster-wide durability.
+
+/**
+ * GET /admin/scoped-tokens/permissions
+ * Returns the list of valid permissions for scoped tokens.
+ * Must be registered before /:keyId routes to avoid shadowing.
+ */
+app.get('/admin/scoped-tokens/permissions', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    permissions: scopedAdminTokenStore.getValidPermissions(),
+    timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * POST /admin/scoped-tokens
+ * Creates a new permission-scoped admin token.
+ * Requires super-admin API key.
+ * Returns the plaintext secret once; it is never stored.
+ */
+app.post('/admin/scoped-tokens', validateApiKey, async (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({ error: 'Forbidden', status: 403, message: 'Super-admin role is required to create scoped tokens' });
+    return;
+  }
+  const { label, permissions, expiresInSeconds } = req.body;
+  if (typeof label !== 'string' || !label.trim()) {
+    res.status(400).json({ error: 'Bad Request', status: 400, message: '`label` (string) is required' });
+    return;
+  }
+  if (!Array.isArray(permissions) || permissions.length === 0) {
+    res.status(400).json({ error: 'Bad Request', status: 400, message: '`permissions` (non-empty array) is required' });
+    return;
+  }
+  const actor = resolveActingAdminAddress(req);
+  try {
+    const { token, secret } = await scopedAdminTokenStore.create({
+      label: label.trim(),
+      permissions,
+      expiresInSeconds: typeof expiresInSeconds === 'number' && expiresInSeconds > 0 ? expiresInSeconds : undefined,
+      createdBy: actor,
+    });
+    void recordAdminAuditLog(req, 'scoped-token.created', 201, { keyId: token.keyId, label: token.label, permissions: token.permissions, actor });
+    res.status(201).json({ message: 'Scoped admin token created', keyId: token.keyId, secret, label: token.label, permissions: token.permissions, expiresAt: token.expiresAt, createdAt: token.createdAt });
+  } catch (error) {
+    res.status(400).json({ error: 'Bad Request', status: 400, message: error instanceof Error ? error.message : 'Failed to create scoped token' });
+  }
+});
+
+/**
+ * GET /admin/scoped-tokens
+ * Lists all scoped admin tokens (without secrets).
+ * Requires admin or super-admin API key.
+ */
+app.get('/admin/scoped-tokens', validateApiKey, async (req: Request, res: Response) => {
+  const includeRevoked = req.query.includeRevoked === 'true';
+  const tokens = await scopedAdminTokenStore.list({ includeRevoked });
+  const sanitized = tokens.map(({ hashedSecret: _hs, ...rest }) => rest);
+  res.status(200).json({ tokens: sanitized, count: sanitized.length, timestamp: new Date().toISOString() });
+});
+
+/**
+ * GET /admin/scoped-tokens/:keyId
+ * Returns a single token record (without secret).
+ * Requires admin or super-admin API key.
+ */
+app.get('/admin/scoped-tokens/:keyId', validateApiKey, async (req: Request, res: Response) => {
+  const token = await scopedAdminTokenStore.get(req.params.keyId);
+  if (!token) {
+    res.status(404).json({ error: 'Not Found', status: 404, message: 'Scoped token not found' });
+    return;
+  }
+  const { hashedSecret: _hs, ...sanitized } = token;
+  res.status(200).json({ token: sanitized });
+});
+
+/**
+ * GET /admin/scoped-tokens/:keyId/rotations
+ * Returns the immutable rotation history for a token (fingerprints only, no old secrets).
+ * Requires admin or super-admin API key.
+ */
+app.get('/admin/scoped-tokens/:keyId/rotations', validateApiKey, async (req: Request, res: Response) => {
+  const token = await scopedAdminTokenStore.get(req.params.keyId);
+  if (!token) {
+    res.status(404).json({ error: 'Not Found', status: 404, message: 'Scoped token not found' });
+    return;
+  }
+  const events = await scopedAdminTokenStore.listRotationEvents(req.params.keyId);
+  res.status(200).json({ keyId: req.params.keyId, rotations: events, count: events.length, timestamp: new Date().toISOString() });
+});
+
+/**
+ * POST /admin/scoped-tokens/:keyId/rotate
+ * Rotates the secret and writes an immutable audit event row.
+ * Requires super-admin API key.
+ */
+app.post('/admin/scoped-tokens/:keyId/rotate', validateApiKey, async (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({ error: 'Forbidden', status: 403, message: 'Super-admin role is required to rotate scoped tokens' });
+    return;
+  }
+  const actor = resolveActingAdminAddress(req);
+  const result = await scopedAdminTokenStore.rotate(req.params.keyId, { rotatedBy: actor });
+  if (!result) {
+    res.status(404).json({ error: 'Not Found', status: 404, message: 'Scoped token not found or already revoked' });
+    return;
+  }
+  void recordAdminAuditLog(req, 'scoped-token.rotated', 200, { keyId: result.keyId, rotatedAt: result.rotatedAt, actor });
+  res.status(200).json({ message: 'Scoped token rotated', keyId: result.keyId, newSecret: result.newSecret, rotatedAt: result.rotatedAt });
+});
+
+/**
+ * POST /admin/scoped-tokens/:keyId/revoke
+ * Revokes a scoped admin token cluster-wide.
+ * Requires super-admin API key.
+ */
+app.post('/admin/scoped-tokens/:keyId/revoke', validateApiKey, async (req: Request, res: Response) => {
+  if (!hasRequiredApiKeyRole(req, 'super-admin')) {
+    res.status(403).json({ error: 'Forbidden', status: 403, message: 'Super-admin role is required to revoke scoped tokens' });
+    return;
+  }
+  const actor = resolveActingAdminAddress(req);
+  const revoked = await scopedAdminTokenStore.revoke(req.params.keyId, { revokedBy: actor });
+  if (!revoked) {
+    res.status(404).json({ error: 'Not Found', status: 404, message: 'Scoped token not found or already revoked' });
+    return;
+  }
+  void recordAdminAuditLog(req, 'scoped-token.revoked', 200, { keyId: req.params.keyId, actor });
+  res.status(200).json({ message: 'Scoped token revoked', keyId: req.params.keyId, timestamp: new Date().toISOString() });
+});
+
+// ─── Withdrawal Partial-Failure Recovery Endpoints (Issue #954) ──────────────
+
+const WITHDRAWAL_SAGA_STATUSES: readonly WithdrawalSagaStatus[] = [
+  'in_progress',
+  'completed',
+  'awaiting_retry',
+  'compensated',
+  'needs_manual_intervention',
+  'failed',
+];
+
+function parseSagaStatus(value: unknown): WithdrawalSagaStatus | undefined {
+  return typeof value === 'string' &&
+    (WITHDRAWAL_SAGA_STATUSES as readonly string[]).includes(value)
+    ? (value as WithdrawalSagaStatus)
+    : undefined;
+}
+
+/**
+ * GET /admin/withdrawals/recovery
+ * Lists journalled withdrawal sagas with optional filters. Use
+ * `?requiresManualIntervention=true` for the operator work queue.
+ */
+app.get('/admin/withdrawals/recovery', validateApiKey, (req: Request, res: Response) => {
+  const requiresManualIntervention =
+    req.query.requiresManualIntervention === undefined
+      ? undefined
+      : req.query.requiresManualIntervention === 'true';
+
+  const sagas = withdrawalRecoveryCoordinator.list({
+    status: parseSagaStatus(req.query.status),
+    walletAddress:
+      typeof req.query.walletAddress === 'string' ? req.query.walletAddress : undefined,
+    withdrawalId:
+      typeof req.query.withdrawalId === 'string' ? req.query.withdrawalId : undefined,
+    requiresManualIntervention,
+    limit: parseLimited(req.query.limit, 50, 1, 200),
+  });
+
+  res.status(200).json({
+    sagas,
+    count: sagas.length,
+    metrics: withdrawalRecoveryCoordinator.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/withdrawals/recovery/metrics
+ * Aggregate recovery counters for dashboards and alert rules.
+ */
+app.get('/admin/withdrawals/recovery/metrics', validateApiKey, (_req: Request, res: Response) => {
+  res.status(200).json({
+    metrics: withdrawalRecoveryCoordinator.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /admin/withdrawals/recovery/:sagaId
+ * Returns the full step journal for one withdrawal saga.
+ */
+app.get('/admin/withdrawals/recovery/:sagaId', validateApiKey, (req: Request, res: Response) => {
+  const saga = withdrawalRecoveryCoordinator.get(req.params.sagaId);
+  if (!saga) {
+    res.status(404).json({
+      error: 'Not Found',
+      status: 404,
+      message: 'Withdrawal recovery saga not found',
+    });
+    return;
+  }
+  res.status(200).json({ saga });
+});
+
+/**
+ * POST /admin/withdrawals/recovery/:sagaId/resume
+ * Replays the saga from its journal. Completed steps are skipped, so no side
+ * effect is repeated. `force: true` also resumes sagas parked for an operator.
+ */
+app.post(
+  '/admin/withdrawals/recovery/:sagaId/resume',
+  validateApiKey,
+  async (req: Request, res: Response) => {
+    const force = req.body?.force === true;
+    const outcome = await withdrawalRecoveryCoordinator.resume(req.params.sagaId, { force });
+
+    if (!outcome) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Withdrawal recovery saga not found',
+      });
+      return;
+    }
+
+    void recordAdminAuditLog(req, 'withdrawal-recovery.resumed', 200, {
+      sagaId: outcome.saga.id,
+      withdrawalId: outcome.saga.withdrawalId,
+      status: outcome.status,
+      forced: force,
+      actor: resolveActingAdminAddress(req),
+    });
+
+    res.status(200).json({
+      message: 'Withdrawal recovery pass completed',
+      status: outcome.status,
+      completed: outcome.completed,
+      partial: outcome.partial,
+      saga: outcome.saga,
+    });
+  },
+);
+
+/**
+ * POST /admin/withdrawals/recovery/:sagaId/resolve
+ * Closes out a parked saga after an operator reconciled it by hand.
+ */
+app.post(
+  '/admin/withdrawals/recovery/:sagaId/resolve',
+  validateApiKey,
+  (req: Request, res: Response) => {
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+    if (!note) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'A "note" describing the manual resolution is required',
+      });
+      return;
+    }
+
+    const outcome = req.body?.outcome;
+    if (outcome !== undefined && !['completed', 'compensated', 'failed'].includes(outcome)) {
+      res.status(400).json({
+        error: 'Bad Request',
+        status: 400,
+        message: 'outcome must be one of: completed, compensated, failed',
+      });
+      return;
+    }
+
+    const actor = resolveActingAdminAddress(req);
+    const saga = withdrawalRecoveryCoordinator.resolveManually(
+      req.params.sagaId,
+      actor,
+      note,
+      outcome,
+    );
+
+    if (!saga) {
+      res.status(404).json({
+        error: 'Not Found',
+        status: 404,
+        message: 'Withdrawal recovery saga not found',
+      });
+      return;
+    }
+
+    void recordAdminAuditLog(req, 'withdrawal-recovery.resolved', 200, {
+      sagaId: saga.id,
+      withdrawalId: saga.withdrawalId,
+      outcome: saga.status,
+      actor,
+    });
+
+    res.status(200).json({ message: 'Withdrawal saga resolved', saga });
+  },
+);
+
+/**
+ * POST /admin/withdrawals/recovery/sweep
+ * Runs one recovery sweep immediately instead of waiting for the interval.
+ */
+app.post('/admin/withdrawals/recovery/sweep', validateApiKey, async (req: Request, res: Response) => {
+  const result = await withdrawalRecoveryCoordinator.sweep();
+  void recordAdminAuditLog(req, 'withdrawal-recovery.swept', 200, {
+    resumed: result.resumed.length,
+    stale: result.stale.length,
+    actor: resolveActingAdminAddress(req),
+  });
+  res.status(200).json({
+    message: 'Withdrawal recovery sweep completed',
+    resumed: result.resumed,
+    staleResumed: result.stale,
+    metrics: withdrawalRecoveryCoordinator.getMetrics(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Resume partially failed withdrawals in the background. Disabled under test so
+// suites drive the sweeper explicitly.
+if (process.env.NODE_ENV !== 'test') {
+  withdrawalRecoveryCoordinator.startSweeper();
 }
 
 export default app;

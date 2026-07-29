@@ -1,0 +1,489 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  address   String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VaultState {
+  id          Int      @id @default(1)
+  totalAssets String
+  totalShares String
+  version     Int      @default(1)
+  updatedAt   DateTime @updatedAt
+}
+
+model SharePriceSnapshot {
+  id          String   @id @default(uuid())
+  sharePrice  String
+  totalAssets String
+  totalShares String
+  source      String
+  recordedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([recordedAt])
+  // Issue #895 – calculateUserYield orders by (recordedAt ASC, id ASC); composite covers both
+  @@index([recordedAt(sort: Asc), id(sort: Asc)])
+}
+
+model Transaction {
+  id           String   @id @default(uuid())
+  user         String
+  amount       String
+  type         String
+  status       String?
+  referralCode String?
+  timestamp    DateTime @default(now())
+
+  // Issue #895 – query optimisation indices
+  // Ordered by timestamp DESC to match the default sort on the list endpoint.
+  @@index([timestamp(sort: Desc)])
+  @@index([user, timestamp(sort: Desc)])
+  @@index([type, timestamp(sort: Desc)])
+  @@index([status, timestamp(sort: Desc)])
+  @@index([user, type, timestamp(sort: Desc)])
+  @@index([user, status, timestamp(sort: Desc)])
+}
+
+model Referral {
+  id              Int       @id @default(autoincrement())
+  referrerAddress String
+  referredAddress String    @unique
+  firstDepositAt  DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([referrerAddress])
+}
+
+model ReferralCode {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  ownerAddress String
+  createdAt    DateTime @default(now())
+
+  // Issue #895 – getOrCreateReferralCode does findFirst({ where: { ownerAddress } })
+  @@index([ownerAddress])
+}
+
+model AdminAuditLog {
+  id         String   @id
+  action     String
+  method     String
+  path       String
+  statusCode Int
+  actor      String
+  apiKeyHash String
+  ipAddress  String
+  userAgent  String
+  metadata   String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actor])
+}
+
+model ApiKeyAuditEvent {
+  id             String   @id @default(uuid())
+  actor          String
+  action         String
+  keyFingerprint String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([keyFingerprint])
+}
+
+model ExportJob {
+  id                String   @id
+  format            String
+  fileName          String
+  contentType       String
+  checksum          String
+  checksumAlgorithm String
+  generatedBy       String
+  walletAddress     String?
+  rowCount          Int
+  filters           String
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([checksum])
+  @@index([generatedBy])
+  @@index([walletAddress])
+  @@index([format])
+}
+
+model BulkExportJob {
+  id            String   @id
+  status        String   @default("pending")
+  format        String
+  generatedBy   String
+  filters       String
+  totalRows     Int      @default(0)
+  processedRows Int      @default(0)
+  errorRows     Int      @default(0)
+  artifactId    String?
+  errorMessage  String?
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  completedAt   DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([generatedBy])
+}
+
+model EventCursor {
+  id                Int      @id @default(1)
+  lastLedgerSeq     Int
+  lastProcessedAt   DateTime @updatedAt
+}
+
+model ProcessedEvent {
+  id              String   @id
+  ledgerSeq       Int
+  eventType       String
+  contractId      String
+  txHash          String
+  processedAt     DateTime @default(now())
+
+  @@index([ledgerSeq])
+  @@index([txHash])
+}
+
+model WebhookEndpoint {
+  id                    String    @id
+  url                   String
+  eventTypes            String    // JSON array
+  enabled               Boolean   @default(true)
+  secret                String?
+  secretHash            String?
+  verificationStatus    String    @default("pending")
+  challengeTokenHash    String?
+  challengeExpiresAt    DateTime?
+  verifiedAt            DateTime?
+  lastVerificationError String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
+  deletedBy             String?
+
+  deliveries            WebhookDelivery[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([verificationStatus])
+}
+
+model WebhookDelivery {
+  id          String    @id
+  endpointId  String
+  endpointUrl String
+  eventType   String
+  status      String
+  attempts    Int
+  deliveredAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([endpointId])
+  // Issue #895 – listWebhookDeliveryPage sorts by (createdAt DESC, id DESC) filtered by endpointId
+  @@index([endpointId, createdAt(sort: Desc)])
+}
+
+model AdminActionReceipt {
+  id             String   @id @default(uuid())
+  action         String
+  actor          String
+  timestamp      DateTime @default(now())
+  inputHash      String
+  resultingState String   // JSON string
+  signature      String
+  createdAt      DateTime @default(now())
+
+  @@index([action])
+  @@index([actor])
+  @@index([timestamp])
+}
+
+model AdminImpersonationSession {
+  id           String    @id @default(uuid())
+  actor        String
+  apiKeyHash   String
+  targetWallet String
+  reason       String
+  startedAt    DateTime  @default(now())
+  expiresAt    DateTime
+  endedAt      DateTime?
+  status       String    @default("active")
+  ipAddress    String
+  userAgent    String
+
+  ledgerEntries AdminImpersonationLedgerEntry[]
+
+  @@index([status])
+  @@index([actor])
+  @@index([targetWallet])
+  @@index([startedAt])
+  @@index([expiresAt])
+}
+
+model AdminImpersonationLedgerEntry {
+  id        String   @id @default(uuid())
+  sessionId String
+  eventType String
+  actor     String
+  metadata  String
+  createdAt DateTime @default(now())
+
+  session AdminImpersonationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model EmailQueue {
+  id          String    @id @default(uuid())
+  to          String
+  subject     String
+  text        String?
+  html        String?
+  status      String    @default("pending")
+  retryCount  Int       @default(0)
+  maxRetries  Int       @default(5)
+  nextRetryAt DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WebhookDeadLetter {
+  id                 String   @id @default(uuid())
+  endpointId         String
+  endpointUrl        String
+  eventType          String
+  payload            String
+  attempts           Int
+  lastError          String?
+  originalDeliveryId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  retriedAt          DateTime?
+  status             String   @default("dead-letter")
+
+  @@index([endpointId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model AdminConfigChange {
+  id                 String   @id @default(uuid())
+  configType         String
+  action             String
+  actor              String
+  ipAddress          String?
+  userAgent          String?
+  preChangeSnapshot  String
+  postChangeSnapshot String
+  metadata           String
+  createdAt          DateTime @default(now())
+
+  @@index([configType])
+  @@index([createdAt])
+  @@index([actor])
+}
+
+model FeatureFlagOverride {
+  id        String   @id @default(uuid())
+  flagName  String
+  enabled   Boolean
+  scopeType String   // "wallet" or "environment"
+  scopeValue String?  // wallet address or environment name
+  expiresAt DateTime
+  actor     String
+  createdAt DateTime @default(now())
+
+  @@index([flagName])
+  @@index([scopeType, scopeValue])
+  @@index([expiresAt])
+  @@index([actor])
+}
+
+model ExportManifest {
+  id              String   @id
+  requester       String
+  reportType      String
+  filters         String
+  checksum        String
+  generatedAt     DateTime
+  fileName        String
+  rowCount        Int
+  bulkExportJobId String?
+  artifactId      String?
+
+  @@index([generatedAt])
+  @@index([requester])
+  @@index([reportType])
+  @@index([checksum])
+}
+
+model ReconciliationSnapshot {
+  id          String   @id
+  generatedAt DateTime
+  traceId     String?
+  status      String
+  windowFrom  DateTime
+  windowTo    DateTime
+  summaryJson String
+  driftCount  Int
+
+  @@index([generatedAt])
+  @@index([status])
+}
+
+model TransactionBackfillJob {
+  id                  String    @id
+  jobKey              String    @unique
+  startLedger         Int
+  endLedger           Int
+  batchSize           Int
+  dryRun              Boolean
+  status              String
+  rpcUrl              String
+  contractId          String
+  lastProcessedLedger Int?
+  progressJson        String
+  errorMessage        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  completedAt         DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([dryRun])
+}
+
+// ─── Scoped Admin Tokens (Issue #858) ────────────────────────────────────────
+
+/// Permission-scoped admin token. Secrets are stored as SHA-256 hashes only;
+/// plaintext values are never persisted.
+model ScopedAdminToken {
+  id           String    @id @default(uuid())
+  /// Human-readable identifier prefix `yv_` + 16 hex chars.
+  keyId        String    @unique
+  /// SHA-256(secret) – used for timing-safe authentication.
+  hashedSecret String
+  /// JSON-serialised AdminPermission[].
+  permissions  String
+  label        String
+  createdBy    String
+  revoked      Boolean   @default(false)
+  revokedBy    String?
+  revokedAt    DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+  rotatedAt    DateTime?
+
+  rotationEvents ScopedAdminTokenRotationEvent[]
+
+  @@index([keyId])
+  @@index([revoked])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([createdBy])
+}
+
+/// Immutable audit record written on every successful secret rotation.
+/// Old hashed secrets are NOT stored; only the timing and actor are retained.
+model ScopedAdminTokenRotationEvent {
+  id        String   @id @default(uuid())
+  keyId     String
+  /// Fingerprint of the key that was rotated (sha256:<first 16 hex chars>).
+  keyFingerprint String
+  rotatedBy String
+  rotatedAt DateTime @default(now())
+
+  token ScopedAdminToken @relation(fields: [keyId], references: [keyId], onDelete: Cascade)
+
+  @@index([keyId])
+  @@index([rotatedAt])
+  @@index([rotatedBy])
+}
+
+// Tenant model – represents a customer/organization
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  // Relations
+  apiKeys   ApiKey[]
+  @@index([name])
+}
+
+// API key model – scoped per tenant with role and scopes
+model ApiKey {
+  id         String   @id @default(uuid())
+  tenantId   String
+  hashedKey  String   @unique
+  role       String
+  scopes     String   @default("[]")
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime?
+  isActive   Boolean  @default(true)
+
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([role])
+}
+
+// Durable write-ahead audit log for admin configuration changes (Issue #707).
+// Replaces the process-local in-memory store (issue #856) so entries survive
+// process restarts and are visible to every backend instance in multi-pod
+// deployments, letting operators reconstruct partial config changes that
+// were prepared but never committed/rolled back before a crash.
+model WriteAheadAuditEntry {
+  id                 String    @id
+  configType         String
+  action             String
+  actor              String
+  ipAddress          String?
+  userAgent          String?
+  preChangeSnapshot  String
+  postChangeSnapshot String?
+  metadata           String
+  status             String    @default("pending")
+  requestId          String?
+  createdAt          DateTime  @default(now())
+  committedAt        DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([configType])
+  @@index([actor])
+}

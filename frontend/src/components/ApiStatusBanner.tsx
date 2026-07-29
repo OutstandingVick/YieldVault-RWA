@@ -1,6 +1,7 @@
 import type { ApiError, ValidationError } from "../lib/api";
 import type { FC } from "react";
 import { useTranslation } from "../i18n";
+import EmptyState from "./ui/EmptyState";
 
 interface ApiStatusBannerProps {
   error: ApiError | ValidationError;
@@ -8,6 +9,11 @@ interface ApiStatusBannerProps {
 
 const ApiStatusBanner: FC<ApiStatusBannerProps> = ({ error }) => {
   const { t } = useTranslation();
+  const description =
+    error.userMessage === "Failed to load vault data"
+      ? error.userMessage
+      : `Failed to load vault data. ${error.userMessage}`;
+
   return (
     <div
       role="alert"
@@ -27,6 +33,12 @@ const ApiStatusBanner: FC<ApiStatusBannerProps> = ({ error }) => {
       </div>
       <div style={{ display: "none" }}>Failed to load vault data</div>
     </div>
+    <EmptyState
+      kind="error"
+      title={t("apiBanner.title")}
+      description={description}
+      className="empty-state-compact api-status-banner"
+    />
   );
 };
 

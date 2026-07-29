@@ -1,7 +1,6 @@
 /**
  * @file schemas.ts
- * Zod schemas for every request payload / query-parameter bag that the
- * YieldVault API client dispatches.
+ * Re-exports shared API schemas from @yieldvault/api-schemas.
  *
  * Import the schema you need and pass it to `validate()` from ./validation
  * before calling any API function.
@@ -167,18 +166,24 @@ export type WalletAddressParam = z.infer<typeof WalletAddressSchema>;
 /**
  * Query-string parameters for the transaction history endpoint.
  */
-export const TransactionQuerySchema = z.object({
-  walletAddress: StellarAddressSchema,
-  /** Maximum number of records to return (1–200). */
-  limit: z
-    .number()
-    .int("Limit must be a whole number")
-    .min(1, "Limit must be at least 1")
-    .max(200, "Limit may not exceed 200 records")
-    .optional()
-    .default(50),
-  order: z.enum(["asc", "desc"]).optional().default("desc"),
-  type: z.enum(["deposit", "withdrawal", "all"]).optional().default("all"),
-});
 
-export type TransactionQuery = z.infer<typeof TransactionQuerySchema>;
+export {
+  StellarAddressSchema,
+  AmountSchema,
+  ShareCountSchema,
+  AssetCodeSchema,
+  IsoDatestamp,
+  DepositRequestSchema,
+  WithdrawalRequestSchema,
+  VaultHistoryQuerySchema,
+  PortfolioQuerySchema,
+  WalletAddressSchema,
+  TransactionQuerySchema,
+  type DepositRequest,
+  type WithdrawalRequest,
+  type VaultHistoryQuery,
+  type PortfolioQuery,
+  type WalletAddressParam,
+  type TransactionQuery,
+  type TransactionQueryInput,
+} from "@yieldvault/api-schemas";

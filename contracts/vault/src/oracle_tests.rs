@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::oracle::{
     price_data_new, price_data_scaled_price, validate_conversion_rate,
     validate_price_for_calculation, OracleValidator, DEFAULT_HEARTBEAT_SECONDS,
@@ -16,7 +14,7 @@ fn create_token_contract<'a>(e: &Env, admin: &Address) -> token::Client<'a> {
     token::Client::new(e, &token_address)
 }
 
-const SCALE: i128 = 1_000_000_000_000_000_000i128;
+const _SCALE: i128 = 1_000_000_000_000_000_000i128;
 
 #[test]
 fn test_oracle_price_data_creation() {
@@ -74,9 +72,8 @@ fn test_validate_deviation_within_bounds() {
         Some(5000),
         Some(&last_price),
     );
-    match result {
-        Ok(_) => assert!(true),
-        Err(e) => panic!("Validation error: {:?}", e),
+    if let Err(e) = result {
+        panic!("Validation error: {:?}", e);
     }
 }
 
@@ -126,13 +123,52 @@ fn test_oracle_config_functions() {
     assert_eq!(vault.oracle_heartbeat(), 3600);
 
     let oracle_addr = Address::generate(&env);
-    vault.set_price_oracle(&oracle_addr);
+    vault.queue_price_oracle_change(&oracle_addr);
+    vault.execute_price_oracle_change();
     assert_eq!(vault.price_oracle(), Some(oracle_addr));
 
     vault.set_oracle_enabled(&true);
     assert!(vault.is_oracle_enabled());
 
     vault.set_oracle_heartbeat(&7200);
+    assert_eq!(vault.oracle_heartbeat(), 7200);
+}
+
+#[test]
+fn test_oracle_setters_require_admin_auth() {
+    let env = Env::default();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token_contract(&env, &token_admin);
+    let token_admin_client = token::StellarAssetClient::new(&env, &usdc.address);
+
+    let user = Address::generate(&env);
+    token_admin_client.mint(&user, &1000);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+
+    vault.initialize(&admin, &usdc.address);
+
+    let oracle_addr = Address::generate(&env);
+
+    // Without admin authorization, oracle config mutations must fail.
+    assert!(vault.try_queue_price_oracle_change(&oracle_addr).is_err());
+    assert!(vault.try_set_oracle_enabled(&true).is_err());
+    assert!(vault.try_set_oracle_heartbeat(&7200).is_err());
+    assert!(vault.price_oracle().is_none());
+    assert!(!vault.is_oracle_enabled());
+    assert_eq!(vault.oracle_heartbeat(), 3600);
+
+    env.mock_all_auths();
+    vault.queue_price_oracle_change(&oracle_addr);
+    vault.execute_price_oracle_change();
+    vault.set_oracle_enabled(&true);
+    vault.set_oracle_heartbeat(&7200);
+
+    assert_eq!(vault.price_oracle(), Some(oracle_addr));
+    assert!(vault.is_oracle_enabled());
     assert_eq!(vault.oracle_heartbeat(), 7200);
 }
 

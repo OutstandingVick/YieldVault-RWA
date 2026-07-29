@@ -1,8 +1,19 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { useTranslation } from "../i18n";
+import { getColumnSortState } from "./dataTableSort";
+import type { TableSortDirection, TableSortKey } from "./dataTableSort";
 import { Pagination } from "./Pagination";
+import { TableSkeleton } from "./Skeleton";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
 
-export type TableSortDirection = "asc" | "desc";
+// Sort-state types and helpers live in `dataTableSort` so both this component
+// and VirtualizedDataTable can share them. Re-exported here because this module
+// was their original home and is what the rest of the app imports from.
+export type {
+  ColumnSortState,
+  TableSortDirection,
+  TableSortKey,
+} from "./dataTableSort";
 
 export interface DataTableColumn<T> {
   id: string;
@@ -26,14 +37,29 @@ interface DataTableProps<T> {
   rows: T[];
   rowKey: (row: T) => string;
   caption: string;
-  emptyMessage: string;
+  emptyMessage: ReactNode;
   sortBy?: string;
   sortDirection?: TableSortDirection;
   onSortChange?: (columnId: string) => void;
+  /**
+   * Active multi-column sort. When provided it supersedes `sortBy` /
+   * `sortDirection` for rendering, and headers report their priority.
+   */
+  sortKeys?: readonly TableSortKey[];
+  /**
+   * Multi-column sort handler. `additive` is true when the activation carried a
+   * Shift modifier, meaning "add this column as a tiebreaker" rather than
+   * "sort by this column instead". Takes precedence over `onSortChange`.
+   */
+  onSortToggle?: (columnId: string, additive: boolean) => void;
   pagination?: PaginationState;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   renderRowDetails?: (row: T) => ReactNode;
+  isLoading?: boolean;
+  skeletonRows?: number;
+  onRowClick?: (row: T) => void;
+  selectedRowKey?: string;
 }
 
 function getCellAlignment(align: DataTableColumn<unknown>["align"]) {
@@ -57,44 +83,73 @@ export function DataTable<T>({
   sortBy,
   sortDirection = "asc",
   onSortChange,
+  sortKeys,
+  onSortToggle,
   pagination,
   onPageChange,
   onPageSizeChange,
   renderRowDetails,
+  isLoading = false,
+  skeletonRows = 5,
+  onRowClick,
+  selectedRowKey,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
+  const delayedLoading = useDelayedLoading(isLoading);
+
+  const activateSort = (columnId: string, additive: boolean) => {
+    if (onSortToggle) {
+      onSortToggle(columnId, additive);
+      return;
+    }
+    onSortChange?.(columnId);
+  };
+
   const handleHeaderKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     columnId: string,
   ) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      onSortChange?.(columnId);
+      activateSort(columnId, event.shiftKey);
     }
   };
 
+  const handleRowKeyDown = (
+    event: KeyboardEvent<HTMLTableRowElement>,
+    row: T,
+  ) => {
+    if (!onRowClick) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onRowClick(row);
+    }
+  };
+
+  const isInteractive = Boolean(onRowClick);
+
   return (
-    <div className="data-table-shell glass-panel">
+    <div className="data-table-shell glass-panel" aria-busy={delayedLoading}>
       <div className="data-table-scroll">
         <table className="data-table">
           <caption className="sr-only">{caption}</caption>
           <thead>
             <tr>
               {columns.map((column) => {
-                const isSorted = sortBy === column.id;
-                const ariaSort = !column.sortable
-                  ? "none"
-                  : isSorted
-                    ? sortDirection === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none";
+                const sortState = getColumnSortState(
+                  column.id,
+                  column.sortable,
+                  sortKeys,
+                  sortBy,
+                  sortDirection,
+                );
 
                 return (
                   <th
                     key={column.id}
                     scope="col"
-                    aria-sort={ariaSort}
+                    aria-sort={sortState.ariaSort}
                     style={{
                       width: column.width,
                       textAlign: getCellAlignment(column.align),
@@ -104,16 +159,36 @@ export function DataTable<T>({
                       <button
                         type="button"
                         className="data-table-sort"
-                        onClick={() => onSortChange?.(column.id)}
+                        onClick={(event) =>
+                          activateSort(column.id, event.shiftKey)
+                        }
                         onKeyDown={(event) =>
                           handleHeaderKeyDown(event, column.id)
                         }
                         aria-label={`${t("dataTable.sortBy")} ${column.header}`}
                       >
                         <span>{column.header}</span>
+                        {/*
+                          Sort state is exposed to assistive technology through
+                          aria-sort on the th, so these glyphs are decorative.
+                          Keeping them out of the accessible name also keeps the
+                          header's name equal to its label.
+                        */}
                         <span className="data-table-sort-indicator" aria-hidden="true">
-                          {isSorted ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
+                          {sortState.direction
+                            ? sortState.direction === "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
                         </span>
+                        {sortState.priority !== null && (
+                          <span
+                            className="data-table-sort-priority"
+                            aria-hidden="true"
+                          >
+                            {sortState.priority}
+                          </span>
+                        )}
                       </button>
                     ) : (
                       <span>{column.header}</span>
@@ -124,15 +199,43 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {delayedLoading ? (
+              <TableSkeleton columns={columns.length} rows={skeletonRows} />
+            ) : rows.length === 0 && !isLoading ? (
               <tr>
                 <td colSpan={columns.length} className="data-table-empty">
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={rowKey(row)} tabIndex={0} className="data-table-row">
+              rows.map((row) => {
+                const key = rowKey(row);
+                const isSelected = selectedRowKey === key;
+                const rowClassName = [
+                  "data-table-row",
+                  isInteractive && "data-table-row--interactive",
+                  isSelected && "data-table-row--selected",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+
+                return (
+                <tr
+                  key={key}
+                  tabIndex={isInteractive ? 0 : undefined}
+                  className={rowClassName}
+                  onClick={isInteractive ? () => onRowClick?.(row) : undefined}
+                  onKeyDown={
+                    isInteractive
+                      ? (event) => handleRowKeyDown(event, row)
+                      : undefined
+                  }
+                  aria-selected={isInteractive ? isSelected : undefined}
+                  aria-label={
+                    isInteractive ? t("dataTable.viewRowDetails") : undefined
+                  }
+                  role={isInteractive ? "button" : undefined}
+                >
                   {columns.map((column, columnIndex) => {
                     const content = column.cell
                       ? column.cell(row)
@@ -156,7 +259,8 @@ export function DataTable<T>({
                     );
                   })}
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

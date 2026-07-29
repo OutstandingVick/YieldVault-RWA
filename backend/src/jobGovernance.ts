@@ -1,4 +1,8 @@
-export type JobName = 'priceRefresh' | 'positionReconciliation' | 'reportGeneration';
+import crypto from 'crypto';
+
+export type JobName = 'priceRefresh' | 'positionReconciliation' | 'reportGeneration' | 'databaseBackup' | 'apySnapshot';
+
+export type DeadLetterStatus = 'dead-letter' | 'processing' | 'resolved' | 'requeued' | 'discarded';
 
 export interface JobPolicy {
   maxAttempts: number;
@@ -8,12 +12,32 @@ export interface JobPolicy {
 }
 
 export interface DeadLetterRecord {
+  id?: string;
   jobName: JobName;
   attempts: number;
   error: string;
   payload: unknown;
   failedAt: string;
+  status?: DeadLetterStatus;
+  retriedAt?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  notes?: string;
 }
+
+export interface JobRuntimeMetric {
+  totalRuns: number;
+  successfulRuns: number;
+  failedRuns: number;
+  inFlight: number;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastDurationMs: number | null;
+  averageDurationMs: number;
+}
+
+export type JobHandler<T = unknown> = (payload: any) => Promise<T>;
 
 export const JOB_POLICIES: Record<JobName, JobPolicy> = {
   priceRefresh: {
@@ -34,6 +58,18 @@ export const JOB_POLICIES: Record<JobName, JobPolicy> = {
     backoffMultiplier: 2,
     deadLetterThreshold: 2,
   },
+  databaseBackup: {
+    maxAttempts: 3,
+    baseDelayMs: 10000,
+    backoffMultiplier: 2,
+    deadLetterThreshold: 2,
+  },
+  apySnapshot: {
+    maxAttempts: 3,
+    baseDelayMs: 1000,
+    backoffMultiplier: 2,
+    deadLetterThreshold: 3,
+  },
 };
 
 class JobGovernanceStore {
@@ -41,19 +77,217 @@ class JobGovernanceStore {
 
   private readonly failureCounts = new Map<JobName, number>();
 
-  recordDeadLetter(record: DeadLetterRecord): void {
-    this.deadLetters.unshift(record);
-    const failures = (this.failureCounts.get(record.jobName) || 0) + 1;
-    this.failureCounts.set(record.jobName, failures);
+  private readonly runtime = new Map<JobName, JobRuntimeMetric>();
 
-    if (failures >= JOB_POLICIES[record.jobName].deadLetterThreshold) {
-      console.warn(`Recurring failures detected for ${record.jobName}: ${failures}`);
+  private readonly handlers = new Map<JobName, JobHandler>();
+
+  registerHandler(jobName: JobName, handler: JobHandler): void {
+    this.handlers.set(jobName, handler);
+    this.ensureRuntimeMetric(jobName);
+  }
+
+  getHandler(jobName: JobName): JobHandler | undefined {
+    return this.handlers.get(jobName);
+  }
+
+  markStarted(jobName: JobName): void {
+    const metrics = this.ensureRuntimeMetric(jobName);
+    metrics.totalRuns += 1;
+    metrics.inFlight += 1;
+    metrics.lastRunAt = new Date().toISOString();
+  }
+
+  markCompleted(jobName: JobName, durationMs: number, success: boolean): void {
+    const metrics = this.ensureRuntimeMetric(jobName);
+    metrics.inFlight = Math.max(0, metrics.inFlight - 1);
+    metrics.lastDurationMs = durationMs;
+    const completedRuns = metrics.successfulRuns + metrics.failedRuns;
+    metrics.averageDurationMs =
+      completedRuns === 0
+        ? durationMs
+        : Math.round(
+            (metrics.averageDurationMs * completedRuns + durationMs) /
+              (completedRuns + 1),
+          );
+
+    if (success) {
+      metrics.successfulRuns += 1;
+      metrics.lastSuccessAt = new Date().toISOString();
+      return;
     }
+
+    metrics.failedRuns += 1;
+    metrics.lastFailureAt = new Date().toISOString();
+  }
+
+  recordDeadLetter(record: DeadLetterRecord): DeadLetterRecord {
+    const fullRecord: DeadLetterRecord = {
+      id: record.id ?? `dlq_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
+      status: record.status ?? 'dead-letter',
+      ...record,
+    };
+
+    this.deadLetters.unshift(fullRecord);
+    const failures = (this.failureCounts.get(fullRecord.jobName) || 0) + 1;
+    this.failureCounts.set(fullRecord.jobName, failures);
+
+    if (failures >= JOB_POLICIES[fullRecord.jobName].deadLetterThreshold) {
+      console.warn(`Recurring failures detected for ${fullRecord.jobName}: ${failures}`);
+    }
+
+    return fullRecord;
+  }
+
+  listDeadLetters(filters: {
+    jobName?: JobName;
+    status?: DeadLetterStatus | string;
+    limit?: number;
+    offset?: number;
+  } = {}): { records: DeadLetterRecord[]; total: number } {
+    let filtered = [...this.deadLetters];
+
+    if (filters.jobName) {
+      filtered = filtered.filter((item) => item.jobName === filters.jobName);
+    }
+
+    if (filters.status) {
+      filtered = filtered.filter((item) => (item.status ?? 'dead-letter') === filters.status);
+    }
+
+    const total = filtered.length;
+    const offset = Math.max(0, filters.offset ?? 0);
+    const limit = Math.max(1, Math.min(filters.limit ?? 50, 500));
+    const records = filtered.slice(offset, offset + limit);
+
+    return { records, total };
+  }
+
+  getDeadLetterRecord(id: string): DeadLetterRecord | null {
+    return this.deadLetters.find((item) => item.id === id) ?? null;
+  }
+
+  async retryDeadLetter(
+    id: string,
+    customTask?: () => Promise<unknown>
+  ): Promise<{ success: boolean; result?: unknown; error?: string; record: DeadLetterRecord | null }> {
+    const record = this.deadLetters.find((item) => item.id === id);
+    if (!record) {
+      return { success: false, error: 'Dead-letter record not found', record: null };
+    }
+
+    const handler = customTask || (this.handlers.get(record.jobName) ? () => this.handlers.get(record.jobName)!(record.payload) : null);
+
+    if (!handler) {
+      return {
+        success: false,
+        error: `No registered handler or custom task for job type '${record.jobName}'`,
+        record,
+      };
+    }
+
+    record.status = 'processing';
+    const now = new Date().toISOString();
+    record.retriedAt = now;
+
+    try {
+      const result = await runJobWithRetry(record.jobName, handler, { payload: record.payload });
+      record.status = 'requeued';
+      record.notes = `Successfully retried at ${now}`;
+      return { success: true, result, record };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      record.status = 'dead-letter';
+      record.error = errorMsg;
+      record.notes = `Retry attempt failed at ${now}: ${errorMsg}`;
+      return { success: false, error: errorMsg, record };
+    }
+  }
+
+  resolveDeadLetter(id: string, actor = 'admin', notes?: string): DeadLetterRecord | null {
+    const record = this.deadLetters.find((item) => item.id === id);
+    if (!record) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    record.status = 'resolved';
+    record.resolvedAt = now;
+    record.resolvedBy = actor;
+    if (notes) {
+      record.notes = notes;
+    }
+
+    return record;
+  }
+
+  discardDeadLetter(id: string, _actor = 'admin'): DeadLetterRecord | null {
+    const index = this.deadLetters.findIndex((item) => item.id === id);
+    if (index === -1) {
+      return null;
+    }
+
+    const [record] = this.deadLetters.splice(index, 1);
+    record.status = 'discarded';
+    return record;
+  }
+
+  async bulkRetryDeadLetters(
+    ids: string[]
+  ): Promise<{ retried: number; failed: number; results: Array<{ id: string; success: boolean; error?: string }> }> {
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+    let retried = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+      const outcome = await this.retryDeadLetter(id);
+      if (outcome.success) {
+        retried += 1;
+        results.push({ id, success: true });
+      } else {
+        failed += 1;
+        results.push({ id, success: false, error: outcome.error });
+      }
+    }
+
+    return { retried, failed, results };
+  }
+
+  bulkDiscardDeadLetters(ids: string[]): { discarded: number; ids: string[] } {
+    const discardedIds: string[] = [];
+    for (const id of ids) {
+      const result = this.discardDeadLetter(id);
+      if (result) {
+        discardedIds.push(id);
+      }
+    }
+    return { discarded: discardedIds.length, ids: discardedIds };
+  }
+
+  async processDeadLetterQueue(batchSize = 10): Promise<{ processed: number; succeeded: number; failed: number }> {
+    const pending = this.deadLetters.filter(
+      (item) => item.status === 'dead-letter' && this.handlers.has(item.jobName)
+    ).slice(0, batchSize);
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const item of pending) {
+      if (!item.id) continue;
+      const outcome = await this.retryDeadLetter(item.id);
+      if (outcome.success) {
+        succeeded += 1;
+      } else {
+        failed += 1;
+      }
+    }
+
+    return { processed: pending.length, succeeded, failed };
   }
 
   clear(): void {
     this.deadLetters.length = 0;
     this.failureCounts.clear();
+    this.runtime.clear();
   }
 
   getMetrics() {
@@ -69,11 +303,38 @@ class JobGovernanceStore {
       recurringFailures,
       deadLetters: [...this.deadLetters],
       policies: JOB_POLICIES,
+      runtime: Object.fromEntries(this.runtime),
     };
   }
 
   hasRecurringFailures(): boolean {
     return Object.keys(this.getMetrics().recurringFailures).length > 0;
+  }
+
+  registerJob(jobName: JobName): void {
+    this.ensureRuntimeMetric(jobName);
+  }
+
+  private ensureRuntimeMetric(jobName: JobName): JobRuntimeMetric {
+    const existing = this.runtime.get(jobName);
+    if (existing) {
+      return existing;
+    }
+
+    const created: JobRuntimeMetric = {
+      totalRuns: 0,
+      successfulRuns: 0,
+      failedRuns: 0,
+      inFlight: 0,
+      lastRunAt: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastDurationMs: null,
+      averageDurationMs: 0,
+    };
+
+    this.runtime.set(jobName, created);
+    return created;
   }
 }
 
@@ -84,13 +345,17 @@ export async function runJobWithRetry<T>(
   task: () => Promise<T>,
   options: { payload?: unknown; sleep?: (delayMs: number) => Promise<void> } = {}
 ): Promise<T> {
+  const startedAt = Date.now();
+  jobGovernanceStore.markStarted(jobName);
   const policy = JOB_POLICIES[jobName];
   const sleep = options.sleep || defaultSleep;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
     try {
-      return await task();
+      const result = await task();
+      jobGovernanceStore.markCompleted(jobName, Date.now() - startedAt, true);
+      return result;
     } catch (error) {
       lastError = error;
 
@@ -108,12 +373,58 @@ export async function runJobWithRetry<T>(
     payload: options.payload ?? null,
     failedAt: new Date().toISOString(),
   });
+  jobGovernanceStore.markCompleted(jobName, Date.now() - startedAt, false);
 
   throw new Error(normalizedError);
 }
 
+export function registerJobHandler(jobName: JobName, handler: JobHandler): void {
+  jobGovernanceStore.registerHandler(jobName, handler);
+}
+
+export function listDeadLetters(filters?: {
+  jobName?: JobName;
+  status?: DeadLetterStatus | string;
+  limit?: number;
+  offset?: number;
+}) {
+  return jobGovernanceStore.listDeadLetters(filters);
+}
+
+export function getDeadLetterRecord(id: string) {
+  return jobGovernanceStore.getDeadLetterRecord(id);
+}
+
+export async function retryDeadLetter(id: string, customTask?: () => Promise<unknown>) {
+  return jobGovernanceStore.retryDeadLetter(id, customTask);
+}
+
+export function resolveDeadLetter(id: string, actor?: string, notes?: string) {
+  return jobGovernanceStore.resolveDeadLetter(id, actor, notes);
+}
+
+export function discardDeadLetter(id: string, actor?: string) {
+  return jobGovernanceStore.discardDeadLetter(id, actor);
+}
+
+export async function bulkRetryDeadLetters(ids: string[]) {
+  return jobGovernanceStore.bulkRetryDeadLetters(ids);
+}
+
+export function bulkDiscardDeadLetters(ids: string[]) {
+  return jobGovernanceStore.bulkDiscardDeadLetters(ids);
+}
+
+export async function processDeadLetterQueue(batchSize?: number) {
+  return jobGovernanceStore.processDeadLetterQueue(batchSize);
+}
+
 export function getJobMetrics() {
   return jobGovernanceStore.getMetrics();
+}
+
+export function registerJob(jobName: JobName): void {
+  jobGovernanceStore.registerJob(jobName);
 }
 
 export function getJobHealthStatus(): 'up' | 'degraded' {
@@ -144,4 +455,4 @@ function normalizeError(error: unknown): string {
   }
 
   return 'Unknown job failure';
-}
+}

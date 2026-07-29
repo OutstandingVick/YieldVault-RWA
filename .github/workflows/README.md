@@ -1,6 +1,28 @@
-# GitHub Workflows - Security Scanning
+# GitHub Workflows
 
 This directory contains automated security scanning workflows for the YieldVault-RWA project.
+
+## Monorepo path routing
+
+`frontend.yml` is the package-routing workflow. Its `changes` job uses
+`dorny/paths-filter` and exposes package outputs that gate the remaining jobs.
+
+| Changed path | Frontend checks | Backend checks | Contract checks |
+|---|---:|---:|---:|
+| `frontend/**` | Yes | No | No |
+| `backend/**` | No | Yes | No |
+| `contracts/**`, `Cargo.toml`, `Cargo.lock` | No | No | Yes |
+| `frontend/src/types/**`, `backend/openapi.json`, `docs/api/**`, root package/Cargo lockfiles | Yes | Yes | Yes |
+| `.github/workflows/**` | Yes | Yes | Yes |
+
+Package-specific workflows retain narrow triggers:
+
+- `rust-wasm.yml` runs only for contract, Cargo, or workflow changes.
+- `backend-governance.yml` runs for backend and shared API contract changes.
+- `cypress.yml` runs for frontend and shared frontend API type changes.
+
+When adding a new shared directory, update the `shared` filter in `frontend.yml`
+and this table in the same pull request.
 
 ## 📁 Files
 
@@ -10,6 +32,8 @@ This directory contains automated security scanning workflows for the YieldVault
 |----------|---------|---------|----------|
 | **`slither.yml`** | PR to main/develop | Ethereum/Solidity static analysis | 5-10 min |
 | **`rust-security.yml`** | PR to main/develop | Rust dependency audit + linting | 2-4 min |
+| **`frontend.yml`** | PR to main | npm dependency audit + build/tests | 5-8 min |
+| **`backend-governance.yml`** | PR to main | backend governance + npm auditing | 4-6 min |
 
 ### Existing Workflows
 

@@ -19,13 +19,40 @@ flowchart LR
   D --> E[Withdraw Shares for USDC]
 ```
 
-## 3. How to Deposit
+## 3. Wallet Connection States
+
+Connecting Freighter follows a clear status flow:
+
+1. **Disconnected** — choose **Connect Freighter**.
+2. **Connecting** — Freighter is prompting; wait for approval.
+3. **Connected** — your truncated address appears; you can disconnect any time.
+4. **Error** — a specific message explains what failed (missing extension, cancelled prompt, missing address, or Freighter dropped the session). Use **Try again** when shown.
+
+For implementers, see [Wallet connection state machine](./features/WALLET_CONNECTION_STATE.md).
+
+## 4. How to Deposit
 
 1. Connect your wallet.
 2. Enter the USDC amount in the deposit input.
 3. Confirm the transaction.
 4. Wait for confirmation.
 5. Check that your share balance increased.
+
+### Preparing a testnet wallet
+
+Developers can fund a new testnet wallet with:
+
+```bash
+read -rsp "Testnet secret key: " TESTNET_SECRET_KEY && echo
+export TESTNET_SECRET_KEY
+node scripts/fund-testnet-account.js
+unset TESTNET_SECRET_KEY
+```
+
+The script requests test XLM from Friendbot. Set `TESTNET_USDC_ISSUER` to add a
+classic USDC trustline. If you control the test issuer, set
+`TESTNET_USDC_ISSUER_SECRET` to send test tokens after the trustline is created.
+Do not store either secret in the repository or shell history.
 
 ## 4. How to Withdraw
 

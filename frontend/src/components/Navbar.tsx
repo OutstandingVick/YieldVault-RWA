@@ -1,8 +1,18 @@
-import { NavLink } from 'react-router-dom';
-import WalletConnect from './WalletConnect';
-import ThemeToggle from './ThemeToggle';
-import { Layers } from './icons';
-import { useTranslation } from '../i18n';
+import { useEffect, useRef, useState, type FC } from "react";
+import { NavLink } from "react-router-dom";
+import { X, Menu } from "lucide-react";
+import WalletConnect from "./WalletConnect";
+import type { DisconnectReason } from "./WalletConnect";
+import ThemeToggle from "./ThemeToggle";
+import TvlTicker from "./TvlTicker";
+import HealthStatusIndicator from "./HealthStatusIndicator";
+import { Layers } from "./icons";
+import { useTranslation } from "../i18n";
+import { useWalletNetwork } from "../hooks/useWalletNetwork";
+import Badge from "./Badge";
+import { usePendingTransactionCount } from "../hooks/usePendingTransactionCount";
+import { getRoutePrefetchHandlers } from "../lib/routePrefetch";
+import type { UserRole } from "../lib/roles";
 
 interface NavbarProps {
     currentPath?: '/' | '/analytics' | '/portfolio';
@@ -11,18 +21,47 @@ interface NavbarProps {
     usdcBalance?: number;
     onConnect: (address: string) => void;
     onDisconnect: () => void;
+  currentPath?: "/" | "/analytics" | "/portfolio";
+  onNavigate?: (path: "/" | "/analytics" | "/portfolio") => void;
+  walletAddress: string | null;
+  usdcBalance?: number;
+  onConnect: (address: string) => void;
+  onDisconnect: (reason?: DisconnectReason) => void;
+  role?: UserRole;
 }
 
-const Navbar: React.FC<NavbarProps> = ({
+const Navbar: FC<NavbarProps> = ({
   walletAddress,
   usdcBalance = 0,
   onConnect,
   onDisconnect,
+  role = "guest",
 }) => {
   const { t } = useTranslation();
+  const { walletNetwork, expectedNetwork } = useWalletNetwork(walletAddress);
+  const pendingCount = usePendingTransactionCount(walletAddress);
+  // Show wallet's actual network when known, otherwise fall back to app's expected network
+  const networkLabel = walletNetwork ?? expectedNetwork;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
   return (
     <nav
       aria-label="Primary"
+      ref={menuRef}
       style={{
         position: "fixed",
         top: 0,
@@ -37,11 +76,13 @@ const Navbar: React.FC<NavbarProps> = ({
       }}
     >
       <div className="container flex justify-between items-center">
+        {/* LEFT */}
         <div className="flex items-center gap-xl">
           <NavLink
             to="/"
             className="flex items-center gap-sm"
             style={{ textDecoration: "none" }}
+            onClick={() => setIsMobileMenuOpen(false)}
           >
             <div
               style={{
@@ -54,6 +95,7 @@ const Navbar: React.FC<NavbarProps> = ({
             >
               <Layers size={24} color="#000" />
             </div>
+
             <span
               style={{
                 fontFamily: "var(--font-display)",
@@ -71,59 +113,164 @@ const Navbar: React.FC<NavbarProps> = ({
             </span>
           </NavLink>
 
-          <div className="flex gap-lg" style={{ marginLeft: "32px" }}>
-            <NavLink
-              to="/"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: "var(--font-medium)",
-                fontSize: "var(--text-base)",
-              })}
-            >
+          {/* Desktop links */}
+          <div className="flex gap-lg nav-desktop-links" style={{ marginLeft: "32px" }}>
+            <NavLink to="/" className="nav-link" {...getRoutePrefetchHandlers("/")}>
               {t("nav.vaults")}
             </NavLink>
-            <NavLink
-              to="/portfolio"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: "var(--font-medium)",
-                fontSize: "var(--text-base)",
-              })}
-            >
+            <NavLink to="/portfolio" className="nav-link" {...getRoutePrefetchHandlers("/portfolio")}>
               {t("nav.portfolio")}
             </NavLink>
-            <NavLink
-              to="/analytics"
-              style={({ isActive }) => ({
-                color: isActive
-                  ? "var(--accent-cyan)"
-                  : "var(--text-secondary)",
-                textDecoration: "none",
-                fontWeight: "var(--font-medium)",
-                fontSize: "var(--text-base)",
-              })}
-            >
+            <NavLink to="/compare" className="nav-link">
+              {t("nav.compare")}
+            </NavLink>
+            <NavLink to="/analytics" className="nav-link" {...getRoutePrefetchHandlers("/analytics")}>
               {t("nav.analytics")}
             </NavLink>
+            <NavLink
+              to="/transactions"
+              className="nav-link"
+              style={{ position: "relative" }}
+              {...getRoutePrefetchHandlers("/transactions")}
+            >
+              {t("nav.transactions")}
+              {pendingCount > 0 && (
+                <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
+                  {pendingCount}
+                </Badge>
+              )}
+            </NavLink>
+            {role === "admin" && (
+              <NavLink to="/admin" className="nav-link">
+                {t("nav.admin")}
+              </NavLink>
+            )}
           </div>
         </div>
 
+        {/* RIGHT */}
         <div className="flex items-center gap-md">
-          <ThemeToggle />
+          <TvlTicker />
+
+          <HealthStatusIndicator />
+
+          <div className="flex items-center gap-sm nav-desktop-links">
+            {walletAddress && (
+              <span
+                aria-label="Network badge"
+                title={`Connected network: ${networkLabel}`}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: "999px",
+                  fontSize: "0.75rem",
+                  fontWeight: "var(--font-semibold)",
+                  textTransform: "uppercase",
+                  border:
+                    networkLabel === "Mainnet"
+                      ? "1px solid rgba(34, 197, 94, 0.45)"
+                      : "1px solid rgba(56, 189, 248, 0.45)",
+                  color:
+                    networkLabel === "Mainnet"
+                      ? "rgb(34, 197, 94)"
+                      : "var(--accent-cyan)",
+                  background:
+                    networkLabel === "Mainnet"
+                      ? "rgba(34, 197, 94, 0.08)"
+                      : "rgba(0, 240, 255, 0.08)",
+                }}
+              >
+                {networkLabel}
+              </span>
+            )}
+            <ThemeToggle />
+          </div>
+
           <WalletConnect
             walletAddress={walletAddress}
             usdcBalance={usdcBalance}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
           />
+
+          {/* Mobile toggle */}
+          <button
+            className="nav-mobile-toggle"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="mobile-slide-menu"
+          >
+            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile Menu */}
+      {isMobileMenuOpen && (
+        <div className="nav-mobile-menu is-open">
+          <NavLink to="/" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/")}>
+            {t("nav.vaults")}
+          </NavLink>
+          <NavLink to="/portfolio" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/portfolio")}>
+            {t("nav.portfolio")}
+          </NavLink>
+          <NavLink to="/compare" onClick={() => setIsMobileMenuOpen(false)}>
+            {t("nav.compare")}
+          </NavLink>
+          <NavLink to="/analytics" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/analytics")}>
+            {t("nav.analytics")}
+          </NavLink>
+          <NavLink to="/transactions" onClick={() => setIsMobileMenuOpen(false)} {...getRoutePrefetchHandlers("/transactions")}>
+            {t("nav.transactions")}
+            {pendingCount > 0 && (
+              <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
+                {pendingCount}
+              </Badge>
+            )}
+          </NavLink>
+          {role === "admin" && (
+            <NavLink to="/admin" onClick={() => setIsMobileMenuOpen(false)}>
+              {t("nav.admin")}
+            </NavLink>
+          )}
+
+          <div className="flex items-center justify-between" style={{ marginTop: "24px" }}>
+            <ThemeToggle />
+            {walletAddress && <span>{networkLabel}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Dropdown fallback menu */}
+      {menuOpen && (
+        <div className="nav-mobile-menu" role="menu">
+          <NavLink to="/" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/")}>
+            {t("nav.vaults")}
+          </NavLink>
+          <NavLink to="/portfolio" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/portfolio")}>
+            {t("nav.portfolio")}
+          </NavLink>
+          <NavLink to="/compare" role="menuitem" onClick={() => setMenuOpen(false)}>
+            {t("nav.compare")}
+          </NavLink>
+          <NavLink to="/analytics" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/analytics")}>
+            {t("nav.analytics")}
+          </NavLink>
+          <NavLink to="/transactions" role="menuitem" onClick={() => setMenuOpen(false)} {...getRoutePrefetchHandlers("/transactions")}>
+            {t("nav.transactions")}
+            {pendingCount > 0 && (
+              <Badge variant="pill" color="warning" size="compact" style={{ marginLeft: "6px" }}>
+                {pendingCount}
+              </Badge>
+            )}
+          </NavLink>
+          {role === "admin" && (
+            <NavLink to="/admin" role="menuitem" onClick={() => setMenuOpen(false)}>
+              {t("nav.admin")}
+            </NavLink>
+          )}
+        </div>
+      )}
     </nav>
   );
 };

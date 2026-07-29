@@ -1,6 +1,7 @@
 import React from 'react';
 import { Activity } from './icons';
 import { useTranslation } from '../i18n';
+import EmptyState from './ui/EmptyState';
 
 export interface TimelineEvent {
   id: string;
@@ -226,19 +227,12 @@ const Timeline: React.FC<TimelineProps> = ({
 
   if (events.length === 0) {
     return (
-      <div
-        style={{
-          padding: '48px',
-          textAlign: 'center',
-          color: 'var(--text-secondary)',
-        }}
-      >
-        <Activity
-          size={32}
-          style={{ marginBottom: '12px', opacity: 0.5 }}
-        />
-        <p>{emptyMessage || t('timeline.empty')}</p>
-      </div>
+      <EmptyState
+        kind="no-data"
+        title={emptyMessage || t('timeline.empty')}
+        description="Vault activity will appear here as you deposit, withdraw, and earn yield."
+        icon={<Activity />}
+      />
     );
   }
 

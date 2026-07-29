@@ -1,39 +1,19 @@
 //! Permission Matrix and Access Control
 //!
 //! This module defines the authorization requirements for all vault operations.
-//! 
-//! # Permission Matrix
 //!
-//! | Function | Required Role | Note |
-//! |----------|---------------|------|
-//! | `initialize` | None (first call) | Can only be called once, sets admin |
-//! | `set_strategy` | Admin | Configure active strategy |
-//! | `set_pause` | Admin | Pause/unpause vault |
-//! | `configure_korean_strategy` | Admin | Configure Korean debt strategy |
-//! | `accrue_korean_debt_yield` | Admin | Harvest yield from Korean strategy |
-//! | `set_dao_threshold` | Admin | Update governance threshold |
-//! | `add_shipment` | Admin | Add RWA shipment |
-//! | `update_shipment_status` | Admin | Update shipment status |
-//! | `accrue_yield` | Admin | Artificially accrue yield |
-//! | `invest` | Admin | Move funds to strategy |
-//! | `divest` | Admin (or internal) | Recall funds from strategy |
-//! | `create_strategy_proposal` | Proposer (signed) | Create governance proposal |
-//! | `vote_on_proposal` | Voter (signed) | Vote on proposal |
-//! | `execute_strategy_proposal` | Public | Execute approved proposal |
-//! | `report_benji_yield` | Configured Strategy | Report yield from BENJI |
-//! | `deposit` | User (signed) | Deposit underlying tokens |
-//! | `withdraw` | User (signed) | Withdraw vault shares |
-//! | `balance` | Public | Query user share balance |
-//! | `token` | Public | Query underlying token address |
-//! | `total_shares` | Public | Query total vault shares |
-//! | `total_assets` | Public | Query total vault assets |
-//! | `strategy` | Public | Query active strategy address |
-//! | `is_paused` | Public | Query pause status |
-//! | `shipment_ids_by_status` | Public | Query shipments by status |
-//! | `calculate_shares` | Public | Calculate shares for amount |
-//! | `calculate_assets` | Public | Calculate assets for shares |
+//! See [`docs/CONTRACTS_ARCHITECTURE.md`](../../docs/CONTRACTS_ARCHITECTURE.md) for the full
+//! permission matrix and security model.
+//!
+//! ## Multi-Signer Governance
+//!
+//! For critical operations, the vault supports M-of-N multisig governance:
+//! - Configure a set of authorized signers
+//! - Set a threshold (M) for required approvals
+//! - Migration-safe updates: old and new signer sets coexist during transition
+//! - Operations require threshold signatures from the current active set
 
-use soroban_sdk::Address;
+use soroban_sdk::{Address, Vec};
 
 /// Verifies that the caller is the admin
 ///
@@ -57,15 +37,109 @@ pub fn require_strategy_auth(caller: &Address, expected_strategy: &Address) {
     assert_eq!(caller, expected_strategy, "unauthorized strategy");
 }
 
+/// Verifies that the caller is authorized for pausability operations (either Admin or Pauser role)
+pub fn require_pauser_or_admin_auth(caller: &Address, admin: &Address, pauser: Option<&Address>) {
+    caller.require_auth();
+    let is_admin = caller == admin;
+    let is_pauser = pauser.map_or(false, |p| caller == p);
+    assert!(is_admin || is_pauser, "unauthorized: caller must be admin or pauser");
+}
+
+/// Multi-signer threshold validator for governance operations.
+/// Ensures M of N signers have authorized a critical operation.
+pub struct MultiSignerValidator;
+
+impl MultiSignerValidator {
+    /// Verify that threshold signatures are satisfied.
+    ///
+    /// ### Parameters
+    /// * `signers` - Set of authorized signers for this operation
+    /// * `threshold` - Number of required signatures (M of N)
+    /// * `approvals` - Vector of addresses that have approved (deduplicated, sorted)
+    ///
+    /// ### Returns
+    /// Ok if number of approvals >= threshold, Err otherwise
+    pub fn verify_threshold(
+        signers: &Vec<Address>,
+        threshold: u32,
+        approvals: &Vec<Address>,
+    ) -> Result<(), &'static str> {
+        if threshold == 0 {
+            return Err("threshold must be > 0");
+        }
+        if threshold > signers.len() {
+            return Err("threshold exceeds signer set size");
+        }
+        if approvals.len() < threshold {
+            return Err("insufficient approvals");
+        }
+
+        // Verify all approvers are in the signer set
+        for approver in approvals.iter() {
+            if !signers.iter().any(|s| s == approver) {
+                return Err("unauthorized signer");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Compute migration status between old and new signer sets.
+    /// Returns true if both old and new sets should be accepted (during transition).
+    pub fn is_migration_active(
+        old_set_hash: Option<u64>,
+        new_set_hash: Option<u64>,
+        migration_deadline: u64,
+        current_time: u64,
+    ) -> bool {
+        old_set_hash.is_some() && new_set_hash.is_some() && current_time < migration_deadline
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use soroban_sdk::{Address, Env};
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_permission_matrix_documentation_exists() {
         // This test documents that the permission matrix is defined
         // Actual enforcement is tested in lib.rs via role gating tests
-        assert!(true);
+    }
+
+    #[test]
+    fn test_threshold_valid_approvals() {
+        let env = soroban_sdk::Env::default();
+        let signers = Vec::from_array(
+            &env,
+            [
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+            ],
+        );
+        let approvals = Vec::from_array(&env, [signers.get(0).unwrap(), signers.get(1).unwrap()]);
+        assert!(MultiSignerValidator::verify_threshold(&signers, 2, &approvals).is_ok());
+    }
+
+    #[test]
+    fn test_threshold_insufficient_approvals() {
+        let env = soroban_sdk::Env::default();
+        let signers = Vec::from_array(&env, [Address::generate(&env), Address::generate(&env)]);
+        let approvals = Vec::from_array(&env, [signers.get(0).unwrap()]);
+        assert!(MultiSignerValidator::verify_threshold(&signers, 2, &approvals).is_err());
+    }
+
+    #[test]
+    fn test_migration_active() {
+        let result = MultiSignerValidator::is_migration_active(Some(1), Some(2), 1000, 500);
+        assert!(result);
+    }
+
+    #[test]
+    fn test_migration_inactive_expired() {
+        let result = MultiSignerValidator::is_migration_active(Some(1), Some(2), 1000, 1500);
+        assert!(!result);
     }
 }

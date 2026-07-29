@@ -7,12 +7,15 @@ export interface ToastOptions {
   description?: string;
   duration?: number;
   variant?: ToastVariant;
+  /** Unique key for deduplication. If not provided, deduplication uses title+description+variant */
+  dedupeKey?: string;
 }
 
-interface ToastItem extends ToastOptions {
+export interface ToastItem extends ToastOptions {
   id: string;
   variant: ToastVariant;
   duration: number;
+  timestamp: number;
 }
 
 interface ToastContextType {
@@ -22,11 +25,21 @@ interface ToastContextType {
   error: (options: Omit<ToastOptions, "variant">) => string;
   warning: (options: Omit<ToastOptions, "variant">) => string;
   info: (options: Omit<ToastOptions, "variant">) => string;
+  clearAll: () => void;
+  toasts: ToastItem[];
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 const DEFAULT_DURATION = 5000;
+const DEDUPE_WINDOW_MS = 3000;
+
+function generateDedupeKey(options: ToastOptions): string {
+  if (options.dedupeKey) {
+    return options.dedupeKey;
+  }
+  return `${options.title}|${options.description || ""}|${options.variant || "info"}`;
+}
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -34,10 +47,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextToastId = useRef(0);
   const timeoutRefs = useRef<Map<string, number>>(new Map());
+  const recentToasts = useRef<Map<string, string>>(new Map());
 
   const dismissToast = (id: string) => {
     setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id));
-
     const timeoutId = timeoutRefs.current.get(id);
     if (timeoutId) {
       window.clearTimeout(timeoutId);
@@ -45,21 +58,49 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  const clearAll = () => {
+    setToasts([]);
+    timeoutRefs.current.forEach((timeoutId) => {
+      window.clearTimeout(timeoutId);
+    });
+    timeoutRefs.current.clear();
+    recentToasts.current.clear();
+  };
+
   const showToast = ({
     variant = "info",
     duration = DEFAULT_DURATION,
     ...options
   }: ToastOptions) => {
+    const dedupeKey = generateDedupeKey({ ...options, variant });
+    // eslint-disable-next-line react-hooks/purity -- showToast runs on user/system events
+    // Timestamp is intentionally captured at toast creation time for dedupe windows.
+    // eslint-disable-next-line react-hooks/purity -- event-handler side effect, not render output
+    const now = Date.now();
+
+    const existingId = recentToasts.current.get(dedupeKey);
+    if (existingId && timeoutRefs.current.has(existingId)) {
+      const oldTimeout = timeoutRefs.current.get(existingId);
+      if (oldTimeout) window.clearTimeout(oldTimeout);
+      const newTimeout = window.setTimeout(() => {
+        dismissToast(existingId);
+      }, duration);
+      timeoutRefs.current.set(existingId, newTimeout);
+      return existingId;
+    }
+
     nextToastId.current += 1;
     const id = `toast-${nextToastId.current}`;
     const nextToast: ToastItem = {
       id,
       variant,
       duration,
+      timestamp: now,
       ...options,
     };
 
     setToasts((currentToasts) => [...currentToasts, nextToast]);
+    recentToasts.current.set(dedupeKey, id);
 
     const timeoutId = window.setTimeout(() => {
       dismissToast(id);
@@ -70,8 +111,21 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   useEffect(() => {
-    const timeouts = timeoutRefs.current;
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const staleKeys: string[] = [];
+      recentToasts.current.forEach((toastId, key) => {
+        if (!timeoutRefs.current.has(toastId)) {
+          staleKeys.push(key);
+        }
+      });
+      staleKeys.forEach((key) => recentToasts.current.delete(key));
+    }, DEDUPE_WINDOW_MS);
+    return () => clearInterval(cleanupInterval);
+  }, []);
 
+  useEffect(() => {
+    const timeouts = timeoutRefs.current;
     return () => {
       timeouts.forEach((timeoutId) => {
         window.clearTimeout(timeoutId);
@@ -85,10 +139,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
       value={{
         showToast,
         dismissToast,
+        clearAll,
         success: (options) => showToast({ ...options, variant: "success" }),
         error: (options) => showToast({ ...options, variant: "error" }),
         warning: (options) => showToast({ ...options, variant: "warning" }),
         info: (options) => showToast({ ...options, variant: "info" }),
+        toasts,
       }}
     >
       {children}
