@@ -55,6 +55,7 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
     amount: "100.00",
     asset: "USDC",
     timestamp: "2025-01-15T10:30:00Z",
+    transactionHash: "fixture-transaction-default",
     // Deliberately not 40 chars — the pre-commit AWS secret regex flags /[A-Za-z0-9/+=]{40}/.
     transactionHash: "tx-hash-abcdef1234567890abcdef1234567890ab",
     ...overrides,
@@ -626,6 +627,7 @@ describe("TransactionHistory — amount range filter", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const table = screen.getByRole("table");
     const table = await screen.findByRole("table");
 
     // 50 should be hidden; 200 and 500 should be visible
@@ -704,12 +706,14 @@ describe("TransactionHistory — status filter", () => {
         id: "2",
         status: "pending",
         asset: "EURC",
+        transactionHash: "fixture-transaction-pending",
         transactionHash: "tx-hash-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       }),
       makeTransaction({
         id: "3",
         status: "failed",
         asset: "XLM",
+        transactionHash: "fixture-transaction-failed",
         transactionHash: "tx-hash-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       }),
     ]);

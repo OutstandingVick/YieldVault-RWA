@@ -43,6 +43,10 @@ describe('WalletConnect', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        localStorage.setItem(
+            'yieldvault-preferences:guest',
+            JSON.stringify({ maskSensitiveValues: false }),
+        );
         mockedFreighter.isConnected.mockResolvedValue({ isConnected: true });
         mockedWalletSession.getLastWalletProvider.mockReturnValue(null);
         mockedWalletSession.isProviderAvailable.mockResolvedValue(true);

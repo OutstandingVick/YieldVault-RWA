@@ -358,5 +358,8 @@ The current approved implementation lives in:
 - `frontend/src/components/VaultDashboard.tsx`
 - `frontend/src/components/TransactionConfirmationModal.tsx`
 - `frontend/src/hooks/useVaultMutations.ts`
+- `frontend/src/lib/optimisticVaultCache.ts` (snapshot / apply / rollback helpers)
+
+Optimistic deposit and withdrawal patches credit or debit wallet USDC in opposite directions, mark holdings and pending transaction rows as `pending`, and restore the pre-mutation snapshot when the network or contract call fails. Settled mutations always invalidate related React Query keys so the UI converges on server truth.
 
 If a future implementation intentionally diverges from this library, update this document in the same change set and explain the reason in the pull request.

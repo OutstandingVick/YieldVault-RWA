@@ -54,6 +54,11 @@ vi.mock("../hooks/useVaultData", () => ({
   useVaultHistory: vi.fn(),
 }));
 
+const { mockDepositMutateAsync, mockWithdrawMutateAsync } = vi.hoisted(() => ({
+  mockDepositMutateAsync: vi.fn().mockResolvedValue({}),
+  mockWithdrawMutateAsync: vi.fn().mockResolvedValue({}),
+}));
+
 vi.mock("../hooks/useVaultMutations", () => ({
   useDepositMutation: vi.fn(() => ({
     mutateAsync: mockDepositMutateAsync,
@@ -89,6 +94,7 @@ vi.mock("../hooks/useTransactionConfirmation", () => ({
 
 const mockSummary = {
   tvl: 12450800,
+  depositCap: 15000000,
   apy: 8.45,
   participantCount: 1248,
   monthlyGrowthPct: 12.5,
@@ -193,6 +199,9 @@ describe("VaultDashboard", () => {
       approve: vi.fn().mockResolvedValue(undefined),
       resetApproval: vi.fn(),
     });
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      media: "",
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: false,
       media: query,
@@ -202,6 +211,7 @@ describe("VaultDashboard", () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
+    } as MediaQueryList);
     }));
     localStorage.clear();
   });
