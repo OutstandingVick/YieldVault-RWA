@@ -39,6 +39,7 @@ export const queryKeys = {
     summary: () => [...queryKeys.vault.all, "summary"] as const,
     history: () => [...queryKeys.vault.all, "history"] as const,
     sharePrice: () => [...queryKeys.vault.all, "sharePrice"] as const,
+    health: () => [...queryKeys.vault.all, "health"] as const,
   },
   portfolio: {
     all: ["portfolio"] as const,
