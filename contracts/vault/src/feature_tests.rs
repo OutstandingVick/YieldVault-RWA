@@ -123,7 +123,8 @@ fn test_accrue_yield_fee_rounding_deterministic() {
     env.mock_all_auths();
 
     let (vault, _, usdc_sa, admin) = setup_vault(&env);
-    vault.set_fee_bps(&100); // 1%
+    vault.queue_fee_bps_change(&100); // 1%
+    vault.execute_fee_bps_change();
 
     usdc_sa.mint(&admin, &333);
     vault.accrue_yield(&333);

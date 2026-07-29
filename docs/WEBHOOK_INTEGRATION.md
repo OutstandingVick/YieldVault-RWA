@@ -211,9 +211,9 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 
 ### `feechg`
 
-**Emitted by:** `YieldVault` — `set_fee_bps()` function
+**Emitted by:** `YieldVault` — `execute_fee_bps_change()` function
 
-**When:** The vault admin updates the protocol fee (in basis points).
+**When:** A previously-queued protocol fee change (`queue_fee_bps_change()`) is applied after its timelock elapses (see Issue #969). Watch for the earlier `feebpsq` event to alert on a fee change in flight before it lands.
 
 **Topic structure:**
 

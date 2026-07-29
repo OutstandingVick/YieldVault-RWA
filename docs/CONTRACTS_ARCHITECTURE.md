@@ -79,12 +79,20 @@ YieldVault-RWA is a decentralized vault protocol built on Stellar's Soroban smar
 - `update_shipment_status(shipment_id, new_status)` — Update shipment status (admin-only)
 - `shipment_ids_by_status(status, cursor, page_size) -> ShipmentPage` — Paginated shipment query
 
-**Protocol Fees (Goal 1):**
-- `set_fee_bps(new_bps)` — Set protocol fee in basis points (0–10000)
-- `fee_bps() -> i128` — Get current fee rate
-- `set_treasury(treasury)` — Set treasury address
-- `treasury() -> Option<Address>` — Get treasury address
+**Protocol Fees (Goal 1) — timelocked, see Issue #969:**
+- `queue_fee_bps_change(new_bps) -> u64` — Queue a new fee (0–10000 bps); returns the execute-after timestamp (eta)
+- `pending_fee_bps_change() -> Option<PendingI128Change>` — Inspect a queued fee change
+- `execute_fee_bps_change()` — Apply a queued fee change once its timelock has elapsed
+- `cancel_fee_bps_change()` — Cancel a queued fee change before it executes
+- `fee_bps() -> i128` — Get current (live) fee rate
+- `queue_treasury_change(treasury) -> u64` — Queue a new treasury address; returns eta
+- `pending_treasury_change() -> Option<PendingAddressChange>` — Inspect a queued treasury change
+- `execute_treasury_change()` — Apply a queued treasury change once its timelock has elapsed
+- `cancel_treasury_change()` — Cancel a queued treasury change before it executes
+- `treasury() -> Option<Address>` — Get current (live) treasury address
 - `treasury_balance() -> i128` — Get accumulated fee balance
+- `sensitive_timelock_delay() -> u64` — Get the configured minimum delay for the above (0 = disabled)
+- `set_sensitive_timelock_delay(seconds)` — Configure it; must be `0` or ≥ 3600 (1 hour)
 
 **Large-Withdrawal Timelock (Goal 2):**
 - `set_large_withdrawal_threshold(threshold)` — Set threshold for 24-hour timelock
@@ -94,9 +102,12 @@ YieldVault-RWA is a decentralized vault protocol built on Stellar's Soroban smar
 - `set_min_deposit(new_min)` — Set minimum deposit amount
 - `min_deposit() -> i128` — Get current minimum
 
-**Oracle Configuration (Planned):**
-- `set_price_oracle(oracle)` — Set oracle contract address
-- `price_oracle() -> Option<Address>` — Get oracle address
+**Oracle Configuration:**
+- `queue_price_oracle_change(oracle) -> u64` — Queue a new oracle address (timelocked, see Issue #969); returns eta
+- `pending_price_oracle_change() -> Option<PendingAddressChange>` — Inspect a queued oracle change
+- `execute_price_oracle_change()` — Apply a queued oracle change once its timelock has elapsed
+- `cancel_price_oracle_change()` — Cancel a queued oracle change before it executes
+- `price_oracle() -> Option<Address>` — Get current (live) oracle address
 - `set_oracle_enabled(enabled)` — Enable/disable oracle validation
 - `is_oracle_enabled() -> bool` — Check if oracle is enabled
 - `set_oracle_heartbeat(seconds)` — Set oracle staleness threshold
@@ -171,7 +182,15 @@ YieldVault-RWA is a decentralized vault protocol built on Stellar's Soroban smar
 | `(symbol_short!("deposit"),)` | `(amount: i128, shares_minted: i128)` | `deposit()` |
 | `(symbol_short!("withdraw"), user)` | `(assets_to_return: i128, shares: i128)` | `do_withdraw()` |
 | `(symbol_short!("pndwdraw"), user)` | `(shares: i128, unlock_ts: u64)` | `withdraw()` — large withdrawal path |
-| `(symbol_short!("feechg"),)` | `(old_bps: i128, new_bps: i128)` | `set_fee_bps()` |
+| `(symbol_short!("feebpsq"),)` | `(new_bps: i128, eta: u64)` | `queue_fee_bps_change()` |
+| `(symbol_short!("feechg"),)` | `(old_bps: i128, new_bps: i128)` | `execute_fee_bps_change()` |
+| `(symbol_short!("feebpscn"),)` | `()` | `cancel_fee_bps_change()` |
+| `(symbol_short!("trsryq"),)` | `(treasury: Address, eta: u64)` | `queue_treasury_change()` |
+| `(symbol_short!("trsrychg"),)` | `(treasury: Address)` | `execute_treasury_change()` |
+| `(symbol_short!("trsrycn"),)` | `()` | `cancel_treasury_change()` |
+| `(symbol_short!("oracleq"),)` | `(oracle: Address, eta: u64)` | `queue_price_oracle_change()` |
+| `(symbol_short!("oraclech"),)` | `(oracle: Address)` | `execute_price_oracle_change()` |
+| `(symbol_short!("oraclecn"),)` | `()` | `cancel_price_oracle_change()` |
 | `(symbol_short!("mindepchg"),)` | `(old_min: i128, new_min: i128)` | `set_min_deposit()` |
 
 #### Error Enum (VaultError)
@@ -336,10 +355,13 @@ For a comprehensive threat model covering trust assumptions, trust boundaries, a
 | `add_shipment` / `update_shipment_status` | Admin | |
 | `accrue_yield` | Admin | |
 | `invest` / `divest` | Admin | |
-| `set_fee_bps` / `set_treasury` | Admin | |
+| `queue_fee_bps_change` / `execute_fee_bps_change` / `cancel_fee_bps_change` | Admin | Timelocked (Issue #969) |
+| `queue_treasury_change` / `execute_treasury_change` / `cancel_treasury_change` | Admin | Timelocked (Issue #969) |
+| `set_sensitive_timelock_delay` | Admin | Governs the above; floor-enforced once armed |
 | `set_large_withdrawal_threshold` | Admin | |
 | `set_min_deposit` | Admin | |
-| `set_price_oracle` / `set_oracle_enabled` / `set_oracle_heartbeat` | Admin | |
+| `queue_price_oracle_change` / `execute_price_oracle_change` / `cancel_price_oracle_change` | Admin | Timelocked (Issue #969) |
+| `set_oracle_enabled` / `set_oracle_heartbeat` | Admin | |
 | `create_strategy_proposal` | Proposer (signed) | Any user can propose |
 | `vote_on_proposal` | Voter (signed) | Any user can vote |
 | `execute_strategy_proposal` | Public | Anyone can execute |
@@ -484,7 +506,15 @@ YieldVault emits cryptographically-signed events for all critical operations. Th
 | `deposit` | `deposit()` | User deposits USDC | contract_id | (amount, shares_minted) |
 | `pndwdraw` | `withdraw()` | Large withdrawal initiated (timelocked) | contract_id, user | (shares, unlock_timestamp) |
 | `withdraw` | `withdraw()` / `execute_withdrawal()` | Withdrawal completes | contract_id, user | (assets_returned, shares_burned) |
-| `feechg` | `set_fee_bps()` | Protocol fee updated | contract_id | (old_bps, new_bps) |
+| `feebpsq` | `queue_fee_bps_change()` | Protocol fee change queued (timelocked) | contract_id | (new_bps, eta) |
+| `feechg` | `execute_fee_bps_change()` | Protocol fee change applied | contract_id | (old_bps, new_bps) |
+| `feebpscn` | `cancel_fee_bps_change()` | Queued fee change cancelled | contract_id | () |
+| `trsryq` | `queue_treasury_change()` | Treasury change queued (timelocked) | contract_id | (treasury, eta) |
+| `trsrychg` | `execute_treasury_change()` | Treasury change applied | contract_id | (treasury) |
+| `trsrycn` | `cancel_treasury_change()` | Queued treasury change cancelled | contract_id | () |
+| `oracleq` | `queue_price_oracle_change()` | Oracle address change queued (timelocked) | contract_id | (oracle, eta) |
+| `oraclech` | `execute_price_oracle_change()` | Oracle address change applied | contract_id | (oracle) |
+| `oraclecn` | `cancel_price_oracle_change()` | Queued oracle address change cancelled | contract_id | () |
 | `mindepchg` | `set_min_deposit()` | Minimum deposit updated | contract_id | (old_min, new_min) |
 
 #### Event Details
@@ -506,10 +536,10 @@ YieldVault emits cryptographically-signed events for all critical operations. Th
 - **Topics:** Includes user address for filtering
 - **Use Case:** Track user withdrawals, update balances, trigger notifications
 
-**`feechg` Event**
-- **Emitted:** When admin updates protocol fee
-- **Data:** `(old_bps: i128, new_bps: i128)`
-- **Use Case:** Update fee configuration, alert on significant changes
+**`feebpsq` / `feechg` / `feebpscn` Events (Issue #969: timelocked)**
+- **Emitted:** `queue_fee_bps_change()` publishes `feebpsq` with the queued value and eta; `execute_fee_bps_change()` publishes `feechg` once the timelock elapses; `cancel_fee_bps_change()` publishes `feebpscn` if cancelled first
+- **Data:** `feebpsq` → `(new_bps: i128, eta: u64)`; `feechg` → `(old_bps: i128, new_bps: i128)`; `feebpscn` → `()`
+- **Use Case:** Alert depositors on a queued fee increase during the timelock window; update fee configuration once `feechg` fires
 
 **`mindepchg` Event**
 - **Emitted:** When admin updates minimum deposit threshold
@@ -544,7 +574,7 @@ The guide includes:
 ### Current Limitations
 
 1. **Oracle not integrated:** `oracle.rs` module is ready but not wired into vault logic
-   - Functions `set_price_oracle()`, `is_oracle_enabled()`, `oracle_heartbeat()` exist but are not used
+   - Functions `queue_price_oracle_change()`/`execute_price_oracle_change()`, `is_oracle_enabled()`, `oracle_heartbeat()` exist but are not used
    - Strategy value validation against oracle is planned but not implemented
 
 2. **Single active strategy:** Only one strategy can be active at a time

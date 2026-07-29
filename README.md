@@ -9,7 +9,7 @@ This project is structured as a monorepo containing both the Stellar Soroban sma
 - `/contracts/vault/`: Contains the Rust Soroban smart contract for handling the vault logic, fractional share minting (`yvUSDC`), scaling withdrawals, and simulated yield accrual.
 - `/contracts/mock-strategy/`: Contains test mock contracts for the Korean sovereign debt strategy and price oracle.
 - `/frontend/`: Contains the React + Vite frontend application, integrating `@stellar/freighter-api` for seamless user wallet connections and a premium UI to interact with the protocol.
-- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, [Domain Glossary](./docs/GLOSSARY.md), and tracked GitHub issues. See also the [Deposit & Withdrawal Lifecycle](./docs/DEPOSIT_WITHDRAWAL_LIFECYCLE.md) for sequence diagrams.
+- `/docs/`: Contains the Product Requirements Document (PRD), Architecture Document, [Domain Glossary](./docs/GLOSSARY.md), and tracked GitHub issues. See also the [Deposit & Withdrawal Lifecycle](./docs/DEPOSIT_WITHDRAWAL_LIFECYCLE.md) for sequence diagrams and the [Deposit & Withdrawal Troubleshooting Guide](./docs/DEPOSIT_WITHDRAWAL_TROUBLESHOOTING.md) for diagnosing failed operations.
 
 ## Architecture
 
@@ -144,6 +144,15 @@ See [Disaster Recovery Runbooks](./docs/runbooks/README.md) for detailed procedu
 - **Q2**: Ship testnet-ready contract and frontend integration, then close critical polish gaps.
 - **Q3**: Expand security review, run load and failure-mode validation, and prepare launch readiness.
 - **Q4**: Complete mainnet launch checklist, monitor production stability, and gather retrospective improvements.
+
+## Deployment
+
+For step-by-step deployment checklists covering both **Testnet** and **Mainnet** environments (smart contracts, backend, frontend, and infrastructure), see:
+
+- **[Deployment Checklist](./docs/DEPLOYMENT_CHECKLIST.md)** — Comprehensive deployment checklist with pre-deployment, deployment, post-deployment verification, and rollback procedures
+- **[Deployment & Operations Runbook](./docs/DEPLOYMENT.md)** — Smart contract deployment and upgrade procedures
+- **[Release Readiness Checklist](./docs/RELEASE_READINESS_CHECKLIST.md)** — Release readiness gate checklist
+- **[Release Verification Checklist](./docs/RELEASE_VERIFICATION_CHECKLIST.md)** — Release verification for backend, frontend, and contracts
 
 ```bash
 # Validate branch naming, PR description format, and contribution standards

@@ -83,8 +83,10 @@
 //! // Set custom heartbeat (e.g., 5 minutes)
 //! vault.set_oracle_heartbeat(300);
 //!
-//! // Configure price oracle address
-//! vault.set_price_oracle(oracle_address);
+//! // Configure price oracle address (timelocked — see Issue #969)
+//! vault.queue_price_oracle_change(oracle_address);
+//! // ... after the configured timelock delay elapses:
+//! vault.execute_price_oracle_change();
 //! ```
 //!
 //! ## Integration with Strategies

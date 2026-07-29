@@ -149,6 +149,18 @@ export const en = {
     ariaLabel: "Transaction status timeline",
     viewOnExplorer: "View on Stellar Explorer",
     steps: {
+      preparing: {
+        label: "Preparing",
+        desc: "Constructing transaction data.",
+      },
+      signing: {
+        label: "Signing",
+        desc: "Awaiting wallet signature.",
+      },
+      submitting: {
+        label: "Submitting",
+        desc: "Sending to the network.",
+      },
       pending: {
         label: "Submitted",
         desc: "Transaction sent to the Stellar network.",
@@ -555,6 +567,25 @@ export const en = {
     pendingStatus: "Pending",
     searchPlaceholder: "Search asset, vault, issuer...",
     tableCaption: "Portfolio holdings",
+    overview: {
+      weightedApy: "Weighted Avg APY",
+      weightedApyTooltip:
+        "The portfolio-value-weighted average of all active position APYs.",
+      referralEarnings: "Referral Earnings",
+    },
+    health: {
+      title: "Vault Health",
+      description:
+        "Live operational status for each vault, refreshed every 15 seconds.",
+      healthy: "Healthy",
+      degraded: "Degraded",
+      unhealthy: "Unhealthy",
+      latency: "Latency",
+      uptime: "Uptime",
+      loading: "Loading vault health…",
+      error: "Unable to load vault health",
+      empty: "No vault health data available",
+    },
   },
   networkQuality: {
     fast: "Fast network",
@@ -738,7 +769,9 @@ export const en = {
     transactionSuccessful: "Transaction Successful",
     transactionFailed: "Transaction Failed",
     done: "Done",
-    tryAgain: "Try Again",
+    retryTransaction: "Retry",
+    startOver: "Start Over",
+    retryLimitReached: "Still not going through. Start over or try again later — if this keeps happening, please contact support.",
     quickActionsButton: "Quick actions",
     quickVaultActionsAria: "Quick vault actions",
     closeQuickActionsAria: "Close quick actions",
