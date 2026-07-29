@@ -275,6 +275,30 @@ SUBMITTING (XDR sent to Soroban RPC)
 | `TimelockNotExpired` | 7 | `execute_withdrawal` called too early | Wait until `unlock_ts` |
 | `NoPendingWithdrawal` | 8 | No pending withdrawal exists | Initiate withdrawal first |
 
+#### Backend Partial Failures
+
+The errors above are rejected before anything durable happens. A separate class of
+failure occurs *after* the on-chain submission succeeds — the transaction row or
+the vault re-pricing fails — leaving the chain ahead of the ledger. The backend
+journals withdrawals as a saga so these are retried, compensated, or escalated
+instead of silently drifting, and answers the client with `202 Accepted` plus a
+recovery handle rather than a misleading `500`.
+
+See [Withdrawal Partial-Failure Recovery](../backend/docs/WITHDRAWAL_PARTIAL_FAILURE_RECOVERY.md)
+for the state machine, admin endpoints, metrics, and the operator runbook.
+
+#### Retrying a Submission
+
+Retrying a transfer is not a repeat of the first attempt — each call to
+`submitVaultOperation` builds a new transaction with a new sequence number, so a
+blind retry can move funds twice. The transfer orchestration service decides per
+failure whether a retry is safe: pre-submission failures re-execute, invalid
+requests replay their rejection, and a failure whose outcome cannot be determined
+is parked for operator reconciliation rather than resubmitted.
+
+See [Transfer Orchestration](../backend/docs/TRANSFER_ORCHESTRATION.md) for the
+classification table, the wallet-scoped key format, and the in-doubt runbook.
+
 ---
 
 ## Share Price Mechanics
@@ -311,5 +335,7 @@ See [WEBHOOK_INTEGRATION.md](./WEBHOOK_INTEGRATION.md) for full event schema and
 ## Related Documents
 
 - [Contracts Architecture](./CONTRACTS_ARCHITECTURE.md) — Full contract interface and storage layout
+- [Withdrawal Partial-Failure Recovery](../backend/docs/WITHDRAWAL_PARTIAL_FAILURE_RECOVERY.md) — Saga journal, recovery states, and operator runbook
+- [Transfer Orchestration](../backend/docs/TRANSFER_ORCHESTRATION.md) — Idempotency keys, retry-safety contract, and in-doubt reconciliation
 - [Webhook Integration Guide](./WEBHOOK_INTEGRATION.md) — Consuming on-chain events
 - [Local Development Quickstart](./LOCAL_DEVELOPMENT_QUICKSTART.md) — Running the stack locally

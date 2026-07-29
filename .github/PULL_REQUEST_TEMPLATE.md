@@ -185,6 +185,7 @@ Before marking PR as ready for review:
 - [x] No merge conflicts
 - [x] Commits are clean and well-documented
 - [x] Branch is up-to-date with main/develop
+- [ ] For **release PRs**: `docs/RELEASE_READINESS_CHECKLIST.md` completed and linked in PR description
 
 ---
 

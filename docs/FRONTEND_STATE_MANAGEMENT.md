@@ -55,8 +55,9 @@ Critical real-time metrics use a custom `useQueryWithPolling` wrapper. For examp
 
 ### URL State Synchronization
 Complex view state, such as data tables and filters, is synchronized with the URL search parameters. 
-- **`useDataTableState`**: Syncs pagination (page, pageSize) and sorting state to the URL.
+- **`useDataTableState`**: Syncs pagination (page, pageSize) and single-column sorting state to the URL.
 - **`useTransactionFilters`**: Syncs multi-filter criteria (date ranges, statuses, types) to the URL.
+- **`useTransactionSort`**: Syncs the transaction table's multi-column ordering to the URL (`?sort=status:asc,amount:desc`), mirroring the primary key into `useDataTableState`'s legacy `sortBy`/`direction` params so older links keep working. See [Transaction History — Advanced Filter and Sort](../frontend/docs/TRANSACTION_HISTORY_FILTER_SORT.md).
 - **Deep Linking**: Components like `VaultDashboard` listen for URL parameters (e.g., `?action=deposit&amount=100`) to automatically pre-fill local state (active tab, input amount) on mount, then clean up the URL to prevent state trapping.
 
 ### Client-Side Data Derivation
@@ -112,8 +113,8 @@ Custom hooks in `frontend/src/hooks/` encapsulate all complex logic.
 ### `TransactionHistory` (`frontend/src/pages/TransactionHistory.tsx`)
 - **State Consumed:** `useTransactionHistory` (raw transaction list).
 - **Local State:** Manages `viewMode` ("paginated" | "infinite") and infinite scroll batch counts via `useState` and `useRef`. Persists user preferences for `viewMode` and `pageSize` to `localStorage`.
-- **URL Synchronization:** Binds heavily to URL parameters using `useDataTableState` and `useTransactionFilters` to ensure the view is shareable and persists across refreshes.
-- **Rendering:** Passes raw data through `useClientDataTable` for in-memory transformations. Renders either a standard paginated `DataTable` or an infinite scroll container based on `viewMode`.
+- **URL Synchronization:** Binds heavily to URL parameters using `useDataTableState` (pagination), `useTransactionFilters` (filters) and `useTransactionSort` (multi-column ordering) to ensure the view is shareable and persists across refreshes.
+- **Rendering:** Derives the visible rows with the pure `filterTransactions → sortTransactions → paginateRows` pipeline from `lib/transactionQuery`, keeping the matching and ordering rules unit-testable outside React. Renders either a standard paginated `DataTable` or an infinite scroll container based on `viewMode`.
 
 ---
 

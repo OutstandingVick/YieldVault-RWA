@@ -228,6 +228,31 @@ import { t } from "../i18n";
 const label = t("some.key");
 ```
 
-## Issue Triage and PR Review Process
+## Issue Triage, Code Review, and Release Standards
 
-For details on how issues are triaged, how pull requests are reviewed, and what is required before a PR can be merged, see [TRIAGE_AND_REVIEW.md](./TRIAGE_AND_REVIEW.md).
+For comprehensive contribution standards on code reviews, approval thresholds, SLAs, reviewer expectations, and release notes:
+- **[Code Review and Approval Standards](./docs/CODE_REVIEW_STANDARDS.md)** — Detailed guidelines for PR reviews, approval gates (Tiers 1-4), SLAs, and review comment prefixes (`blocking:`, `nit:`, `security:`).
+- **[Sprint Labeling Standards & Triage Conventions](./docs/SPRINT_AND_TRIAGE_CONVENTIONS.md)** — Sprint naming schemes (`sprint: YYYY-WXX`), 2-week sprint lifecycle, and unified issue taxonomy.
+- **[Release Notes Playbook](./docs/release-notes-playbook.md)** & **[Release Notes Template](./.github/RELEASE_NOTES_TEMPLATE.md)** — Release notes structure with mandatory Security & Performance highlights.
+- **[Non-Functional Requirement Baselines](./docs/NFR_BASELINES.md)** — Production SLOs, SLIs, RTO, and RPO disaster recovery targets.
+- **[Code Ownership (.github/CODEOWNERS)](./.github/CODEOWNERS)** — Explicit mapping of file paths to responsible review teams.
+- **[Issue Triage & Review Readiness](./TRIAGE_AND_REVIEW.md)** — Triage SLAs, label taxonomies, and merge checklists.
+
+### Automated Contribution, Triage, Release & NFR Validation
+
+To check your branch, PR format, sprint labels, release notes, and NFR baselines before submitting:
+
+```bash
+# Run contribution standards validator
+npm run validate:contribution-standards
+
+# Run sprint labeling and issue triage validator
+npm run validate:sprint-and-triage
+
+# Run release notes template & cliff config validator
+npm run validate:release-notes
+
+# Run non-functional requirement baselines (SLO, RTO, RPO) validator
+npm run validate:nfr-baselines
+```
+

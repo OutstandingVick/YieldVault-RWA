@@ -155,6 +155,7 @@ pub fn simulate_emergency_unwind(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as TestAddress;
 
     #[test]
     fn test_distinct_approvers_required() {

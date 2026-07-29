@@ -107,12 +107,12 @@ This document defines the threat model, trust assumptions, and trust boundaries 
 | Property | Detail |
 |----------|--------|
 | **Threat** | Admin private key is compromised or admin acts maliciously. |
-| **Attack Vector** | `upgrade()` to malicious WASM; `divest()` all strategy funds to attacker; `set_fee_bps(10000)` to capture 100% of yield; `pause()` to lock all users. |
+| **Attack Vector** | `upgrade()` to malicious WASM; `divest()` all strategy funds to attacker; queue then execute a 10000 bps fee change to capture 100% of yield; queue then execute a hostile `price_oracle` address; `pause()` to lock all users. |
 | **Impact** | Total loss of user funds. |
 | **Likelihood** | Low (single key compromise) |
 | **Severity** | Critical |
-| **Mitigations** | Two-step admin transfer (`propose_admin`/`accept_admin`); admin param change interval guard (default 3600s); emergency dual-approver can pause/divest/upgrade independently; governance M-of-N can override. |
-| **Residual Risk** | During param change interval window, a compromised admin can change one sensitive parameter before being stopped. |
+| **Mitigations** | Two-step admin transfer (`propose_admin`/`accept_admin`); admin param change interval guard (default 3600s); sensitive-parameter timelock (Issue #969) requires `queue_fee_bps_change`/`queue_treasury_change`/`queue_price_oracle_change` and a subsequent `execute_*_change` after an admin-configured delay (0 by default, ≥ 1h once armed via `set_sensitive_timelock_delay`), giving depositors a window to react to a queued change before it lands, and letting the current admin `cancel_*_change` a change queued by a now-compromised key; emergency dual-approver can pause/divest/upgrade independently; governance M-of-N can override. |
+| **Residual Risk** | The sensitive-parameter timelock defaults to a `0` delay (disabled) until an admin arms it via `set_sensitive_timelock_delay`, so a fresh or unconfigured deployment gets no warning window until that call is made. Once armed, the delay itself is protected only by the existing admin-param-change interval, not a timelock of its own — a compromised key could still queue a fee/treasury/oracle change immediately after weakening protection elsewhere. Admin key rotation (`propose_admin`/`accept_admin`) and most other admin setters remain immediate with no timelock at all. |
 
 ### 4.3 Malicious Strategy Contract
 

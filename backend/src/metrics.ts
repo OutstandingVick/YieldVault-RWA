@@ -213,3 +213,82 @@ export const adaptiveThrottleActiveBlocks = new Gauge({
   labelNames: ['using_redis'],
   registers: [register],
 });
+
+// --- Withdrawal Partial-Failure Recovery Metrics (Issue #954) ---
+
+export const withdrawalSagaTotal = new Counter({
+  name: 'withdrawal_saga_total',
+  help: 'Terminal outcomes of multi-step withdrawal sagas',
+  labelNames: ['plan', 'outcome'],
+  registers: [register],
+});
+
+export const withdrawalSagaStepFailureTotal = new Counter({
+  name: 'withdrawal_saga_step_failure_total',
+  help: 'Withdrawal saga step failures by step and failure classification',
+  labelNames: ['step', 'classification'],
+  registers: [register],
+});
+
+export const withdrawalSagaCompensationTotal = new Counter({
+  name: 'withdrawal_saga_compensation_total',
+  help: 'Withdrawal saga compensating actions executed, by step and result',
+  labelNames: ['step', 'result'],
+  registers: [register],
+});
+
+export const withdrawalSagaRetryTotal = new Counter({
+  name: 'withdrawal_saga_retry_total',
+  help: 'Automated recovery passes over partially failed withdrawal sagas',
+  labelNames: ['plan'],
+  registers: [register],
+});
+
+export const withdrawalSagaAwaitingRecovery = new Gauge({
+  name: 'withdrawal_saga_awaiting_recovery',
+  help: 'Withdrawal sagas waiting for an automated recovery pass',
+  registers: [register],
+});
+
+export const withdrawalSagaManualInterventionRequired = new Gauge({
+  name: 'withdrawal_saga_manual_intervention_required',
+  help: 'Withdrawal sagas with irreversible partial state awaiting an operator',
+  registers: [register],
+});
+
+// --- Transfer Orchestration Metrics (Issue #1043) ---
+
+export const transferOrchestrationTotal = new Counter({
+  name: 'transfer_orchestration_total',
+  help: 'Terminal outcomes of orchestrated vault transfers',
+  labelNames: ['operation', 'outcome'],
+  registers: [register],
+});
+
+export const transferOrchestrationReplayTotal = new Counter({
+  name: 'transfer_orchestration_replay_total',
+  help: 'Orchestrated transfers served from a stored idempotent result instead of re-submitting',
+  labelNames: ['operation', 'replay_of'],
+  registers: [register],
+});
+
+export const transferOrchestrationFailureTotal = new Counter({
+  name: 'transfer_orchestration_failure_total',
+  help: 'Orchestrated transfer submission failures by classification and error code',
+  labelNames: ['operation', 'classification', 'code'],
+  registers: [register],
+});
+
+export const transferOrchestrationDurationMs = new Histogram({
+  name: 'transfer_orchestration_duration_ms',
+  help: 'Wall-clock duration of an orchestrated transfer submission attempt in milliseconds',
+  labelNames: ['operation', 'outcome'],
+  buckets: [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
+  registers: [register],
+});
+
+export const transferOrchestrationInDoubt = new Gauge({
+  name: 'transfer_orchestration_in_doubt',
+  help: 'Orchestrated transfers whose on-chain outcome is unknown and awaiting operator reconciliation',
+  registers: [register],
+});

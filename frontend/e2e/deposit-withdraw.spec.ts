@@ -18,41 +18,12 @@ import {
 /** Valid Stellar public key (G + 55 base32 chars) for API validation in submitDeposit / submitWithdrawal. */
 const MOCK_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
-async function confirmInModal(page: Page) {
-  const modal = page.getByRole('dialog');
-  await expect(modal).toBeVisible({ timeout: 15_000 });
-  await modal.getByRole('button', { name: /^Confirm( Anyway)?$/i }).click();
-}
-
-async function confirmDeposit(page: Page) {
-  const confirmBtn = page.getByRole('button', { name: /Confirm deposit/i });
-  await expect(confirmBtn).toBeEnabled();
-  await confirmBtn.click();
-  await confirmInModal(page);
-}
-
-async function confirmWithdrawal(page: Page) {
-  const confirmBtn = page.getByRole('button', { name: /Confirm withdraw/i });
-  await expect(confirmBtn).toBeEnabled();
-  await confirmBtn.click();
-  await confirmInModal(page);
-}
-
 const SHORT_ADDR = `${MOCK_ADDRESS.substring(0, 5)}...${MOCK_ADDRESS.substring(MOCK_ADDRESS.length - 4)}`;
 
 async function goToConnectedVault(page: Page, path = '/') {
   await page.goto(path);
   await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 5000 });
   await waitForMockUsdcBalance(page);
-}
-
-/** Switch vault tabs via URL deep link (tab button clicks do not sync search params in preview builds). */
-async function switchVaultTab(page: Page, tab: 'deposit' | 'withdraw') {
-  await page.goto(`/?tab=${tab}`);
-  await expect(page.getByText(SHORT_ADDR)).toBeVisible({ timeout: 10_000 });
-  await expect(
-    page.getByText(tab === 'deposit' ? 'Amount to deposit' : 'Amount to withdraw'),
-  ).toBeVisible({ timeout: 10_000 });
 }
 
 // Tests that verify unauthenticated UI  no Freighter stub injected
@@ -126,6 +97,11 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
   test('performs a deposit wizard flow and updates the balance', async ({ page }) => {
     await goToConnectedVault(page);
     await fillDepositAmount(page, '100');
+    
+    // Progressive disclosure: Fee breakdown should be visible when amount is valid
+    await expect(page.getByText('Transaction Preview')).toBeVisible();
+    await expect(page.getByText('Estimated Shares')).toBeVisible();
+    
     await completeVaultReviewStep(page, 'deposit');
     await page.getByRole('button', { name: /Done/i }).click();
     await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeVisible();
@@ -140,6 +116,11 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     const amountInput = page.getByLabel('Withdrawal amount');
     await amountInput.fill('50');
     await amountInput.blur();
+    
+    // Progressive disclosure: Advanced settings should be collapsible
+    const advancedSettings = page.locator('details summary:has-text("Advanced Settings")');
+    await expect(advancedSettings).toBeVisible();
+    
     await completeVaultReviewStep(page, 'withdraw');
     await page.getByRole('button', { name: /Done/i }).click();
     await expect(vaultActionTab(page, 'Withdraw')).toBeVisible();
@@ -172,7 +153,7 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
       });
     });
     await goToConnectedVault(page);
-    await expect(page.getByText('Vault Capacity Reached')).toBeVisible();
+    await expect(page.getByText('Vault Capacity Reached', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Deposit amount')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'MAX' })).toBeDisabled();
     await expect(page.getByRole('button', { name: /Review Transaction/i })).toBeDisabled();
@@ -185,6 +166,81 @@ test.describe('Deposit & Withdraw  connected wallet', () => {
     await expect(page.getByLabel('Withdrawal amount')).toHaveValue('');
     await vaultActionTab(page, 'Deposit').click();
     await expect(page.getByLabel('Deposit amount')).toHaveValue('');
+  });
+
+  test('progressive disclosure: fee breakdown appears when amount is valid', async ({ page }) => {
+    await goToConnectedVault(page);
+    
+    // Fee breakdown should not be visible initially
+    await expect(page.getByText('Transaction Preview')).not.toBeVisible();
+    
+    // Enter valid amount
+    await page.getByLabel('Deposit amount').fill('100');
+    await page.getByLabel('Deposit amount').blur();
+    
+    // Fee breakdown should now be visible
+    await expect(page.getByText('Transaction Preview')).toBeVisible();
+    await expect(page.getByText('Estimated Shares')).toBeVisible();
+  });
+
+  test('progressive disclosure: approval warning appears for deposits needing approval', async ({ page }) => {
+    await goToConnectedVault(page);
+    
+    // Enter valid amount
+    await page.getByLabel('Deposit amount').fill('100');
+    await page.getByLabel('Deposit amount').blur();
+    
+    // Approval warning should be visible
+    await expect(page.getByText('Approval Required')).toBeVisible();
+    await expect(page.getByText("You'll need to approve USDC spending before depositing")).toBeVisible();
+  });
+
+  test('progressive disclosure: advanced settings are collapsible on withdraw', async ({ page }) => {
+    await goToConnectedVault(page);
+    await vaultActionTab(page, 'Withdraw').click();
+    
+    const amountInput = page.getByLabel('Withdrawal amount');
+    await amountInput.fill('50');
+    await amountInput.blur();
+    
+    // Advanced settings should be visible but collapsed
+    const advancedSettings = page.locator('details summary:has-text("Advanced Settings")');
+    await expect(advancedSettings).toBeVisible();
+    
+    // Slippage settings should not be visible initially
+    await expect(page.getByText('Slippage Tolerance', { exact: false })).not.toBeVisible();
+    
+    // Click to expand
+    await advancedSettings.click();
+    
+    // Slippage settings should now be visible
+    await expect(page.getByText('Slippage Tolerance', { exact: false })).toBeVisible();
+  });
+
+  test('progressive disclosure: vault capacity indicator shows when near capacity', async ({ page }) => {
+    // Mock vault near capacity
+    await page.route('**/mock-api/vault-summary.json', async (route) => {
+      const response = await route.fetch();
+      const json = await response.json();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...json,
+          totalValueLocked: 800000,
+          vaultCapUsd: 1000000,
+        }),
+      });
+    });
+    
+    await goToConnectedVault(page);
+    
+    // Enter valid amount
+    await page.getByLabel('Deposit amount').fill('100');
+    await page.getByLabel('Deposit amount').blur();
+    
+    // Capacity indicator should be visible
+    await expect(page.getByText('Vault Capacity')).toBeVisible();
   });
 
   test('disconnect button clears wallet state and shows connect button', async ({ page }) => {

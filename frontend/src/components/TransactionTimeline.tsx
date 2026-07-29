@@ -2,7 +2,7 @@ import React from "react";
 import { Check, AlertCircle, Loader2 } from "./icons";
 import { useTranslation } from "../i18n";
 
-export type TxTimelineStatus = "pending" | "confirming" | "finalized" | "failed";
+export type TxTimelineStatus = "preparing" | "signing" | "submitting" | "pending" | "confirming" | "finalized" | "failed";
 
 export interface TransactionTimelineProps {
   status: TxTimelineStatus;
@@ -11,6 +11,8 @@ export interface TransactionTimelineProps {
   elapsedSeconds?: number;
   /** Error message shown when status is "failed" */
   errorMessage?: string;
+  /** Callback for when the user clicks Retry on a failed step */
+  onRetry?: () => void;
 }
 
 interface Step {
@@ -20,16 +22,20 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  { key: "pending",    labelKey: "txTimeline.steps.pending.label",    descKey: "txTimeline.steps.pending.desc" },
+  { key: "preparing",  labelKey: "txTimeline.steps.preparing.label",  descKey: "txTimeline.steps.preparing.desc" },
+  { key: "signing",    labelKey: "txTimeline.steps.signing.label",    descKey: "txTimeline.steps.signing.desc" },
+  { key: "submitting", labelKey: "txTimeline.steps.submitting.label", descKey: "txTimeline.steps.submitting.desc" },
   { key: "confirming", labelKey: "txTimeline.steps.confirming.label", descKey: "txTimeline.steps.confirming.desc" },
-  { key: "finalized",  labelKey: "txTimeline.steps.finalized.label",  descKey: "txTimeline.steps.finalized.desc" },
 ];
 
 const STATUS_ORDER: Record<TxTimelineStatus, number> = {
-  pending: 0,
-  confirming: 1,
-  finalized: 2,
-  failed: 2,
+  preparing: 0,
+  signing: 1,
+  submitting: 2,
+  pending: 3,
+  confirming: 4,
+  finalized: 5,
+  failed: 5,
 };
 
 type StepState = "completed" | "active" | "failed" | "upcoming";
@@ -66,11 +72,12 @@ const TransactionTimeline: React.FC<TransactionTimelineProps> = ({
   txHash,
   elapsedSeconds,
   errorMessage,
+  onRetry,
 }) => {
   const { t } = useTranslation();
 
   const steps = status === "failed"
-    ? STEPS.slice(0, 2) // pending + confirming (failed at confirming)
+    ? STEPS // show all steps, the failed one will be marked failed based on order
     : STEPS;
 
   return (
@@ -150,6 +157,16 @@ const TransactionTimeline: React.FC<TransactionTimelineProps> = ({
                   ? errorMessage
                   : t(step.descKey)}
               </p>
+              {stepState === "failed" && onRetry && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ marginTop: "8px", padding: "4px 12px", fontSize: "0.8rem" }}
+                  onClick={onRetry}
+                >
+                  {t("txTimeline.retryButton", "Retry")}
+                </button>
+              )}
             </div>
           </div>
         );

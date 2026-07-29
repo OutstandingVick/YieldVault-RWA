@@ -4,7 +4,9 @@ import { useTranslation } from "../i18n";
 import { Pagination } from "./Pagination";
 import { TableSkeleton } from "./Skeleton";
 import { useDelayedLoading } from "../hooks/useDelayedLoading";
-import type { DataTableColumn, TableSortDirection } from "./DataTable";
+import { getColumnSortState } from "./dataTableSort";
+import type { TableSortDirection, TableSortKey } from "./dataTableSort";
+import type { DataTableColumn } from "./DataTable";
 
 /** Row height in pixels — keep in sync with .data-table th/td padding. */
 export const VIRTUALIZED_ROW_HEIGHT = 52;
@@ -28,6 +30,10 @@ interface VirtualizedDataTableProps<T> {
   sortBy?: string;
   sortDirection?: TableSortDirection;
   onSortChange?: (columnId: string) => void;
+  /** Active multi-column sort; supersedes `sortBy` / `sortDirection`. */
+  sortKeys?: readonly TableSortKey[];
+  /** Multi-column sort handler; `additive` mirrors the Shift modifier. */
+  onSortToggle?: (columnId: string, additive: boolean) => void;
   pagination?: PaginationState;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
@@ -59,6 +65,8 @@ export function VirtualizedDataTable<T>({
   sortBy,
   sortDirection = "asc",
   onSortChange,
+  sortKeys,
+  onSortToggle,
   pagination,
   onPageChange,
   onPageSizeChange,
@@ -92,13 +100,21 @@ export function VirtualizedDataTable<T>({
     overscan: 8,
   });
 
+  const activateSort = (columnId: string, additive: boolean) => {
+    if (onSortToggle) {
+      onSortToggle(columnId, additive);
+      return;
+    }
+    onSortChange?.(columnId);
+  };
+
   const handleHeaderKeyDown = (
     event: KeyboardEvent<HTMLButtonElement>,
     columnId: string,
   ) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      onSortChange?.(columnId);
+      activateSort(columnId, event.shiftKey);
     }
   };
 
@@ -118,20 +134,19 @@ export function VirtualizedDataTable<T>({
           <thead>
             <tr>
               {columns.map((column) => {
-                const isSorted = sortBy === column.id;
-                const ariaSort = !column.sortable
-                  ? "none"
-                  : isSorted
-                    ? sortDirection === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none";
+                const sortState = getColumnSortState(
+                  column.id,
+                  column.sortable,
+                  sortKeys,
+                  sortBy,
+                  sortDirection,
+                );
 
                 return (
                   <th
                     key={column.id}
                     scope="col"
-                    aria-sort={ariaSort}
+                    aria-sort={sortState.ariaSort}
                     style={{
                       width: column.width,
                       textAlign: getCellAlignment(column.align),
@@ -141,7 +156,9 @@ export function VirtualizedDataTable<T>({
                       <button
                         type="button"
                         className="data-table-sort"
-                        onClick={() => onSortChange?.(column.id)}
+                        onClick={(event) =>
+                          activateSort(column.id, event.shiftKey)
+                        }
                         onKeyDown={(event) =>
                           handleHeaderKeyDown(event, column.id)
                         }
@@ -149,8 +166,20 @@ export function VirtualizedDataTable<T>({
                       >
                         <span>{column.header}</span>
                         <span className="data-table-sort-indicator" aria-hidden="true">
-                          {isSorted ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
+                          {sortState.direction
+                            ? sortState.direction === "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
                         </span>
+                        {sortState.priority !== null && (
+                          <span
+                            className="data-table-sort-priority"
+                            aria-hidden="true"
+                          >
+                            {sortState.priority}
+                          </span>
+                        )}
                       </button>
                     ) : (
                       <span>{column.header}</span>

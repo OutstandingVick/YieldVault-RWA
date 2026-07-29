@@ -38,3 +38,17 @@ export {
   type VaultDepositBody,
   type VaultWithdrawalBody,
 } from "./vault";
+
+export {
+  WEBHOOK_SCHEMA_VERSION,
+  WebhookEventTypeSchema,
+  WebhookEventPayloadSchemas,
+  WebhookEnvelopeSchema,
+  TransactionDepositCreatedPayloadSchema,
+  TransactionWithdrawalCreatedPayloadSchema,
+  parseWebhookEnvelope,
+  type WebhookEventType,
+  type WebhookEnvelope,
+  type TransactionDepositCreatedPayload,
+  type TransactionWithdrawalCreatedPayload,
+} from "./webhookEvents";

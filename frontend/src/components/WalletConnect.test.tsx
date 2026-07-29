@@ -29,11 +29,11 @@ const mockedFreighter = vi.mocked(freighter);
 const mockedWalletSession = vi.mocked(walletSession);
 
 const WalletConnectWrapper: React.FC<ComponentProps<typeof WalletConnect>> = (props) => (
-    <ToastProvider>
-        <PreferencesProvider>
+    <PreferencesProvider>
+        <ToastProvider>
             <WalletConnect {...props} />
-        </PreferencesProvider>
-    </ToastProvider>
+        </ToastProvider>
+    </PreferencesProvider>
 );
 
 describe('WalletConnect', () => {
@@ -225,7 +225,7 @@ describe('WalletConnect', () => {
             />
         );
 
-        // Default preferences mask sensitive values (GABC••••••••9012).
+        // Default preferences mask sensitive values (GABC...9012).
         expect(screen.getByTitle(fullAddress)).toBeInTheDocument();
         expect(screen.getByText(/GABC.+9012/)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /Copy wallet address/i })).toBeInTheDocument();

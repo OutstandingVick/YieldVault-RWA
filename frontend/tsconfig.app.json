@@ -24,7 +24,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@yieldvault/api-schemas": ["../packages/api-schemas/src/index.ts"]
+      "@yieldvault/api-schemas": ["../packages/api-schemas/src/index.ts"],
+      "zod": ["./node_modules/zod/index.d.ts"],
+      "zod/*": ["./node_modules/zod/*"]
     }
   },
   "include": ["src"],

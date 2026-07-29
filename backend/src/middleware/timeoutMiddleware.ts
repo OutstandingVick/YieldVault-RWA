@@ -31,7 +31,7 @@ export const DEFAULT_TIMEOUT_OPTIONS: TimeoutOptions = {
  * and returns graceful fallback responses
  */
 export function timeoutMiddleware(options: TimeoutOptions = DEFAULT_TIMEOUT_OPTIONS) {
-  const { timeoutMs, fallbackResponse, message } = {
+  const { timeoutMs, fallbackResponse, message, fallbackStatusCode, routeName } = {
     ...DEFAULT_TIMEOUT_OPTIONS,
     ...options,
   };

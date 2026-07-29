@@ -4,6 +4,7 @@
 //! and `cargo fuzz` targets.
 
 pub mod fuzz_invariants;
+pub mod rounding;
 
 /// Checked variant of [`assets_to_shares`] for fuzzing and property tests.
 ///

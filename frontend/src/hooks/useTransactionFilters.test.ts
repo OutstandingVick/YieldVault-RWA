@@ -96,6 +96,17 @@ describe("useTransactionFilters — valid param parsing", () => {
     const { result } = renderFilters("amountMax=100");
     expect(result.current.hasActiveFilters).toBe(true);
   });
+
+  it("parses a valid asset value from the URL", () => {
+    const { result } = renderFilters("asset=USDC");
+    expect(result.current.filters.asset).toBe("USDC");
+    expect(result.current.hasActiveFilters).toBe(true);
+  });
+
+  it("trims whitespace from the asset URL param", () => {
+    const { result } = renderFilters("asset=%20XLM%20");
+    expect(result.current.filters.asset).toBe("XLM");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -153,6 +164,12 @@ describe("useTransactionFilters — invalid param handling", () => {
     expect(result.current.hasActiveFilters).toBe(false);
   });
 
+  it("treats an empty asset param as no filter", () => {
+    const { result } = renderFilters("asset=");
+    expect(result.current.filters.asset).toBe("");
+    expect(result.current.hasActiveFilters).toBe(false);
+  });
+
   it("amountMin of 0 is valid (zero is non-negative)", () => {
     const { result } = renderFilters("amountMin=0");
     expect(result.current.filters.amountMin).toBe("0");
@@ -166,7 +183,7 @@ describe("useTransactionFilters — invalid param handling", () => {
 describe("useTransactionFilters — clearAll", () => {
   it("clearAll removes all filter params from URL and sets hasActiveFilters=false", async () => {
     const { result } = renderFilters(
-      "search=xyz&types=deposit&statuses=completed&dateFrom=2026-01-01&amountMin=10",
+      "search=xyz&types=deposit&statuses=completed&dateFrom=2026-01-01&amountMin=10&asset=USDC",
     );
 
     // Verify all filters loaded
@@ -187,6 +204,18 @@ describe("useTransactionFilters — clearAll", () => {
       amountMin: "",
       amountMax: "",
     });
+    expect(result.current.hasActiveFilters).toBe(false);
+  });
+
+  it("clearAll removes the asset filter specifically", () => {
+    const { result } = renderFilters("asset=USDC");
+    expect(result.current.filters.asset).toBe("USDC");
+
+    act(() => {
+      result.current.clearAll();
+    });
+
+    expect(result.current.filters.asset).toBe("");
     expect(result.current.hasActiveFilters).toBe(false);
   });
 });
@@ -287,5 +316,37 @@ describe("useTransactionFilters — individual setters", () => {
     });
 
     expect(result.current.filters.amountMax).toBe("999");
+  });
+
+  it("setAsset updates the asset filter", () => {
+    const { result } = renderFilters("");
+
+    act(() => {
+      result.current.setAsset("USDC");
+    });
+
+    expect(result.current.filters.asset).toBe("USDC");
+    expect(result.current.hasActiveFilters).toBe(true);
+  });
+
+  it("setAsset with empty string clears the asset filter", () => {
+    const { result } = renderFilters("asset=USDC");
+
+    act(() => {
+      result.current.setAsset("");
+    });
+
+    expect(result.current.filters.asset).toBe("");
+    expect(result.current.hasActiveFilters).toBe(false);
+  });
+
+  it("setAsset trims surrounding whitespace", () => {
+    const { result } = renderFilters("");
+
+    act(() => {
+      result.current.setAsset("  XLM  ");
+    });
+
+    expect(result.current.filters.asset).toBe("XLM");
   });
 });

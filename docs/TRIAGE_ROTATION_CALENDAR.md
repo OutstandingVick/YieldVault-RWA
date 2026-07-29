@@ -68,5 +68,6 @@ At rotation handoff, outgoing Primary confirms:
 ## Related documents
 
 - [TRIAGE_AND_REVIEW.md](../TRIAGE_AND_REVIEW.md) — Review criteria and merge readiness
+- [docs/BACKEND_MODULE_OWNERSHIP.md](./BACKEND_MODULE_OWNERSHIP.md) — Per-module ownership, file→domain lookup, PR review routing cheat sheet
 - [docs/MONITORING_OBSERVABILITY.md](./MONITORING_OBSERVABILITY.md) — Alert routing
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — Contributor workflow

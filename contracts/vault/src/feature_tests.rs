@@ -80,7 +80,6 @@ fn test_dual_approval_emergency_pause() {
 }
 
 #[test]
-#[should_panic(expected = "only primary approver can initiate")]
 fn test_emergency_proposal_rejects_non_primary() {
     let env = Env::default();
     env.mock_all_auths();
@@ -92,12 +91,18 @@ fn test_emergency_proposal_rejects_non_primary() {
 
     vault.set_emergency_approvers(&primary, &secondary);
 
-    vault.propose_emergency_action(
+    // Issue #963: previously a panic, now returns VaultError::UnauthorizedCaller.
+    let result = vault.try_propose_emergency_action(
         &outsider,
         &EmergencyActionKind::Pause,
         &(PauseReason::Governance as u32),
         &None,
         &None,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        VaultError::UnauthorizedCaller,
+        "non-primary approver must be rejected with UnauthorizedCaller"
     );
 }
 
@@ -118,7 +123,8 @@ fn test_accrue_yield_fee_rounding_deterministic() {
     env.mock_all_auths();
 
     let (vault, _, usdc_sa, admin) = setup_vault(&env);
-    vault.set_fee_bps(&100); // 1%
+    vault.queue_fee_bps_change(&100); // 1%
+    vault.execute_fee_bps_change();
 
     usdc_sa.mint(&admin, &333);
     vault.accrue_yield(&333);
@@ -302,4 +308,49 @@ fn test_custom_dispute_window_respected() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 61);
     vault.confirm_emergency_action(&secondary, &proposal_id);
     assert!(vault.is_paused());
+}
+
+#[test]
+fn test_role_restricted_pausability_controls() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+
+    let vault_id = env.register(crate::YieldVault, ());
+    let vault = crate::YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc).unwrap();
+
+    let pauser = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+
+    // Initial pauser is None
+    assert_eq!(vault.pauser(), None);
+
+    // Admin configures pauser role
+    vault.set_pauser(&Some(pauser.clone())).unwrap();
+    assert_eq!(vault.pauser(), Some(pauser.clone()));
+
+    // Designated pauser can pause with role
+    vault.pause_with_role(&pauser, &PauseReason::SecurityIncident).unwrap();
+    assert!(vault.is_paused());
+    assert_eq!(vault.pause_reason(), Some(PauseReason::SecurityIncident));
+
+    // Designated pauser can unpause with role
+    vault.unpause_with_role(&pauser).unwrap();
+    assert!(!vault.is_paused());
+    assert_eq!(vault.pause_reason(), None);
+
+    // Admin can also pause and unpause with role
+    vault.pause_with_role(&admin, &PauseReason::Maintenance).unwrap();
+    assert!(vault.is_paused());
+
+    vault.unpause_with_role(&admin).unwrap();
+    assert!(!vault.is_paused());
+
+    // Admin clears pauser role
+    vault.set_pauser(&None).unwrap();
+    assert_eq!(vault.pauser(), None);
 }

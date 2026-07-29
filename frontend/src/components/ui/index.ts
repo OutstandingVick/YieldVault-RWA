@@ -7,3 +7,6 @@ export * from "./Tooltip";
 export * from "./Popover";
 export * from "./HelpIcon";
 export * from "./EmptyState";
+export * from "./LoadingState";
+export * from "./ErrorState";
+export * from "./StateWrapper";
