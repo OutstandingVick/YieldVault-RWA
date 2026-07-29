@@ -2,10 +2,6 @@ import React, { useMemo, useState, useCallback } from "react";
 import {
   LineChart,
   Line,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -13,6 +9,8 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { TrendingUp } from "./icons";
 import { usePreferencesContext } from "../context/PreferencesContext";
 import { formatDate } from "../lib/formatters";
@@ -20,10 +18,7 @@ import { type TimeRange, getCutoffDate, getNow } from "../lib/dateUtils";
 import RefreshControl from "./RefreshControl";
 import { usePolling } from "../hooks/usePolling";
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
-import ChartWidgetPlaceholder from "./ui/ChartWidgetPlaceholder";
-import { ChartModeToggle } from "./ChartModeToggle";
-import Badge from "./Badge";
-import { Clock3 } from "lucide-react";
+import { sampleChartSeries } from "../lib/chartSeries";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,6 +44,7 @@ const WINDOWS: WindowConfig[] = [
 
 /** Selectable windows for comparison overlay */
 const ALL_RANGES: TimeRange[] = ["7D", "1M", "3M", "ALL"];
+const MAX_RENDER_POINTS = 120;
 
 // ─── Mock APY history generator ───────────────────────────────────────────────
 
@@ -75,15 +71,11 @@ const ALL_HISTORY = generateAPYHistory(90);
 
 // ─── Tooltip ──────────────────────────────────────────────────────────────────
 
-interface TooltipProps {
-  active?: boolean;
-  payload?: ReadonlyArray<{ name?: string; value?: number; color?: string }>;
-  label?: string;
-  locale: string;
-}
+type APYRechartsTooltipProps = TooltipContentProps<ValueType, NameType>;
 
-function APYTooltip({ active, payload, label, locale }: TooltipProps) {
+function APYTooltip({ active, payload, label, locale }: APYRechartsTooltipProps & { locale: string }) {
   if (!active || !payload?.length) return null;
+  const entries = payload as ReadonlyArray<{ name?: string | number; value?: number | string; color?: string }>;
   return (
     <div
       className="glass-panel"
@@ -97,14 +89,19 @@ function APYTooltip({ active, payload, label, locale }: TooltipProps) {
       <div style={{ color: "var(--text-secondary)", marginBottom: "6px" }}>
         {label ? formatDate(label, { month: "short", day: "numeric", year: "numeric" }, locale) : ""}
       </div>
-      {payload.map((entry) => (
-        <div key={entry.name} style={{ color: entry.color, fontWeight: 600 }}>
-          {entry.name}: {entry.value?.toFixed(2)}% APY
+      {entries.map((entry, index) => (
+        <div key={`${String(entry.name ?? "value")}-${index}`} style={{ color: entry.color, fontWeight: 600 }}>
+          {String(entry.name ?? "Value")}: {typeof entry.value === "number" ? entry.value.toFixed(2) : entry.value}% APY
         </div>
       ))}
     </div>
   );
 }
+
+const renderTooltip =
+  (locale: string) =>
+  (props: APYRechartsTooltipProps) =>
+    <APYTooltip {...props} locale={locale} />;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -114,9 +111,8 @@ export interface APYTrendChartProps {
 }
 
 const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => {
-  const { preferences, chartModes, setChartMode } = usePreferencesContext();
+  const { preferences } = usePreferencesContext();
   const locale = preferences.locale;
-  const chartMode = chartModes.apyTrend;
 
   /** The primary time window driving the x-axis range */
   const [activeRange, setActiveRange] = useState<TimeRange>("1M");
@@ -149,6 +145,11 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
     return data.filter((p) => new Date(p.date) >= cutoff);
   }, [data, activeRange]);
 
+  const renderData = useMemo(
+    () => sampleChartSeries(baseData, MAX_RENDER_POINTS),
+    [baseData],
+  );
+
   /**
    * Build a merged dataset where each date has an APY value for each
    * selected comparison window. Windows shorter than the active range
@@ -160,7 +161,7 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
       windowCutoffs.set(range, range === "ALL" ? null : getCutoffDate(range, getNow()));
     }
 
-    return baseData.map((point) => {
+    return renderData.map((point) => {
       const row: Record<string, string | number | null> = { date: point.date };
       // Always include the active range line
       row[activeRange] = point.apy;
@@ -172,7 +173,9 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
       }
       return row;
     });
-  }, [baseData, activeRange, comparedRanges]);
+  }, [renderData, activeRange, comparedRanges]);
+
+  const isCompactSeries = baseData.length > renderData.length;
 
   function toggleComparison(range: TimeRange) {
     setComparedRanges((prev) => {
@@ -194,88 +197,25 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
     margin: { top: 8, right: 8, left: -16, bottom: 0 },
   };
 
-  const activeRanges = ALL_RANGES.filter(
-    (r) => r === activeRange || comparedRanges.has(r),
-  );
-
-  const renderSeries = () =>
-    activeRanges.map((range) => {
-      const color = windowColor(range);
-      const commonProps = {
-        key: range,
-        dataKey: range,
-        name: range,
-        animationDuration: 600,
-      };
-
-      if (chartMode === "bar") {
-        return <Bar {...commonProps} fill={color} radius={[2, 2, 0, 0]} />;
-      }
-      if (chartMode === "area") {
-        return (
-          <Area
-            {...commonProps}
-            type="monotone"
-            stroke={color}
-            strokeWidth={range === activeRange ? 2.5 : 1.5}
-            fill={color}
-            fillOpacity={0.12}
-            dot={false}
-            connectNulls={false}
-          />
-        );
-      }
-      return (
-        <Line
-          {...commonProps}
-          type="monotone"
-          stroke={color}
-          strokeWidth={range === activeRange ? 2.5 : 1.5}
-          strokeDasharray={range === activeRange ? undefined : "4 3"}
-          dot={false}
-          activeDot={{ r: 4 }}
-          connectNulls={false}
-        />
-      );
-    });
-
-  const renderChartShell = (width?: number, height?: number) => {
-    const sizeProps = width && height ? { width, height } : {};
-    const chartBody = (
-      <>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-        <XAxis
-          dataKey="date"
-          axisLine={false}
-          tickLine={false}
-          tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-          tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
-          minTickGap={28}
-        />
-        <YAxis
-          axisLine={false}
-          tickLine={false}
-          tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-          tickFormatter={(v: number) => `${v.toFixed(1)}%`}
-          domain={["auto", "auto"]}
-        />
-        <Tooltip content={(props: TooltipProps) => <APYTooltip {...props} locale={locale} />} />
-        <Legend
-          wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
-          formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
-        />
-        {renderSeries()}
-      </>
-    );
-
-    if (chartMode === "bar") {
-      return <BarChart {...sharedChartProps} {...sizeProps}>{chartBody}</BarChart>;
-    }
-    if (chartMode === "area") {
-      return <AreaChart {...sharedChartProps} {...sizeProps}>{chartBody}</AreaChart>;
-    }
-    return <LineChart {...sharedChartProps} {...sizeProps}>{chartBody}</LineChart>;
-  };
+  const renderLines = () =>
+    ALL_RANGES.filter(
+      (r) => r === activeRange || comparedRanges.has(r),
+    ).map((range) => (
+      <Line
+        key={range}
+        type="monotone"
+        dataKey={range}
+        name={range}
+        stroke={windowColor(range)}
+        strokeWidth={range === activeRange ? 2.5 : 1.5}
+        strokeDasharray={range === activeRange ? undefined : "4 3"}
+        dot={false}
+        activeDot={{ r: 4 }}
+        connectNulls={false}
+        isAnimationActive={!isCompactSeries}
+        animationDuration={isCompactSeries ? 0 : 600}
+      />
+    ));
 
   return (
     <section
@@ -305,25 +245,9 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
           <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
             Comparative APY across selectable time windows
           </p>
-          <div style={{ marginTop: "8px" }}>
-            <Badge
-              variant="pill"
-              color={isStale ? "warning" : "cyan"}
-              size="compact"
-              icon={<Clock3 size={10} />}
-            >
-              {isStale ? `Stale ${ageText || ""}`.trim() : ageText ? `Fresh ${ageText}` : "Live"}
-            </Badge>
-          </div>
         </div>
 
         {/* Primary range selector */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
-        <ChartModeToggle
-          value={chartMode}
-          onChange={(mode) => setChartMode("apyTrend", mode)}
-          aria-label="APY trend chart mode"
-        />
         <div
           role="group"
           aria-label="Select primary time window"
@@ -356,7 +280,6 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
               {range}
             </button>
           ))}
-        </div>
         </div>
       </div>
 
@@ -429,18 +352,57 @@ const APYTrendChart: React.FC<APYTrendChartProps> = ({ data = ALL_HISTORY }) => 
 
       {/* Chart */}
       <div style={{ height: "240px", position: "relative" }}>
-        {baseData.length === 0 ? (
-          <ChartWidgetPlaceholder
-            variant="empty"
-            title="No APY data available"
-            description="APY history will appear here once yield data is available."
-            height={240}
-          />
-        ) : isTest ? (
-          renderChartShell(400, 240)
+        {isTest ? (
+          <LineChart {...sharedChartProps} width={400} height={240}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis
+              dataKey="date"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+              tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
+              minTickGap={28}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+              tickFormatter={(v: number) => `${v.toFixed(1)}%`}
+              domain={["auto", "auto"]}
+            />
+            <Tooltip content={renderTooltip(locale)} />
+            <Legend
+              wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
+              formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
+            />
+            {renderLines()}
+          </LineChart>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            {renderChartShell()}
+            <LineChart {...sharedChartProps}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+              <XAxis
+                dataKey="date"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                tickFormatter={(str: string) => formatDate(str, { month: "short", day: "numeric" }, locale)}
+                minTickGap={28}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+                tickFormatter={(v: number) => `${v.toFixed(1)}%`}
+                domain={["auto", "auto"]}
+              />
+              <Tooltip content={renderTooltip(locale)} />
+              <Legend
+                wrapperStyle={{ fontSize: "0.75rem", paddingTop: "8px" }}
+                formatter={(value: string) => <span style={{ color: "var(--text-secondary)" }}>{value}</span>}
+              />
+              {renderLines()}
+            </LineChart>
           </ResponsiveContainer>
         )}
       </div>

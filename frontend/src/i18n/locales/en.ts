@@ -149,6 +149,18 @@ export const en = {
     ariaLabel: "Transaction status timeline",
     viewOnExplorer: "View on Stellar Explorer",
     steps: {
+      preparing: {
+        label: "Preparing",
+        desc: "Constructing transaction data.",
+      },
+      signing: {
+        label: "Signing",
+        desc: "Awaiting wallet signature.",
+      },
+      submitting: {
+        label: "Submitting",
+        desc: "Sending to the network.",
+      },
       pending: {
         label: "Submitted",
         desc: "Transaction sent to the Stellar network.",
@@ -565,6 +577,40 @@ export const en = {
       near: "Vault Near Capacity",
       reachedDesc: "This vault has reached its maximum deposit cap of {{percent}}%. Deposits are temporarily disabled.",
       nearDesc: "This vault is at {{percent}}% capacity. New deposits may be restricted soon.",
+    },
+    riskSummary: {
+      title: "Account Risk Summary",
+      subtitle: "Warnings are prioritized by what you can do next.",
+      allClear: "All clear",
+      warningCount: "{{count}} warnings",
+      warningCountOne: "1 warning",
+      healthyMessage: "Your wallet is in a healthy operating window. Compare strategies to review other allocation options before moving capital.",
+      healthyCta: "Compare strategies",
+      wallet: {
+        title: "Connect your wallet",
+        desc: "Personalized risk checks and transaction actions are only available after you connect a wallet.",
+        cta: "Connect wallet",
+      },
+      capReached: {
+        title: "Vault capacity reached",
+        desc: "Deposits are temporarily constrained. Compare vaults before adding more capital.",
+        cta: "Compare vaults",
+      },
+      capWarning: {
+        title: "Vault is nearing capacity",
+        desc: "The vault is close to its deposit cap. Review alternate strategies before you submit a larger transfer.",
+        cta: "Compare vaults",
+      },
+      xlmFee: {
+        title: "Insufficient XLM for network fees",
+        desc: "You need more XLM to cover the estimated network fee for the next transaction.",
+        cta: "Review deposit",
+      },
+      paused: {
+        title: "Vault operations are paused",
+        desc: "Deposits and withdrawals are currently blocked until the vault is re-enabled.",
+        cta: "Refresh status",
+      },
     },
     toast: {
       validationErrorTitle: "Please fix validation errors",

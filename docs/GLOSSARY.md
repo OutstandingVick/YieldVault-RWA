@@ -1,6 +1,6 @@
 # YieldVault-RWA — Domain Glossary
 
-> **Last Updated:** 2026-07-24
+> **Last Updated:** 2026-07-29
 
 A shared reference for technical and product terminology used across the YieldVault-RWA codebase, specifications, and documentation. Terms are grouped by domain — with deep coverage of **RWA vault concepts**, **strategy allocation mechanics**, and **protocol economics** alongside supporting systems (rate limiting, logging, accessibility, CI/CD). Individual specs may define additional context-specific terms in their own `## Glossary` sections.
 
@@ -522,6 +522,33 @@ The contract structure (SPA, custody agreement, indenture, etc.) connecting on-c
 **Redemption Right**
 Legal mechanism for token holders to redeem their on-chain RWA tokens for the underlying asset or its cash equivalent. Typically requires KYC/AML checks at the RWA layer.
 
+**Proof of Reserve (PoR)**
+On-chain attestation or cryptographic oracle proof verifying that off-chain collateral held by custodians equals or exceeds the total value of tokenized RWA issued.
+
+**Off-Chain Settlement**
+The operational process of completing asset transfers, bank wires, or delivery-versus-payment (DvP) in traditional financial rails before updating on-chain balances.
+
+**CUSIP / ISIN**
+Unique alphanumeric identifiers assigned to financial securities (Committee on Uniform Security Identification Procedures / International Securities Identification Number) used to identify and trace off-chain RWA underlying holdings.
+
+**Delivery-versus-Payment (DvP)**
+A settlement mechanism that links the transfer of financial assets to payment execution, ensuring securities delivery occurs if and only if payment is fulfilled.
+
+**Off-Chain Collateral Ratio**
+The ratio of verified off-chain collateral held in custody to total on-chain shares or tokens issued against those assets, ensuring full backing.
+
+**Bankruptcy-Remote SPV**
+A Special Purpose Vehicle legally structured to isolate RWA assets from the operational liabilities of the issuer or custodian, protecting investor capital in bankruptcy scenarios.
+
+**Subscription & Redemption Window**
+The specified timeframe and operational delay required for fiat processing, bank settlement, and custodial transfer when subscribing to or redeeming RWA positions.
+
+**Yield Distribution Epoch**
+The discrete time period over which harvested RWA yield (e.g., T-Bill interest or sovereign bond coupons) is aggregated and socialized to vault share price.
+
+**Fractional RWA Ownership**
+The mechanism enabling retail or institutional users to hold fractional shares of institutional-grade RWA assets with high minimum investment thresholds via tokenized ERC-4626 vault shares.
+
 ---
 
 ## Oracle Price Validation & Heartbeats
@@ -833,6 +860,72 @@ Standard behavior of closing the current floating panel on Escape key press.
 **Placement / Flip**
 Floating-UI concepts: `top/bottom/left/right` with `start/end` alignment, plus automatic repositioning on viewport overflow (Flip).
 
+**RiskSummaryCard** (`RiskSummaryCard`)
+A presentational card component summarizing account-level risk signals with one actionable CTA per warning. Renders items with configurable `tone` (`critical` | `warning` | `info` | `success`). Supports an "all clear" healthy state with an optional CTA.
+
+**Risk Action Tone** (`RiskAction.tone`)
+The severity classification of a risk item: `critical` (red), `warning` (amber), `info` (subtle cyan), or `success` (green). Drives visual styling and button variant.
+
+**Healthy State CTA**
+Optional call-to-action button rendered in the all-clear state when no risk warnings exist, e.g. "Compare strategies" to guide users toward the next beneficial action.
+
+**Risk Item Row**
+Individual warning display within the risk summary card: shows a title, description, and action button with color-coded borders based on the item's tone.
+
+**Progressive Disclosure (Form UX)**
+A UX pattern that reveals form sections and information only when relevant to the user's current input state. In YieldVault: fee breakdown appears only after a valid amount is entered; approval warnings appear early for deposits; slippage settings are inside a collapsible "Advanced Settings" panel.
+
+**Conditional Fee Breakdown**
+Dynamic display of protocol fee estimates that appears (fades in) only when the user enters a valid deposit/withdrawal amount, reducing initial visual clutter.
+
+**Early Approval Warning**
+An orange warning panel shown on the amount input step as soon as a valid deposit amount is entered, informing users they will need to approve USDC spending before the deposit can execute.
+
+**Vault Capacity Indicator**
+A visual progress bar that appears when the vault is >=70% full, showing utilization percentage with color coding: cyan (safe), orange (70–89%, warning), red (90–100%, caution).
+
+**Collapsible Advanced Settings**
+A `<details>` HTML element pattern wrapping slippage tolerance controls on the withdrawal form, labeled "Advanced Settings" with an "Optional" badge.
+
+**Field Validation Visual Feedback**
+Green checkmark (`✓`) displayed on validated amount fields (`input-valid` CSS class), providing positive reinforcement for correct input.
+
+**CSS Animation Utility Classes**
+Reusable animation classes: `.animate-in`, `.fade-in`, `.slide-in`. CSS-based for GPU acceleration, used for smooth transitions of conditional form elements.
+
+**First-Time Portfolio Panel** (`FirstTimePortfolioPanel`)
+A guided onboarding panel displayed for users with no deposit history. Presents a three-step checklist: (1) Connect Wallet, (2) Review Vault Details, (3) Make First Deposit.
+
+**Onboarding Step State**
+Each step in the first-time depositor checklist has three visual states: `done` (completed, checkmark icon), `active` (current actionable step, primary button style), and `future` (not yet available, visually dimmed). Uses `aria-current="step"` for the active step.
+
+**Step Connector** (`ftp-step-connector`)
+Vertical line connecting step indicators in the checklist, visually showing progression through the onboarding flow.
+
+**Vault Strategy Catalog** (`VAULT_STRATEGIES`)
+A local fixture array of `VaultStrategy` objects containing `id`, `name`, `issuer`, `apyPercent`, `liquidityDays`, `riskTier`, and `accent`. Serves as the data source for the comparison screen.
+
+**Comparison Metric** (`ComparisonMetric`)
+Definition of a comparison dimension with `id`, `label`, `description`, `betterIs` ("higher" | "lower"), a numeric `valueOf` projection, and a locale-aware `format` function.
+
+**Best-In-Class Marking** (`findBestStrategyIds`)
+Algorithm that identifies which strategies hold the optimal value for a given metric. Ties all win; if every value ties the result is empty. Marked with `★` glyph and `sr-only` text for WCAG 1.4.1 compliance.
+
+**Risk Tier** (`RiskTier`)
+Ordinal risk classification: `very-low`, `low`, `moderate`, `elevated`. Each tier has a numeric rank for sorting and comparison.
+
+**Comparison Selection Rules**
+Business rules: minimum 2 strategies required for a meaningful comparison, maximum 3 columns for laptop viewport. `toggleStrategySelection` returns the identical array reference when the cap rejects an addition.
+
+**URL-Driven Comparison State**
+Selection, sort metric, and sort direction are stored in URL query parameters (`?strategies=`, `?sortBy=`, `?direction=`) so comparisons are bookmarkable, shareable, and survive back/forward navigation.
+
+**APY Spread** (`getApySpread`)
+The difference between the highest and lowest APY across selected strategies, in percentage points. Helps users quickly see yield variance.
+
+**Chart Series Sampling** (`sampleChartSeries`)
+A utility function that reduces a large time-series dataset to a fixed number of evenly spaced data points for rendering. Preserves the first and last data points. Uses `MAX_RENDER_POINTS = 120` as the target point count. Prevents rendering performance degradation on long time ranges.
+
 ---
 
 ## API & Backend
@@ -845,6 +938,57 @@ Stellar's REST API for account balances, transaction history, and network state.
 
 **Soroban RPC**
 Remote procedure call endpoint for invoking contracts, simulating transactions, and reading contract events. Configured via `STELLAR_RPC_URL` / `VITE_SOROBAN_RPC_URL`.
+
+**Withdrawal Saga** (`WithdrawalSagaRecord`)
+A journalled, multi-step state machine for a withdrawal operation. Each saga records every step's status (`pending`, `in_progress`, `completed`, `failed`, `skipped`, `compensated`, `compensation_failed`) in a write-ahead journal before any side-effect executes. Implemented in `withdrawalRecovery.ts`.
+
+**Withdrawal Plan** (`registerWithdrawalPlan`)
+A registered ordered list of `WithdrawalStepDefinition` entries that a saga executes. Plans have names (e.g. `vault.withdrawal`) and are registered before a saga can run or be resumed.
+
+**Write-Ahead Journal**
+The pattern of recording each withdrawal saga step as `pending` before its first side effect and writing every transition as it happens. A crash always leaves evidence of how far the withdrawal got.
+
+**Resume-Forward Recovery**
+Recovery mechanism that re-walks the plan and skips steps already marked `completed` or `skipped`. The on-chain step is pinned to `maxAttempts: 1` so a submission is never repeated.
+
+**Compensation (Saga Compensation)**
+The process of undoing completed steps in reverse order when a failure occurs before any irreversible progress has been made. The saga ends as `compensated`.
+
+**Manual-Intervention Queue** (`needs_manual_intervention`)
+The saga terminal state when irreversible on-chain progress exists but remaining steps cannot be completed automatically. Sagas in this state are exposed via admin endpoints and logged with `alert: "withdrawal-partial-failure"`.
+
+**Background Sweeper**
+A periodic background process that resumes sagas in `awaiting_retry` or `in_progress` states with capped exponential backoff. Overlapping passes over the same saga are guarded against.
+
+**Withdrawal Failure Classification** (`WithdrawalFailureClass`)
+The classification of step errors as either `retryable` (transient infrastructure failures) or `terminal` (validation errors, insufficient balance, etc.). Used to decide whether to retry or escalate.
+
+**WithdrawalPartialFailureError**
+Error class raised when a withdrawal left irreversible on-chain effects behind that neither finish nor undo automatically. Mapped to HTTP 202 (Accepted) with a recovery handle.
+
+**HTTP 202 Recovery Handle**
+The response body when a withdrawal has a partial failure: includes `sagaId`, `status`, `automatedRetryScheduled`, `nextAttemptAt`, `failedStep`, and per-step journal status.
+
+**Admin Withdrawal Recovery Endpoints**
+Admin-only endpoints at `/admin/withdrawals/recovery`: `GET` (list), `GET /metrics` (aggregate counters), `GET /:sagaId` (detail), `POST /:sagaId/resume` (run one recovery pass), `POST /:sagaId/resolve` (close out a reconciled saga), `POST /sweep` (run sweeper immediately). Written to the admin audit log.
+
+**Withdrawal Saga Prometheus Metrics**
+Six metrics for monitoring: `withdrawal_saga_total` (counter, labels: plan, outcome), `withdrawal_saga_step_failure_total` (counter, labels: step, classification), `withdrawal_saga_compensation_total` (counter, labels: step, result), `withdrawal_saga_retry_total` (counter, labels: plan), `withdrawal_saga_awaiting_recovery` (gauge), `withdrawal_saga_manual_intervention_required` (gauge).
+
+**WithdrawalJournalSink**
+Optional hook that receives every journal transition, allowing deployments to mirror the in-memory ring buffer journal to durable storage (Postgres/Redis) without modifying the `withdrawalRecovery.ts` module.
+
+**API Version Negotiation** (`apiVersionMiddleware`)
+Express middleware that inspects `Accept-Version`, `X-API-Version`, and `Accept` headers to determine the requested API version. Returns 406 Not Acceptable for unsupported versions. Sets `X-API-Version` and `X-API-Version-Supported` response headers.
+
+**Deprecation Header Injection**
+Automatic addition of `Deprecation: true`, `Sunset: <future date>`, and `Link: <successor-path>; rel="successor-version"` headers for requests hitting legacy/unversioned routes.
+
+**Query Budget** (`QUERY_BUDGETS`)
+Performance threshold (in milliseconds) assigned per Prisma model+action pair (e.g. `User.findUnique: 50ms`). When a query exceeds its budget, a slow query alert is triggered.
+
+**Slow Query Alert** (`triggerSlowQueryAlert`)
+Alerting function that fires when a database query exceeds its performance budget. Supports Slack and PagerDuty delivery with a configurable cooldown (`SLOW_QUERY_ALERT_COOLDOWN_MS`).
 
 ---
 

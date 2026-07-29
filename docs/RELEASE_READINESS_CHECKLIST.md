@@ -251,6 +251,7 @@ with a written reason) before the release tag is pushed.
 - `backend/docs/QUERY_OPTIMIZATION.md` — DB index rationale (Issue #895)
 - `backend/docs/WEBHOOK_SIGNATURES.md` — webhook security
 - `docs/API_VERSIONING_POLICY.md` — breaking-change and sunset policy
+- `docs/DEPLOYMENT_CHECKLIST.md` — testnet & mainnet deployment checklist
 - `docs/SECURITY_CHECKLIST.md` — smart contract security review guide
 - `docs/FALSE_POSITIVE_HANDLING.md` — Slither false positive process
 - `CHANGELOG.md` — release history

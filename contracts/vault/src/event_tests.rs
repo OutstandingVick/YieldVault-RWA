@@ -207,6 +207,27 @@ fn test_claim_fees_returns_error_when_balance_zero() {
 }
 
 #[test]
+fn test_pause_and_unpause_emit_state_transition_events() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let usdc = create_token(&env, &token_admin);
+
+    let vault_id = env.register(YieldVault, ());
+    let vault = YieldVaultClient::new(&env, &vault_id);
+    vault.initialize(&admin, &usdc.address);
+
+    vault.pause(&PauseReason::Maintenance);
+    assert!(!env.events().all().is_empty());
+
+    vault.unpause();
+    let events = env.events().all();
+    assert!(events.len() >= 2);
+}
+
+#[test]
 #[should_panic(expected = "treasury not set")]
 fn test_claim_fees_panics_when_no_treasury() {
     let env = Env::default();

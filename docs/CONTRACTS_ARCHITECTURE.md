@@ -405,6 +405,8 @@ Interactions:
 - **Pause mechanism:** Admin can pause vault to stop deposits/withdrawals during emergencies
 - **Strategy whitelist:** Admin controls which strategies can be set
 - **Governance threshold:** Admin sets DAO voting threshold
+- **Upgrade checklist:** every upgrade should preserve storage versioning, validate proxy admin/auth state, and verify storage layouts before deployment
+- **Strategy sanity checks:** rebalance operations reject self-reallocation and negative slippage bounds to avoid accidental fund movement
 
 ### Input Validation
 
@@ -662,6 +664,7 @@ See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK
 - **ERC-4626 Standard:** https://eips.ethereum.org/EIPS/eip-4626
 - **Stellar Docs:** https://developers.stellar.org/
 - **Threat Model:** `docs/THREAT_MODEL.md`
+- **Formal Verification Notes:** `docs/FORMAL_VERIFICATION_ACCOUNTING.md`
 - **Deployment Guide:** `contracts/vault/DEPLOYMENT.md`
 - **Security Checklist:** `docs/SECURITY_CHECKLIST.md`
 - **False Positives:** `contracts/.false-positives.md`
@@ -671,3 +674,32 @@ See `contracts/vault/DEPLOYMENT.md` and `docs/runbooks/CONTRACT_UPGRADE_PLAYBOOK
 **Document Version:** 1.0  
 **Created:** May 29, 2026  
 **Maintainers:** YieldVault Development Team
+
+---
+
+## Access Control Hardening (Issue #963)
+
+The following production-hardening changes were applied to admin-only functions:
+
+### `propose_emergency_action` — panic → `VaultError::UnauthorizedCaller`
+
+Previously used `assert!(initiator == primary, "only primary approver can initiate")`, which caused an uncontrolled contract panic on mainnet. Changed to return `Err(VaultError::UnauthorizedCaller)` (code 50). The function return type changed from `u32` to `Result<u32, VaultError>`.
+
+### `confirm_emergency_action` — panic → `VaultError::UnauthorizedCaller`
+
+Three `assert!` guards replaced with proper `Result` error returns:
+- `confirmer != secondary` → `Err(VaultError::UnauthorizedCaller)`
+- `proposal.executed` → `Err(VaultError::ProposalAlreadyExecuted)`
+- `proposal.initiator == confirmer` → `Err(VaultError::UnauthorizedCaller)`
+
+### `test_seed_withdrawal_queue_entry` — gated to test builds
+
+Added `#[cfg(test)]` so this test helper is excluded from the compiled WASM and cannot be called on mainnet.
+
+### `VaultError::UnauthorizedCaller = 50`
+
+New error variant (code 50) added to the stable error namespace. Integrators should map this code per `docs/api/ERROR_CODE_CATALOG.md`.
+
+### Tests
+
+`contracts/vault/tests/access_control_test.rs` — covers all admin-only functions and the hardened emergency-action paths.

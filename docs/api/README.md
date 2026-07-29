@@ -17,6 +17,8 @@ http://localhost:3000
 
 ### Authentication
 
+> **📘 Comprehensive Guide:** See [AUTH_AND_TOKEN_GUIDE.md](./AUTH_AND_TOKEN_GUIDE.md) for the full authentication and token rotation documentation including JWT session tokens, API key management, scoped admin tokens, wallet-signed actions, refresh token rotation with replay detection, and security best practices.
+
 The backend supports two authentication schemes:
 
 - `Authorization: Bearer <access-token>` — user session authentication for wallet-based access.
@@ -309,6 +311,9 @@ GET /api/vault/history
 ```
 
 ## Changelog
+
+### Version 1.2.0 (2026-07-26)
+- Added comprehensive API authentication and token rotation guide ([AUTH_AND_TOKEN_GUIDE.md](./AUTH_AND_TOKEN_GUIDE.md))
 
 ### Version 1.1.0 (2026-06-27)
 - Added API versioning and deprecation policy ([VERSIONING.md](./VERSIONING.md))

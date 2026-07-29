@@ -60,6 +60,18 @@ Events are retrieved via the Stellar RPC API (Soroban RPC) and can be queried by
 
 ## Event Catalog
 
+> **Note on scope:** the events below describe the vault's on-chain Soroban
+> contract events — useful if you're indexing the ledger directly via
+> Soroban RPC. The vault contract emits ~28 distinct event types in total
+> (admin rotation, emergency actions, fee/threshold changes, strategy
+> heartbeats, etc.), only a subset of which are shown here. If instead
+> you're integrating with YieldVault's **HTTP webhook delivery service**
+> (the retry/signature/dead-letter system described later in this guide),
+> the actual set of event types it currently delivers is narrower and
+> versioned separately — see the machine-readable
+> [Webhook Event Schema Catalog](./WEBHOOK_EVENT_SCHEMA_CATALOG.md) for the
+> exact envelope and payload shapes the server sends over HTTP today.
+
 ### `deposit`
 
 **Emitted by:** `YieldVault` — `deposit()` function

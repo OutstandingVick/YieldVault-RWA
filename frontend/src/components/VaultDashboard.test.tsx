@@ -266,7 +266,7 @@ describe("VaultDashboard", () => {
     resolveSubmit();
 
     await waitFor(() => {
-      expect(screen.getByText(/Transaction Successful/i)).toBeInTheDocument();
+      expect(screen.getByText(/Finalized/i)).toBeInTheDocument();
     }, { timeout: 10000 });
   }, 15000);
 

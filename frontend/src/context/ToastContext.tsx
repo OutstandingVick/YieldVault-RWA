@@ -7,11 +7,11 @@ export interface ToastOptions {
   description?: string;
   duration?: number;
   variant?: ToastVariant;
-  /** Unique key for deduplication. If not provided, deduplication uses title+description */
+  /** Unique key for deduplication. If not provided, deduplication uses title+description+variant */
   dedupeKey?: string;
 }
 
-interface ToastItem extends ToastOptions {
+export interface ToastItem extends ToastOptions {
   id: string;
   variant: ToastVariant;
   duration: number;
@@ -26,22 +26,19 @@ interface ToastContextType {
   warning: (options: Omit<ToastOptions, "variant">) => string;
   info: (options: Omit<ToastOptions, "variant">) => string;
   clearAll: () => void;
+  toasts: ToastItem[];
 }
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 const DEFAULT_DURATION = 5000;
-const DEDUPE_WINDOW_MS = 3000; // Don't show duplicate toasts within 3 seconds
+const DEDUPE_WINDOW_MS = 3000;
 
-/**
- * Generate a deduplication key from toast content.
- * Toasts with the same key within DEDUPE_WINDOW_MS are considered duplicates.
- */
 function generateDedupeKey(options: ToastOptions): string {
   if (options.dedupeKey) {
     return options.dedupeKey;
   }
-  return `${options.title}|${options.description || ''}|${options.variant || 'info'}`;
+  return `${options.title}|${options.description || ""}|${options.variant || "info"}`;
 }
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -50,12 +47,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextToastId = useRef(0);
   const timeoutRefs = useRef<Map<string, number>>(new Map());
-  // Track recent toast keys for deduplication
-  const recentToasts = useRef<Map<string, number>>(new Map());
+  const recentToasts = useRef<Map<string, string>>(new Map());
 
   const dismissToast = (id: string) => {
     setToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== id));
-
     const timeoutId = timeoutRefs.current.get(id);
     if (timeoutId) {
       window.clearTimeout(timeoutId);
@@ -69,6 +64,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
       window.clearTimeout(timeoutId);
     });
     timeoutRefs.current.clear();
+    recentToasts.current.clear();
   };
 
   const showToast = ({
@@ -77,20 +73,18 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     ...options
   }: ToastOptions) => {
     const dedupeKey = generateDedupeKey({ ...options, variant });
-    // Invoked from event handlers / async callbacks, not during render.
-    // eslint-disable-next-line react-hooks/purity -- timestamp for toast dedupe window
     const now = Date.now();
 
-    // Check for duplicate within dedupe window
-    const lastShown = recentToasts.current.get(dedupeKey);
-    if (lastShown && now - lastShown < DEDUPE_WINDOW_MS) {
-      // Duplicate detected - return the existing toast ID (we don't have it, so return empty)
-      // In a production system, you might want to bump the existing toast or extend its duration
-      return '';
+    const existingId = recentToasts.current.get(dedupeKey);
+    if (existingId && timeoutRefs.current.has(existingId)) {
+      const oldTimeout = timeoutRefs.current.get(existingId);
+      if (oldTimeout) window.clearTimeout(oldTimeout);
+      const newTimeout = window.setTimeout(() => {
+        dismissToast(existingId);
+      }, duration);
+      timeoutRefs.current.set(existingId, newTimeout);
+      return existingId;
     }
-
-    // Record this toast for deduplication
-    recentToasts.current.set(dedupeKey, now);
 
     nextToastId.current += 1;
     const id = `toast-${nextToastId.current}`;
@@ -103,6 +97,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     setToasts((currentToasts) => [...currentToasts, nextToast]);
+    recentToasts.current.set(dedupeKey, id);
 
     const timeoutId = window.setTimeout(() => {
       dismissToast(id);
@@ -112,25 +107,22 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     return id;
   };
 
-  // Clean up old dedupe entries periodically
   useEffect(() => {
     const cleanupInterval = setInterval(() => {
       const now = Date.now();
       const staleKeys: string[] = [];
-      recentToasts.current.forEach((timestamp, key) => {
-        if (now - timestamp > DEDUPE_WINDOW_MS) {
+      recentToasts.current.forEach((toastId, key) => {
+        if (!timeoutRefs.current.has(toastId)) {
           staleKeys.push(key);
         }
       });
       staleKeys.forEach((key) => recentToasts.current.delete(key));
     }, DEDUPE_WINDOW_MS);
-
     return () => clearInterval(cleanupInterval);
   }, []);
 
   useEffect(() => {
     const timeouts = timeoutRefs.current;
-
     return () => {
       timeouts.forEach((timeoutId) => {
         window.clearTimeout(timeoutId);
@@ -149,6 +141,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
         error: (options) => showToast({ ...options, variant: "error" }),
         warning: (options) => showToast({ ...options, variant: "warning" }),
         info: (options) => showToast({ ...options, variant: "info" }),
+        toasts,
       }}
     >
       {children}

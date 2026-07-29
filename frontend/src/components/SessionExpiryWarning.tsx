@@ -1,72 +1,37 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { AlertTriangle, X, Wallet } from "lucide-react";
+import React, { useCallback, useEffect } from "react";
+import { AlertTriangle, X, RefreshCw } from "lucide-react";
 import { useTranslation } from "../i18n";
+import { useAuth } from "../context/AuthContext";
+import { isProviderAvailable } from "../lib/walletSession";
 
-interface SessionExpiryWarningProps {
-  onReconnect: () => void;
-  onDismiss: () => void;
-}
-
-const SessionExpiryWarning: React.FC<SessionExpiryWarningProps> = ({
-  onReconnect,
-  onDismiss,
-}) => {
+const SessionExpiryWarning: React.FC = () => {
   const { t } = useTranslation();
-  const [timeRemaining, setTimeRemaining] = useState<number>(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const { timeRemainingMs, dismissSessionWarning, renewSession } = useAuth();
+  const minutesRemaining = Math.ceil(timeRemainingMs / 1000 / 60);
 
   useEffect(() => {
-    const checkSession = () => {
-      const sessionStart = localStorage.getItem("wallet_session_start");
-      if (!sessionStart) {
-        setIsVisible(false);
-        return;
-      }
-
-      const startTime = parseInt(sessionStart, 10);
-      const now = Date.now();
-      const sessionDuration = now - startTime;
-      const sessionTimeout = 30 * 60 * 1000; // 30 minutes
-      const warningTime = 5 * 60 * 1000; // 5 minutes before expiry
-
-      if (sessionDuration >= sessionTimeout - warningTime && sessionDuration < sessionTimeout) {
-        // Show warning: session is within warning period but not yet expired
-        const timeRemainingMs = sessionTimeout - sessionDuration;
-        setTimeRemaining(Math.ceil(timeRemainingMs / 1000 / 60)); // minutes remaining
-        setIsVisible(true);
-      } else if (sessionDuration >= sessionTimeout) {
-        // Session has expired
-        setIsVisible(false);
-      } else {
-        // Not yet time to show warning
-        setIsVisible(false);
+    let cancelled = false;
+    const autoRenew = async () => {
+      try {
+        const available = await isProviderAvailable("freighter");
+        if (!cancelled && available) {
+          renewSession();
+        }
+      } catch {
+        // wallet not available, user must reconnect manually
       }
     };
-
-    // Check immediately on mount
-    checkSession();
-
-    // Then check every second
-    const interval = setInterval(checkSession, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
+    autoRenew();
+    return () => { cancelled = true; };
+  }, [renewSession]);
 
   const handleReconnect = useCallback(() => {
-    // Update session start time
-    localStorage.setItem("wallet_session_start", Date.now().toString());
-    onReconnect();
-    setIsVisible(false);
-  }, [onReconnect]);
+    renewSession();
+  }, [renewSession]);
 
   const handleDismiss = useCallback(() => {
-    setIsVisible(false);
-    onDismiss();
-  }, [onDismiss]);
-
-  if (!isVisible) {
-    return null;
-  }
+    dismissSessionWarning();
+  }, [dismissSessionWarning]);
 
   return (
     <div
@@ -122,7 +87,7 @@ const SessionExpiryWarning: React.FC<SessionExpiryWarningProps> = ({
             lineHeight: 1.4,
           }}
         >
-          {t("session.warning.message").replace("{{minutes}}", timeRemaining.toString())}
+          {t("session.warning.message").replace("{{minutes}}", minutesRemaining.toString())}
         </p>
       </div>
 
@@ -138,7 +103,7 @@ const SessionExpiryWarning: React.FC<SessionExpiryWarningProps> = ({
             gap: "6px",
           }}
         >
-          <Wallet size={16} />
+          <RefreshCw size={16} />
           {t("session.warning.reconnect")}
         </button>
 

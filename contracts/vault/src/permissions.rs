@@ -37,6 +37,14 @@ pub fn require_strategy_auth(caller: &Address, expected_strategy: &Address) {
     assert_eq!(caller, expected_strategy, "unauthorized strategy");
 }
 
+/// Verifies that the caller is authorized for pausability operations (either Admin or Pauser role)
+pub fn require_pauser_or_admin_auth(caller: &Address, admin: &Address, pauser: Option<&Address>) {
+    caller.require_auth();
+    let is_admin = caller == admin;
+    let is_pauser = pauser.map_or(false, |p| caller == p);
+    assert!(is_admin || is_pauser, "unauthorized: caller must be admin or pauser");
+}
+
 /// Multi-signer threshold validator for governance operations.
 /// Ensures M of N signers have authorized a critical operation.
 pub struct MultiSignerValidator;
