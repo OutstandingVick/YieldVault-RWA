@@ -22,6 +22,8 @@ import { useQueryWithPolling, POLLING_INTERVALS } from "../hooks/useQueryWithPol
 import { useStaleIndicator } from "../hooks/useStaleIndicator";
 import { sampleChartSeries } from "../lib/chartSeries";
 
+const VaultPerformanceChart: React.FC = () => {
+  useVaultHistory();
 const MAX_RENDER_POINTS = 120;
 
 type VaultPerformanceTooltipProps = TooltipContentProps<ValueType, NameType> & {

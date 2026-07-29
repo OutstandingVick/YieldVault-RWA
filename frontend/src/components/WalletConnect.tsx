@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useReducer } from "react";
 import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
+import { Loader2, LogOut, Wallet, AlertCircle } from './icons';
+import { hasCustomRpcConfig, networkConfig } from '../config/network';
+import { useToast } from '../context/ToastContext';
+import { useTranslation } from '../i18n';
+import CopyButton from './CopyButton';
+import { discoverConnectedAddress } from "../lib/stellarAccount";
 import { LogOut, Wallet, AlertCircle } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useToast } from "../context/ToastContext";

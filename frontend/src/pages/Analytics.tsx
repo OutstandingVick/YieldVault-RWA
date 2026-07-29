@@ -40,6 +40,7 @@ const Analytics: React.FC = () => {
                 ]}
                 statusChips={[
                     {
+                        label: isLoading ? "Syncing" : "Live",
                         label: isLoading ? t("analytics.syncingLabel") : t("analytics.liveLabel"),
                         variant: isLoading ? "warning" : "success",
                     },

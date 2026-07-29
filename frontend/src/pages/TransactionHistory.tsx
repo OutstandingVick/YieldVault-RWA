@@ -509,6 +509,7 @@ const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                   variant: "cyan",
                 },
                 {
+                  label: isLoading ? "Loading..." : "Up to date",
                   label: isLoading ? t("txHistory.loadingLabel") : t("txHistory.upToDateLabel"),
                   variant: isLoading ? "warning" : "success",
                 },

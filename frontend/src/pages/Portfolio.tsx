@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react";
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Briefcase } from "../components/icons";
 import { useTranslation } from "../i18n";
@@ -345,6 +346,7 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
                   variant: "cyan" as const,
                 },
                 {
+                  label: isLoading ? "Syncing..." : "Live",
                   label: isLoading ? t("portfolio.syncingLabel") : t("portfolio.liveLabel"),
                   variant: isLoading ? "warning" : "success",
                 },
