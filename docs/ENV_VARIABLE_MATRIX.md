@@ -378,6 +378,17 @@ Complete reference for all environment variables across the YieldVault RWA stack
 
 ---
 
+## 30a. Backend — Transfer Orchestration
+
+See [Transfer Orchestration](../backend/docs/TRANSFER_ORCHESTRATION.md).
+
+| Variable | Default | Req. | Description | Source |
+|---|---|---|---|---|
+| `TRANSFER_ORCHESTRATION_TIMEOUT_MS` | `45000` (45 s) | ⬜ optional | Submission timeout; treated as in-doubt, never auto-retried | `backend/src/transferOrchestrator.ts` |
+| `TRANSFER_ORCHESTRATION_MAX_KEY_LENGTH` | `255` | ⬜ optional | Max idempotency key length | `backend/src/transferOrchestrator.ts` |
+
+---
+
 ## 31. Backend — Miscellaneous / Utility
 
 | Variable | Default | Req. | Description | Source |
