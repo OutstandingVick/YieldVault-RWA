@@ -148,7 +148,7 @@ describe('escapeHtml', () => {
     expect(escapeHtml('<img src=x onerror=alert(1)>'))
       .toBe('&lt;img src=x onerror=alert(1)&gt;');
     expect(escapeHtml('Test & "quotes"'))
-      .toBe('Test &amp; "quotes"');
+      .toBe('Test &amp; &quot;quotes&quot;');
   });
 
   test('preserves safe text', () => {

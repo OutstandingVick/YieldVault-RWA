@@ -23,6 +23,21 @@ jobs:
     outputs:
       version: ${{ steps.parse.outputs.version }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify release readiness checklist exists
+        # Ensures docs/RELEASE_READINESS_CHECKLIST.md is present in the repo.
+        # The checklist must be completed manually before tagging; this step
+        # confirms the document has not been accidentally deleted. (Issue #896)
+        run: |
+          if [ ! -f "docs/RELEASE_READINESS_CHECKLIST.md" ]; then
+            echo "❌ docs/RELEASE_READINESS_CHECKLIST.md is missing."
+            echo "   Create or restore the file before tagging a release."
+            exit 1
+          fi
+          echo "✅ Release readiness checklist present."
+
       - name: Parse version from tag
         id: parse
         run: |

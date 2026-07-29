@@ -33,7 +33,10 @@ import {
 } from '@aws-sdk/client-s3';
 import { emailService } from './emailService';
 import { logger } from './middleware/structuredLogging';
-import { runJobWithRetry } from './jobGovernance';
+import { runJobWithRetry, registerJobHandler } from './jobGovernance';
+
+// ─── Register Job Handler ───────────────────────────────────────────────────
+registerJobHandler('databaseBackup', () => runDbBackupJob());
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

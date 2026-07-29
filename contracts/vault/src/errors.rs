@@ -122,4 +122,15 @@ pub enum VaultError {
   // ── Guard rails (49) ───────────────────────────────────────────────────
   /// Opposing deposit/withdraw action in the same ledger is not allowed.
   RapidAction = 49,
+
+  // ── Emergency rescue (50) ────────────────────────────────────────────────
+  /// Emergency rescue is not permitted: the caller is not an emergency
+  /// approver, the destination is the vault itself, or the asset backs user
+  /// deposits and is therefore never rescuable.
+  ///
+  /// Note: the Soroban error-enum spec caps this enum at 50 cases, so the
+  /// rescue flow reuses [`VaultError::GovernanceSignersNotConfigured`] for a
+  /// missing or non-distinct approver pair and [`VaultError::InvalidAmount`]
+  /// for a non-positive amount rather than defining dedicated codes.
+  RescueUnauthorized = 50,
 }

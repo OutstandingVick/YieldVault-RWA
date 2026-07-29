@@ -86,6 +86,96 @@ export const RefreshSchema = z
   })
   .strict();
 
+// ─── Webhook schemas ──────────────────────────────────────────────────────────
+
+/** Allowed event type literals — kept in sync with TransactionEventType in webhookDelivery.ts */
+export const WEBHOOK_EVENT_TYPES = [
+  'transaction.deposit.created',
+  'transaction.withdrawal.created',
+] as const;
+
+export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
+
+/**
+ * POST /admin/webhooks
+ *
+ * - url: required, validated as a well-formed http/https URL
+ * - eventTypes: optional array of known event types; defaults to all if omitted
+ * - enabled: optional boolean
+ * - secret: optional HMAC signing secret (8–256 chars to prevent trivially weak secrets)
+ */
+export const WebhookRegisterSchema = z
+  .object({
+    url: z
+      .string()
+      .min(1, 'url is required')
+      .max(2048, 'url must be 2048 characters or fewer')
+      .refine(
+        (val) => {
+          try {
+            const u = new URL(val);
+            return u.protocol === 'http:' || u.protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        { message: 'url must be a valid http or https URL' },
+      ),
+    eventTypes: z
+      .array(z.enum(WEBHOOK_EVENT_TYPES), {
+        invalid_type_error: 'eventTypes must be an array of valid event type strings',
+      })
+      .min(1, 'eventTypes must contain at least one event type')
+      .optional(),
+    enabled: z.boolean().optional(),
+    secret: z
+      .string()
+      .min(8, 'secret must be at least 8 characters')
+      .max(256, 'secret must be 256 characters or fewer')
+      .optional(),
+  })
+  .strict();
+
+/**
+ * PATCH /admin/webhooks/:id
+ *
+ * All fields optional; at least one must be present (enforced by .refine).
+ * Unknown fields are rejected by .strict().
+ */
+export const WebhookUpdateSchema = z
+  .object({
+    url: z
+      .string()
+      .min(1)
+      .max(2048)
+      .refine(
+        (val) => {
+          try {
+            const u = new URL(val);
+            return u.protocol === 'http:' || u.protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        { message: 'url must be a valid http or https URL' },
+      )
+      .optional(),
+    eventTypes: z
+      .array(z.enum(WEBHOOK_EVENT_TYPES))
+      .min(1, 'eventTypes must contain at least one event type')
+      .optional(),
+    enabled: z.boolean().optional(),
+    secret: z
+      .string()
+      .min(8, 'secret must be at least 8 characters')
+      .max(256, 'secret must be 256 characters or fewer')
+      .optional(),
+  })
+  .strict()
+  .refine((obj) => Object.keys(obj).length > 0, {
+    message: 'Request body must contain at least one field to update',
+  });
+
 // ─── Middleware factory ───────────────────────────────────────────────────────
 
 interface ValidateTargets {

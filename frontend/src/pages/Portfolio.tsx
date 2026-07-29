@@ -32,7 +32,6 @@ import PortfolioOverview from "../components/PortfolioOverview";
 import VaultHealthIndicator from "../components/VaultHealthIndicator";
 import { useVaultHealth } from "../hooks/useVaultHealth";
 import { useNavigate } from "react-router-dom";
-import { triggerDepositIntent } from "../lib/vaultIntentActions";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/formatters";
 import { displayBalance } from "../lib/maskSensitiveValues";
 import type { VaultHealthStatus } from "../lib/vaultHealthApi";
@@ -381,13 +380,11 @@ const Portfolio: React.FC<PortfolioProps> = ({ walletAddress }) => {
 
           {/* Empty state: wallet connected, loading done, no portfolio value */}
           {!isLoading && totalValue === 0 ? (
-            <EmptyState
-              kind="no-data"
-              title={t("portfolio.noPositions.title")}
-              description={t("portfolio.noPositions.desc")}
-              icon={<Briefcase />}
-              actionLabel={t("portfolio.depositNow")}
-              onAction={() => triggerDepositIntent(navigate, walletAddress)}
+            <FirstTimePortfolioPanel
+              walletConnected={true}
+              onConnectWallet={() => window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"))}
+              onReviewVault={() => navigate("/")}
+              onDeposit={() => navigate("/")}
             />
           ) : (
           <section

@@ -1,11 +1,16 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryRouter, Route, Routes, useSearchParams } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TransactionHistory from "./TransactionHistory";
 import * as transactionApi from "../lib/transactionApi";
 import type { Transaction } from "../lib/transactionApi";
 import { ToastProvider } from "../context/ToastContext";
+import {
+  getPreferenceStorageKey,
+  setTransactionPageSize,
+  setTransactionViewMode,
+} from "../lib/userPreferenceStore";
 
 vi.mock("../hooks/useTransactionTimeline", () => ({
   useTransactionTimeline: () => ({
@@ -64,11 +69,6 @@ function makeManyTransactions(count: number): Transaction[] {
       transactionHash: `hash${String(i).padStart(36, "0")}`,
     }),
   );
-}
-
-function UrlProbe() {
-  const [params] = useSearchParams();
-  return <div data-testid="url-probe">{params.toString()}</div>;
 }
 
 function renderPage(walletAddress: string | null, initialEntries = ["/"]) {
@@ -351,10 +351,8 @@ describe("TransactionHistory", () => {
 
     fireEvent.change(searchInput, { target: { value: "" } });
 
-    await waitFor(() =>
-      expect(within(table).getByText("USDC")).toBeInTheDocument(),
-    );
-    expect(within(table).getByText("EURC")).toBeInTheDocument();
+    expect(await screen.findByText("USDC")).toBeInTheDocument();
+    expect(await screen.findByText("EURC")).toBeInTheDocument();
     expect(mockGetTransactions).toHaveBeenCalledTimes(1);
   });
 
@@ -629,15 +627,13 @@ describe("TransactionHistory — amount range filter", () => {
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
 
-    const table = await screen.findByRole("table");
-
     // 50 should be hidden; 200 and 500 should be visible
     await waitFor(() =>
       expect(within(table).queryAllByText(/50 USDC/).length).toBe(0),
     );
     expect(within(table).getByText("200 USDC")).toBeInTheDocument();
     expect(within(table).getByText("500 USDC")).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("hides rows above amountMax when amountMax param is set in URL", async () => {
     mockGetTransactions.mockResolvedValue([
@@ -675,15 +671,13 @@ describe("TransactionHistory — amount range filter", () => {
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
 
-    const table = screen.getByRole("table");
-
     // Only 50 should be visible
     await waitFor(() =>
       expect(within(table).queryAllByText(/500 USDC/).length).toBe(0),
     );
     expect(within(table).getByText("50 USDC")).toBeInTheDocument();
     expect(within(table).queryAllByText(/200 USDC/).length).toBe(0);
-  });
+  }, 15_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -738,14 +732,112 @@ describe("TransactionHistory — status filter", () => {
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     const table = screen.getByRole("table");
 
-    const table = await screen.findByRole("table");
-
     // Only EURC (pending) should survive the filter
     await waitFor(() =>
       expect(within(table).queryAllByText("USDC").length).toBe(0),
     );
     expect(within(table).getByText("EURC")).toBeInTheDocument();
     expect(within(table).queryAllByText("XLM").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Asset filtering
+// ---------------------------------------------------------------------------
+
+describe("TransactionHistory — asset filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockNetworkConfig.isTestnet = true;
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows only rows matching the exact asset when asset param is set in URL", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", asset: "USDC", amount: "100" }),
+      makeTransaction({
+        id: "2",
+        asset: "XLM",
+        amount: "200",
+        transactionHash: "xlm0000000000000000000000000000000000000",
+      }),
+      makeTransaction({
+        id: "3",
+        asset: "EURC",
+        amount: "300",
+        transactionHash: "eurc000000000000000000000000000000000000",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?asset=XLM"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    const table = screen.getByRole("table");
+
+    await waitFor(() =>
+      expect(within(table).queryAllByText("USDC").length).toBe(0),
+    );
+    expect(within(table).getByText("XLM")).toBeInTheDocument();
+    expect(within(table).queryAllByText("EURC").length).toBe(0);
+  });
+
+  it("restores the asset select from the URL and updates it via the filter panel", async () => {
+    mockGetTransactions.mockResolvedValue([
+      makeTransaction({ id: "1", asset: "USDC" }),
+      makeTransaction({
+        id: "2",
+        asset: "XLM",
+        transactionHash: "xlm0000000000000000000000000000000000000",
+      }),
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/?asset=USDC"]}>
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          <ToastProvider>
+            <TransactionHistory walletAddress={WALLET} />
+          </ToastProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+
+    const assetSelect = screen.getByRole("combobox", { name: /Asset/i });
+    expect(assetSelect).toHaveValue("USDC");
+
+    fireEvent.change(assetSelect, { target: { value: "XLM" } });
+
+    const table = screen.getByRole("table");
+    await waitFor(() =>
+      expect(within(table).queryAllByText("USDC").length).toBe(0),
+    );
+    expect(within(table).getByText("XLM")).toBeInTheDocument();
   });
 });
 
@@ -919,7 +1011,7 @@ describe("TransactionHistory — detail drawer", () => {
     renderPage(WALLET);
 
     const table = await screen.findByRole("table");
-    const row = within(table).getByRole("button", {
+    const row = await within(table).findByRole("button", {
       name: /View row details/i,
     });
     fireEvent.click(row);

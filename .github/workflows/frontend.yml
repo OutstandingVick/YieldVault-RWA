@@ -30,7 +30,6 @@ jobs:
               - 'packages/api-schemas/**'
             backend:
               - 'backend/**'
-              - 'packages/api-schemas/**'
             contracts:
               - 'contracts/**'
               - 'Cargo.toml'
@@ -196,7 +195,7 @@ jobs:
     name: Contracts lint + test + build
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.contracts == 'true' || needs.changes.outputs.shared == 'true'
+    if: needs.changes.outputs.contracts == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

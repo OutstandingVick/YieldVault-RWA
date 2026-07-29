@@ -3,7 +3,8 @@ import {
   deleteWebhookEndpoint, 
   restoreWebhookEndpoint, 
   listWebhookEndpoints,
-  resetWebhookState
+  resetWebhookState,
+  initializeWebhookEndpoints,
 } from '../webhookDelivery';
 
 describe('Webhook Soft Delete and Restore', () => {
@@ -52,5 +53,9 @@ describe('Webhook Soft Delete and Restore', () => {
     
     const restored = restoreWebhookEndpoint(endpoint.id, 'admin-1');
     expect(restored).toBeNull();
+  });
+
+  it('should safely initialize webhook endpoints on startup without crashing', async () => {
+    await expect(initializeWebhookEndpoints()).resolves.not.toThrow();
   });
 });

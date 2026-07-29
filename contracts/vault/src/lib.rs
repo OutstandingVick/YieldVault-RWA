@@ -58,6 +58,7 @@ pub mod benji_strategy;
 pub mod errors;
 pub use errors::VaultError;
 pub mod emergency;
+pub mod emergency_rescue;
 #[cfg(test)]
 mod event_tests;
 pub mod external_calls;
@@ -66,11 +67,15 @@ mod feature_tests;
 pub mod fee_math;
 #[cfg(test)]
 mod fuzz_math;
+/// Property-based tests for deposit/withdraw math invariants (Issue #962).
+#[cfg(test)]
+mod deposit_withdraw_props;
 #[cfg(test)]
 mod invariant_tests;
 pub mod math;
 #[cfg(test)]
 mod oracle_tests;
+pub mod packed_storage;
 pub mod permissions;
 #[cfg(test)]
 pub mod proxy_tests;
@@ -78,7 +83,10 @@ pub mod storage_registry;
 pub mod strategy;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod formal_verification_tests;
 pub mod upgrade;
+pub mod withdrawal_queue_safety;
 
 pub mod oracle;
 pub mod strategy_heartbeat;
@@ -232,6 +240,7 @@ pub enum DataKey {
     BenjiStrategy,
     KoreanDebtStrategy,
     PauseReason,
+    Pauser,
     EmergencyApprovers,
     Emergency(EmergencyStorageKey),
     EmergencyProposalNonce,
@@ -447,7 +456,9 @@ pub enum VaultError {
     /// Proposal has already been executed or accepted.
     ProposalAlreadyExecuted = 31,
     /// Invalid RWA shipment status transition (violates lifecycle rules).
-    InvalidShipmentStatusTransition = 30,
+    InvalidShipmentStatusTransition = 32,
+    /// Caller is not authorized to perform the requested operation (Issue #963).
+    UnauthorizedCaller = 50,
 }
 
 #[contractclient(name = "OracleClient")]
@@ -676,22 +687,29 @@ impl YieldVault {
         }
     }
 
+    /// Register a new strategy (Pending state). Admin-only.
     pub fn register_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         strategy_registration::register_strategy(&env, &admin, &strategy)
             .map(|_| ())
             .map_err(Self::map_registration_error)
     }
 
+    /// Advance a strategy from Pending → Active. Admin-only.
     pub fn activate_strategy_registration(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         strategy_registration::activate_strategy(&env, &admin, &strategy)
             .map(|_| ())
             .map_err(Self::map_registration_error)
     }
 
+    /// Retire a strategy (Active/Pending → Retired). Admin-only.
+    /// Fails if `strategy` is the currently-active vault strategy.
     pub fn retire_strategy(env: Env, strategy: Address) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         let active = Self::strategy(env.clone());
         strategy_registration::retire_strategy(&env, &admin, &strategy, active)
             .map(|_| ())
@@ -766,14 +784,17 @@ impl YieldVault {
     ///
     /// # Authorization
     /// Caller must be the vault admin
-    pub fn whitelist_strategy(env: Env, strategy: Address, approved: bool) {
+    ///
+    /// # Errors
+    /// * `VaultError::WhitelistOperationFailed` - If the whitelist mutation fails
+    pub fn whitelist_strategy(env: Env, strategy: Address, approved: bool) -> Result<(), VaultError> {
         let admin: Address = get_admin(&env).expect("Admin not set");
+        // Explicit admin auth check hardened per issue #963.
+        admin.require_auth();
 
         // Use SecureWhitelist module for whitelist operations
-        match SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved) {
-            Ok(_) => {}
-            Err(_) => return Err(VaultError::WhitelistOperationFailed),
-        }
+        SecureWhitelist::set_whitelist_status(&env, &admin, &strategy, approved)
+            .map_err(|_| VaultError::WhitelistOperationFailed)
     }
 
     /// Check if a strategy is whitelisted.
@@ -794,6 +815,62 @@ impl YieldVault {
     /// Read the active strategy address.
     pub fn strategy(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Strategy)
+    }
+
+    /// Configures the designated pauser role address.
+    /// Only the admin can call this.
+    pub fn set_pauser(env: Env, pauser: Option<Address>) -> Result<(), VaultError> {
+        let admin: Address = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
+
+        if let Some(ref p) = pauser {
+            env.storage().instance().set(&DataKey::Pauser, p);
+        } else {
+            env.storage().instance().remove(&DataKey::Pauser);
+        }
+        env.events()
+            .publish((symbol_short!("setpauser"),), (pauser.clone(),));
+        Ok(())
+    }
+
+    /// Returns the currently configured pauser role address, if any.
+    pub fn pauser(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Pauser)
+    }
+
+    /// Pauses the contract with role-restricted authorization.
+    /// Caller must be either the Admin or the assigned Pauser role address.
+    pub fn pause_with_role(
+        env: Env,
+        caller: Address,
+        reason: PauseReason,
+    ) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        let pauser_addr = Self::pauser(env.clone());
+        permissions::require_pauser_or_admin_auth(&caller, &admin, pauser_addr.as_ref());
+
+        let mut state = Self::get_state(&env);
+        state.is_paused = true;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().set(&DataKey::PauseReason, &reason);
+        env.events()
+            .publish((symbol_short!("paused"),), (reason as u32,));
+        Ok(())
+    }
+
+    /// Unpauses the contract with role-restricted authorization.
+    /// Caller must be either the Admin or the assigned Pauser role address.
+    pub fn unpause_with_role(env: Env, caller: Address) -> Result<(), VaultError> {
+        let admin = get_admin(&env).expect("Admin not set");
+        let pauser_addr = Self::pauser(env.clone());
+        permissions::require_pauser_or_admin_auth(&caller, &admin, pauser_addr.as_ref());
+
+        let mut state = Self::get_state(&env);
+        state.is_paused = false;
+        env.storage().instance().set(&DataKey::State, &state);
+        env.storage().instance().remove(&DataKey::PauseReason);
+        env.events().publish((symbol_short!("unpaused"),), ());
+        Ok(())
     }
 
     pub fn pause(env: Env, reason: PauseReason) {
@@ -862,10 +939,13 @@ impl YieldVault {
         pause_reason_code: u32,
         divest_amount: Option<i128>,
         wasm_hash: Option<BytesN<32>>,
-    ) -> u32 {
+    ) -> Result<u32, VaultError> {
         initiator.require_auth();
         let primary = emergency::primary_approver(&env).expect("primary approver not set");
-        assert!(initiator == primary, "only primary approver can initiate");
+        // Issue #963: replaced panic with VaultError::UnauthorizedCaller for production-hardened auth.
+        if initiator != primary {
+            return Err(VaultError::UnauthorizedCaller);
+        }
 
         let window_secs: u64 = env
             .storage()
@@ -895,7 +975,7 @@ impl YieldVault {
             (symbol_short!("emrgprop"),),
             (proposal_id, kind as u32, dispute_deadline),
         );
-        proposal_id
+        Ok(proposal_id)
     }
 
     /// Secondary approver confirms and executes a pending emergency action.
@@ -909,18 +989,21 @@ impl YieldVault {
     ) -> Result<(), VaultError> {
         confirmer.require_auth();
         let secondary = emergency::secondary_approver(&env).expect("secondary approver not set");
-        assert!(
-            confirmer == secondary,
-            "only secondary approver can confirm"
-        );
+        // Issue #963: replaced panic with VaultError::UnauthorizedCaller for production-hardened auth.
+        if confirmer != secondary {
+            return Err(VaultError::UnauthorizedCaller);
+        }
 
-        let mut proposal = emergency::read_proposal(&env, proposal_id).expect("proposal not found");
-        assert!(!proposal.executed, "proposal already executed");
-        assert!(!proposal.confirmed, "proposal already confirmed");
-        assert!(
-            proposal.initiator != confirmer,
-            "confirmer must differ from initiator"
-        );
+        let mut proposal = emergency::read_proposal(&env, proposal_id).ok_or(VaultError::ProposalNotFound)?;
+        if proposal.executed {
+            return Err(VaultError::ProposalAlreadyExecuted);
+        }
+        if proposal.confirmed {
+            return Err(VaultError::ProposalAlreadyExecuted);
+        }
+        if proposal.initiator == confirmer {
+            return Err(VaultError::UnauthorizedCaller);
+        }
 
         if proposal.cancelled {
             return Err(VaultError::ProposalCancelled);
@@ -1286,11 +1369,10 @@ impl YieldVault {
         state.total_assets = new_total_assets;
         env.storage().instance().set(&DataKey::State, &state);
 
-        Ok(harvested)
         env.events()
             .publish((symbol_short!("k_yield"),), (harvested, new_total_assets));
 
-        harvested
+        Ok(harvested)
     }
 
     pub fn set_dao_threshold(env: Env, threshold: i128) -> Result<(), VaultError> {
@@ -1496,11 +1578,6 @@ impl YieldVault {
             .has(&DataKey::Vote(VoteKey { proposal_id, voter: voter.clone() }))
         {
             return Err(VaultError::DuplicateVote);
-        if env.storage().instance().has(&DataKey::Vote(VoteKey {
-            proposal_id,
-            voter: voter.clone(),
-        })) {
-            panic!("duplicate vote");
         }
 
         let mut proposal: StrategyProposal = env
@@ -2481,6 +2558,8 @@ impl YieldVault {
     }
 
     /// Test helper: appends a synthetic queue entry for `process_withdrawal_queue` tests.
+    /// Only compiled and callable in test builds — not available on mainnet WASM.
+    #[cfg(test)]
     #[doc(hidden)]
     pub fn test_seed_withdrawal_queue_entry(env: Env, user: Address, shares: i128, assets: i128) {
         let tail = Self::withdrawal_queue_tail(&env);
@@ -2693,6 +2772,12 @@ impl YieldVault {
         admin.require_auth();
 
         if amount <= 0 {
+            return Err(VaultError::InvalidAmount);
+        }
+        if from_strategy == to_strategy {
+            return Err(VaultError::InvalidAmount);
+        }
+        if min_divest_value < 0 || min_invest_value < 0 {
             return Err(VaultError::InvalidAmount);
         }
 
@@ -2994,8 +3079,6 @@ impl YieldVault {
     }
 
     fn check_and_update_claim_quota(env: &Env, amount: i128) -> Result<(), VaultError> {
-        if let Some(quota) = env.storage().instance().get::<_, i128>(&DataKeyExt::TreasuryClaimQuota) {
-    fn check_and_update_claim_quota(env: &Env, amount: i128) {
         if let Some(quota) = env
             .storage()
             .instance()
@@ -3327,17 +3410,11 @@ impl YieldVault {
             return Err(VaultError::StrategyNotWhitelisted);
         }
         let now = env.ledger().timestamp();
-        env.storage().instance().set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
-        env.events().publish((symbol_short!("strathb"),), (strategy, now));
-        Ok(())
-            panic!("strategy not whitelisted");
-        }
-        let now = env.ledger().timestamp();
         env.storage()
             .instance()
             .set(&DataKeyExt::StrategyLastHeartbeat(strategy.clone()), &now);
-        env.events()
-            .publish((symbol_short!("strathb"),), (strategy, now));
+        env.events().publish((symbol_short!("strathb"),), (strategy, now));
+        Ok(())
     }
     pub fn strategy_last_heartbeat(env: Env, strategy: Address) -> Option<u64> {
         env.storage()

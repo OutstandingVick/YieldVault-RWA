@@ -5,6 +5,7 @@ import Navbar from "./components/Navbar";
 import SessionExpiredModal from "./components/SessionExpiredModal";
 import SessionExpiryWarning from "./components/SessionExpiryWarning";
 import WalletDisconnectRecoveryModal from "./components/WalletDisconnectRecoveryModal";
+import ToastCenter from "./components/ToastCenter";
 import type { DisconnectReason } from "./components/WalletConnect";
 import { KeyboardShortcutProvider } from "./context/KeyboardShortcutContext";
 import ShortcutHelpModal from "./components/ShortcutHelpModal";
@@ -23,6 +24,7 @@ import {
   loadVaultFormDraft,
   type VaultFormDraft,
 } from "./lib/formDraftStorage";
+import ErrorBoundary from "./components/ErrorBoundary";
 import ErrorFallback from "./components/ErrorFallback";
 import RouteLoadingFallback from "./components/RouteLoadingFallback";
 import {
@@ -32,11 +34,14 @@ import {
   LazySettings,
   LazyTransactionHistory,
   LazyUIPreview,
+  LazyVaultComparison,
   prefetchDashboardRoutes,
 } from "./lib/routePrefetch";
 import NetworkWarningBanner from "./components/NetworkWarningBanner";
 import OfflineBanner from "./components/OfflineBanner";
+import HighLatencyBanner from "./components/HighLatencyBanner";
 import { useVault, VaultProvider } from "./context/VaultContext";
+import { usePageViewTracking } from "./hooks/useAnalytics";
 
 const SentryRoutes = Sentry.withSentryReactRouterV6Routing(Routes);
 
@@ -49,7 +54,8 @@ function AppContent() {
   const [pendingDraft, setPendingDraft] = useState<VaultFormDraft | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { sessionState, intendedPath, setSessionExpired, clearSessionExpired, dismissSessionWarning } = useAuth();
+  const { sessionState, intendedPath, setSessionExpired, clearSessionExpired, renewSession } = useAuth();
+  usePageViewTracking();
   const { data: usdcBalance = 0 } = useUsdcBalance(walletAddress);
   const { data: xlmBalance = 0 } = useXlmBalance(walletAddress);
   const { tvl } = useVault();
@@ -80,10 +86,11 @@ function AppContent() {
   }, [location.pathname]);
 
   const handleConnect = useCallback((address: string) => {
+    renewSession();
     clearSessionExpired();
     setWalletAddress(address);
     setPendingDraft(null);
-  }, [clearSessionExpired]);
+  }, [renewSession, clearSessionExpired]);
 
   const handleDisconnect = useCallback((reason: DisconnectReason = "manual") => {
     if (reason === "session-expired") {
@@ -132,10 +139,6 @@ function AppContent() {
     window.dispatchEvent(new Event("TRIGGER_WALLET_CONNECT"));
   }, [clearSessionExpired]);
 
-  const handleDismissWarning = useCallback(() => {
-    dismissSessionWarning();
-  }, [dismissSessionWarning]);
-
   return (
     <PreferencesProvider walletAddress={walletAddress}>
       <KeyboardShortcutProvider walletAddress={walletAddress}>
@@ -145,6 +148,7 @@ function AppContent() {
         <OfflineBanner lastKnownTvl={tvl} lastKnownBalance={usdcBalance} />
         <div className="app-container">
           <NetworkWarningBanner walletAddress={walletAddress} />
+          <HighLatencyBanner />
           <Navbar
             walletAddress={walletAddress}
             usdcBalance={usdcBalance}
@@ -181,6 +185,7 @@ function AppContent() {
                   }
                 />
                 <Route path="/transactions" element={<LazyTransactionHistory walletAddress={walletAddress} />} />
+                <Route path="/compare" element={<LazyVaultComparison />} />
                 <Route path="/receipt/:txHash" element={<TransactionReceipt />} />
                 <Route path="/settings" element={<LazySettings />} />
                 <Route path="/ui-kit" element={<LazyUIPreview />} />
@@ -191,12 +196,7 @@ function AppContent() {
           <OnboardingWalkthrough />
           <ShortcutHelpModal />
           <CommandPalette />
-          {sessionState === "warning" && walletAddress && (
-            <SessionExpiryWarning
-              onReconnect={handleReconnect}
-              onDismiss={handleDismissWarning}
-            />
-          )}
+          {sessionState === "warning" && walletAddress && <SessionExpiryWarning />}
           {sessionState === "expired" && (
             <SessionExpiredModal
               intendedPath={intendedPath}
@@ -212,6 +212,7 @@ function AppContent() {
               onDiscard={handleDiscardDraft}
             />
           )}
+          <ToastCenter />
         </div>
       </KeyboardShortcutProvider>
     </PreferencesProvider>
@@ -227,15 +228,17 @@ function App() {
           resetError={props.resetError}
         />
       )}
-      showDialog
+      showDialog={false}
     >
-      <AuthProvider>
-        <FeatureFlagProvider>
-          <VaultProvider>
-            <AppContent />
-          </VaultProvider>
-        </FeatureFlagProvider>
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <FeatureFlagProvider>
+            <VaultProvider>
+              <AppContent />
+            </VaultProvider>
+          </FeatureFlagProvider>
+        </AuthProvider>
+      </ErrorBoundary>
     </Sentry.ErrorBoundary>
   );
 }

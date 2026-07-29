@@ -267,6 +267,31 @@ export async function interceptApiRoutes(page: Page) {
         });
       });
     }
+    // Privacy masking is on by default; disable it so address/balance assertions stay stable.
+    try {
+      localStorage.setItem(
+        'yieldvault-preferences:guest',
+        JSON.stringify({
+          theme: 'dark',
+          locale: 'en-US',
+          currency: 'USD',
+          notifications: {
+            depositAlerts: true,
+            withdrawalAlerts: true,
+            yieldUpdates: true,
+            priceAlerts: false,
+            weeklyReport: true,
+            securityAlerts: true,
+          },
+          compactMode: false,
+          showBalances: true,
+          maskSensitiveValues: false,
+          precision: 2,
+        }),
+      );
+    } catch {
+      // ignore quota / private mode
+    }
   });
 
   await page.route('**/sw.js', (route) =>
@@ -382,6 +407,17 @@ export async function completeVaultReviewStep(
  */
 export async function stubFreighterConnected(page: Page, address: string) {
   await page.addInitScript((addr) => {
+    try {
+      const raw = localStorage.getItem('yieldvault-preferences:guest');
+      const base = raw ? JSON.parse(raw) : { maskSensitiveValues: false };
+      localStorage.setItem(
+        `yieldvault-preferences:${addr}`,
+        JSON.stringify({ ...base, maskSensitiveValues: false }),
+      );
+    } catch {
+      // ignore
+    }
+
     const stub = { connected: true };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 
@@ -442,6 +478,17 @@ export async function stubFreighterConnected(page: Page, address: string) {
  */
 export async function stubFreighterManualConnect(page: Page, address: string) {
   await page.addInitScript((addr) => {
+    try {
+      const raw = localStorage.getItem('yieldvault-preferences:guest');
+      const base = raw ? JSON.parse(raw) : { maskSensitiveValues: false };
+      localStorage.setItem(
+        `yieldvault-preferences:${addr}`,
+        JSON.stringify({ ...base, maskSensitiveValues: false }),
+      );
+    } catch {
+      // ignore
+    }
+
     const stub = { connected: false };
     (window as unknown as Record<string, unknown>).__freighterStub = stub;
 

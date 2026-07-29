@@ -3,7 +3,7 @@ import { setAllowed, isAllowed, getAddress } from "@stellar/freighter-api";
 import { LogOut, Wallet, AlertCircle } from "./icons";
 import { hasCustomRpcConfig, networkConfig } from "../config/network";
 import { useToast } from "../context/ToastContext";
-import { usePreferencesContext } from "../context/PreferencesContext";
+import { useOptionalPreferencesContext } from "../context/PreferencesContext";
 import { useTranslation } from "../i18n";
 import { displayIdentifier } from "../lib/maskSensitiveValues";
 import CopyButton from "./CopyButton";
@@ -61,7 +61,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   );
   const [reconnectProvider, setReconnectProvider] = useState<ReturnType<typeof getLastWalletProvider>>(null);
   const initialSyncDoneRef = useRef(false);
-  const { preferences } = usePreferencesContext();
+  const preferences = useOptionalPreferencesContext()?.preferences;
   const toast = useToast();
   const { t } = useTranslation();
 
@@ -106,8 +106,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
         } else if (walletAddress) {
           onDisconnect("connection-lost");
           toast.info({
-            title: "Wallet disconnected",
-            description: "Freighter is no longer connected to this session.",
+            title: t("toast.walletConnectionLost.title"),
+            description: t("toast.walletConnectionLost.description"),
           });
         }
       } finally {
@@ -129,7 +129,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
       mounted = false;
       window.clearInterval(interval);
     };
-  }, [onConnect, onDisconnect, toast, walletAddress]);
+  }, [onConnect, onDisconnect, toast, walletAddress, t]);
 
   const handleConnect = useCallback(async () => {
     setIsConnecting(true);
@@ -200,7 +200,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({
   }, [handleConnect]);
 
   const formatAddress = (addr: string) => {
-    if (preferences.maskSensitiveValues) {
+    if (preferences?.maskSensitiveValues) {
       return displayIdentifier(addr, true);
     }
     return `${addr.substring(0, 5)}...${addr.substring(addr.length - 4)}`;

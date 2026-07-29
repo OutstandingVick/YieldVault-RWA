@@ -14,7 +14,7 @@ body = """
 ## [Unreleased]
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | upper_first }}
+### {{ group }}
 {% for commit in commits %}\
 - {% if commit.breaking %}**BREAKING** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`]({{ commit.id }}))\
 {% if commit.body %}\
@@ -42,10 +42,14 @@ topo_order = false
 sort_commits = "oldest"
 
 commit_parsers = [
+  { message = "^sec", group = "Security Highlights" },
+  { message = "^security", group = "Security Highlights" },
+  { body = ".*security", group = "Security Highlights" },
+  { message = "^perf", group = "Performance Highlights" },
+  { body = ".*gas|.*benchmark|.*latency", group = "Performance Highlights" },
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
   { message = "^docs", group = "Documentation" },
-  { message = "^perf", group = "Performance" },
   { message = "^refactor", group = "Refactoring" },
   { message = "^style", group = "Styling" },
   { message = "^test", group = "Testing" },
@@ -53,5 +57,4 @@ commit_parsers = [
   { message = "^chore", group = "Chores" },
   { message = "^ci", group = "CI/CD" },
   { message = "^revert", group = "Reverts" },
-  { body = ".*security", group = "Security" },
 ]
