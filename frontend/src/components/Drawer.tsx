@@ -117,14 +117,14 @@ export const Drawer: React.FC<DrawerProps> = ({
     <div
       className="drawer-backdrop"
       onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={drawerId}
-      aria-describedby={descId}
     >
       <div
         ref={panelRef}
         tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={drawerId}
+        aria-describedby={descId}
         className="drawer-panel glass-panel"
         onClick={(e) => e.stopPropagation()}
       >

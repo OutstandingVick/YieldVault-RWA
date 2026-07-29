@@ -48,6 +48,32 @@ Use E2E tests for browser journeys.
 | Flow | Spec | What it proves |
 | --- | --- | --- |
 | Dashboard | dashboard-load.spec.ts | App loads correctly |
+
+## Cypress Smoke Suite
+Cypress smoke tests provide lightweight first-pass verification.
+
+## Accessibility Testing
+Accessibility tests use axe-core to audit rendered component trees.
+
+## Security Testing
+Security-focused tests validate defenses against common vulnerability classes.
+
+## Load & Performance Testing
+Load tests use k6 and target the staging backend.
+
+## Fuzz & Property-Based Testing (Contracts)
+Coverage-guided fuzz targets use cargo-fuzz. Property-based tests use proptest.
+
+## CI Pipeline Integration
+CI workflows run on every PR and on schedule.
+
+## Coverage Thresholds
+Coverage is enforced at the CI level.
+
+## Tools & Frameworks Overview
+| Tool | Layer(s) | Purpose |
+| --- | --- | --- |
+| Vitest | Frontend unit/integration | Component, hook, utility tests |
 `;
 
     const result = validateTestingStrategyDoc(markdown);

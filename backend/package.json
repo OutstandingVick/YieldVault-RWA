@@ -13,12 +13,13 @@
     "format": "prettier --write src",
     "audit": "npm audit",
     "generate:openapi": "tsx scripts/generate-openapi.ts",
-    "ci:governance": "npm run lint && npm run test && node scripts/check-migrations.js && npm run check:migrations:canary && npm run snapshots:check",
+    "ci:governance": "npm run lint && npm run test && node scripts/check-migrations.js && npm run check:migrations:canary && npm run snapshots:check && node scripts/check-adrs.js",
     "check:migrations:canary": "tsx scripts/canary-migration-check.ts",
     "snapshots:write": "tsx scripts/check-schema-snapshots.ts --write",
     "snapshots:check": "tsx scripts/check-schema-snapshots.ts",
     "db:migrate": "node scripts/migrate-postgres.js",
-    "db:check-drift": "node scripts/check-postgres-drift.js"
+    "db:check-drift": "node scripts/check-postgres-drift.js",
+    "adrs:check": "node scripts/check-adrs.js"
   },
   "keywords": [
     "stellar",

@@ -61,6 +61,9 @@ import {
 } from "../lib/transactionConflict";
 import type { StaleFieldChange } from "../lib/staleSubmissionDetection";
 import { t } from "../i18n";
+import { useTransactionHistory } from "../hooks/useTransactionData";
+import { usePortfolioHoldings } from "../hooks/usePortfolioData";
+import TransactionTimeline, { type TxTimelineStatus } from "./TransactionTimeline";
 
 const FIRST_DEPOSIT_PREFIX = "yieldvault:first-deposit:";
 
@@ -234,6 +237,10 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
     staleChanges?: StaleFieldChange[];
   } | null>(null);
   const [isResolvingConflict, setIsResolvingConflict] = useState(false);
+  const [txTimelineStatus, setTxTimelineStatus] = useState<TxTimelineStatus>("preparing");
+
+  const { data: transactions } = useTransactionHistory(walletAddress);
+  const { data: holdings } = usePortfolioHoldings(walletAddress);
 
   const { isOffline, countdown } = useOfflineRetryCountdown();
 
@@ -451,8 +458,35 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
       });
     }
 
+    const recentFailedTx = (transactions || []).find(tx => tx.status === "failed");
+    if (recentFailedTx) {
+      next.push({
+        id: "failed-tx",
+        title: t("vaultDashboard.riskSummary.failedTx.title", "Recent Transaction Failed"),
+        description: t("vaultDashboard.riskSummary.failedTx.desc", "A recent transaction failed. Review your history or retry."),
+        label: t("vaultDashboard.riskSummary.failedTx.cta", "View History"),
+        tone: "warning",
+        onClick: () => navigate("/transactions"),
+      });
+    }
+
+    const vaultValue = (holdings || []).find((h) => h.asset === "yvUSDC")?.valueUsd || 0;
+    const totalValue = (holdings || []).reduce((sum, h) => sum + h.valueUsd, 0) + availableBalance;
+    const isHighExposure = totalValue > 0 && (vaultValue / totalValue) > 0.8;
+    
+    if (isHighExposure) {
+      next.push({
+        id: "high-exposure",
+        title: t("vaultDashboard.riskSummary.highExposure.title", "High Portfolio Exposure"),
+        description: t("vaultDashboard.riskSummary.highExposure.desc", "More than 80% of your portfolio is in this vault."),
+        label: t("vaultDashboard.riskSummary.highExposure.cta", "Review Allocation"),
+        tone: "info",
+        onClick: () => navigate("/portfolio"),
+      });
+    }
+
     return next;
-  }, [dashboardUrl, feeXlm, isCapReached, isCapWarning, navigate, refresh, summary.contractPaused, t, walletAddress, xlmBalance]);
+  }, [dashboardUrl, feeXlm, isCapReached, isCapWarning, navigate, refresh, summary.contractPaused, t, walletAddress, xlmBalance, transactions, holdings, availableBalance]);
 
   const staleGuard = useStaleSubmissionGuard({
     action: dashboardUrl.state.tab,
@@ -565,12 +599,17 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         return;
       }
 
+      dashboardUrl.setStep("result");
+      setTxTimelineStatus("preparing");
+
       const intent = transactionIntent.ensureIntent();
       const mutationParams = {
         walletAddress,
         amount: value,
         idempotencyKey: intent?.idempotencyKey,
       };
+
+      setTxTimelineStatus("submitting");
 
       if (actionType === "deposit") {
         await depositMutation.mutateAsync(mutationParams);
@@ -599,7 +638,7 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
           ? t("vaultDashboard.depositMessage").replace("{{amount}}", value.toFixed(2))
           : t("vaultDashboard.withdrawMessage").replace("{{amount}}", value.toFixed(2)),
       });
-      dashboardUrl.setStep("result");
+      setTxTimelineStatus("finalized");
 
       toast.success({
         title: actionType === "deposit" ? t("vaultDashboard.toast.depositSuccessTitle") : t("vaultDashboard.toast.withdrawalSuccessTitle"),
@@ -616,6 +655,8 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         dashboardUrl.setStep("review");
         return;
       }
+
+      setTxTimelineStatus("failed");
 
       const mappedError = mapServerError(err);
 
@@ -640,7 +681,6 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
         success: false,
         message: errorMessage,
       });
-      dashboardUrl.setStep("result");
 
       toast.error({
         title: t("vaultDashboard.toast.transactionFailedTitle"),
@@ -1589,26 +1629,28 @@ const VaultDashboard: React.FC<VaultDashboardProps> = ({
                       </div>
                     )}
 
-                    {dashboardUrl.state.step === "result" && transactionResult && (
+                    {dashboardUrl.state.step === "result" && (
                       <div className="result-view flex-1 flex flex-col justify-center">
-                        <div className={`result-icon-container ${transactionResult.success ? "success" : "error"} animate-scale-in`}>
-                          {transactionResult.success ? <Check size={32} /> : <AlertTriangle size={32} />}
-                        </div>
-                        <h3 style={{ marginBottom: "12px" }}>
-                          {transactionResult.success ? t("vaultDashboard.transactionSuccessful") : t("vaultDashboard.transactionFailed")}
-                        </h3>
-                        <p style={{ color: "var(--text-secondary)", marginBottom: "32px", maxWidth: "300px" }}>
-                          {transactionResult.message}
-                        </p>
+                        <TransactionTimeline
+                          status={txTimelineStatus}
+                          errorMessage={transactionResult?.message}
+                          onRetry={
+                            txTimelineStatus === "failed"
+                              ? () => void handleTransaction(tab)
+                              : undefined
+                          }
+                        />
                         
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ width: "100%", padding: "16px" }}
-                          onClick={resetWizard}
-                        >
-                          {transactionResult.success ? t("vaultDashboard.done") : t("vaultDashboard.tryAgain")}
-                        </button>
+                        {(txTimelineStatus === "finalized" || txTimelineStatus === "failed") && (
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ width: "100%", padding: "16px", marginTop: "32px" }}
+                            onClick={resetWizard}
+                          >
+                            {txTimelineStatus === "finalized" ? t("vaultDashboard.done", "Done") : t("vaultDashboard.cancel", "Cancel")}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

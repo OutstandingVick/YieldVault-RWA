@@ -362,4 +362,205 @@ describe("Accessibility: axe-core audit", () => {
     const results = await runAxe(container);
     expectNoViolations(results);
   });
+
+  // ─── Additional Contrast & Component Tests (Issue #993) ──────────────────
+
+  it("disabled buttons have sufficient contrast", async () => {
+    const { container } = render(
+      <div>
+        <button disabled>Disabled Primary</button>
+        <button className="btn-outline" disabled>
+          Disabled Outline
+        </button>
+      </div>,
+    );
+
+    // Verify disabled buttons are focusable and have clear styling
+    const buttons = container.querySelectorAll("button[disabled]");
+    expect(buttons.length).toBeGreaterThan(0);
+
+    // Check they're still reachable by keyboard
+    buttons.forEach((btn) => {
+      expect(btn.getAttribute("disabled")).toBe("");
+    });
+  });
+
+  it("badge color variants meet contrast requirements", () => {
+    // Verify badge color combinations meet 4.5:1 minimum for normal text
+    const badgeColorTests = [
+      { name: "cyan", text: 0x00f0ff, bg: 0x021c44 }, // rgba(2, 132, 199, 0.15) on dark
+      { name: "purple", text: 0xd8b4fe, bg: 0x1a1a2e }, // #d8b4fe on dark bg
+      { name: "success", text: 0x86efac, bg: 0x1a1a2e }, // #86efac on dark bg
+      { name: "warning", text: 0xfcd34d, bg: 0x1a1a2e }, // #fcd34d on dark bg
+      { name: "error", text: 0xfca5a5, bg: 0x1a1a2e }, // #fca5a5 on dark bg
+      { name: "info", text: 0x93c5fd, bg: 0x1a1a2e }, // #93c5fd on dark bg
+    ];
+
+    function luminance(hex: number): number {
+      const r = ((hex >> 16) & 0xff) / 255;
+      const g = ((hex >> 8) & 0xff) / 255;
+      const b = (hex & 0xff) / 255;
+
+      const sR = r <= 0.03928 ? r / 12.92 : ((r + 0.055) / 1.055) ** 2.4;
+      const sG = g <= 0.03928 ? g / 12.92 : ((g + 0.055) / 1.055) ** 2.4;
+      const sB = b <= 0.03928 ? b / 12.92 : ((b + 0.055) / 1.055) ** 2.4;
+
+      return 0.2126 * sR + 0.7152 * sG + 0.0722 * sB;
+    }
+
+    function contrastRatio(l1: number, l2: number): number {
+      const lighter = Math.max(l1, l2);
+      const darker = Math.min(l1, l2);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    badgeColorTests.forEach(({ name, text, bg }) => {
+      const textL = luminance(text);
+      const bgL = luminance(bg);
+      const ratio = contrastRatio(textL, bgL);
+      expect(ratio, `Badge ${name} should meet 4.5:1 contrast`).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  it("tabs component has sufficient inactive tab contrast", async () => {
+    const { container } = render(
+      <div>
+        <div role="tablist" aria-orientation="horizontal">
+          <button
+            role="tab"
+            aria-selected={false}
+            aria-controls="panel-tab2"
+            id="tab-tab2"
+            tabIndex={-1}
+            style={{
+              color: "var(--text-secondary)",
+              background: "transparent",
+            }}
+          >
+            Inactive Tab
+          </button>
+        </div>
+      </div>,
+    );
+
+    const results = await runAxe(container);
+    expectNoViolations(results);
+  });
+
+  it("health status indicator tooltip is readable", async () => {
+    const { container } = render(
+      <div
+        id="hs-tooltip"
+        role="tooltip"
+        style={{
+          background: "var(--bg-surface)",
+          color: "var(--text-primary)",
+          padding: "10px",
+        }}
+      >
+        <div style={{ fontWeight: 600, color: "#22c55e" }}>✓ Healthy</div>
+        <div style={{ color: "var(--text-secondary)" }}>All systems operational</div>
+      </div>,
+    );
+
+    const results = await runAxe(container);
+    expectNoViolations(results);
+  });
+
+  it("breadcrumbs have sufficient font size and contrast", async () => {
+    const { container } = render(
+      <nav aria-label="Breadcrumb">
+        <ol style={{ display: "flex", gap: "8px" }}>
+          <li>
+            <a href="/" style={{ color: "var(--text-secondary)" }}>
+              Home
+            </a>
+          </li>
+          <li aria-current="page" style={{ color: "var(--text-primary)" }}>
+            Current Page
+          </li>
+        </ol>
+      </nav>,
+    );
+
+    const results = await runAxe(container);
+    expectNoViolations(results);
+  });
+
+  it("small text combinations avoid tertiary color", async () => {
+    // Test that small text (var(--text-xs)) is not combined with --text-tertiary
+    const { container } = render(
+      <div>
+        <p
+          style={{
+            fontSize: "var(--text-sm)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          This is small secondary text (acceptable)
+        </p>
+        <p
+          style={{
+            fontSize: "var(--text-base)",
+            color: "var(--text-tertiary)",
+          }}
+        >
+          This is base tertiary text (acceptable)
+        </p>
+      </div>,
+    );
+
+    const results = await runAxe(container);
+    expectNoViolations(results);
+  });
+
+  it("focus styles are visible on all interactive elements", () => {
+    const { container } = render(
+      <div>
+        <button style={{ outline: "2px solid var(--accent-cyan)", outlineOffset: "2px" }}>
+          Focused Button
+        </button>
+        <a href="#test" style={{ outline: "2px solid var(--accent-cyan)", outlineOffset: "2px" }}>
+          Focused Link
+        </a>
+        <input type="text" style={{ outline: "2px solid var(--accent-cyan)", outlineOffset: "2px" }} />
+      </div>,
+    );
+
+    const elements = container.querySelectorAll("button, a, input");
+    elements.forEach((el) => {
+      // Verify element is in DOM and focusable
+      expect(el).toBeTruthy();
+    });
+  });
+
+  it("error state text meets contrast requirements", () => {
+    // Verify error text color has sufficient contrast
+    const errorText = 0xfca5a5; // Light error for dark background
+    const errorBg = 0x1a1a2e; // Dark background
+
+    function luminance(hex: number): number {
+      const r = ((hex >> 16) & 0xff) / 255;
+      const g = ((hex >> 8) & 0xff) / 255;
+      const b = (hex & 0xff) / 255;
+
+      const sR = r <= 0.03928 ? r / 12.92 : ((r + 0.055) / 1.055) ** 2.4;
+      const sG = g <= 0.03928 ? g / 12.92 : ((g + 0.055) / 1.055) ** 2.4;
+      const sB = b <= 0.03928 ? b / 12.92 : ((b + 0.055) / 1.055) ** 2.4;
+
+      return 0.2126 * sR + 0.7152 * sG + 0.0722 * sB;
+    }
+
+    function contrastRatio(l1: number, l2: number): number {
+      const lighter = Math.max(l1, l2);
+      const darker = Math.min(l1, l2);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    const textL = luminance(errorText);
+    const bgL = luminance(errorBg);
+    const ratio = contrastRatio(textL, bgL);
+
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
 });

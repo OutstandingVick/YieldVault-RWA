@@ -17,9 +17,27 @@ const REQUIRED_SECTIONS = [
   '## Recommended Commands',
   '## Review Checklist',
   '## Core Playwright User Flows',
+  '## Cypress Smoke Suite',
+  '## Accessibility Testing',
+  '## Security Testing',
+  '## Load & Performance Testing',
+  '## Fuzz & Property-Based Testing (Contracts)',
+  '## CI Pipeline Integration',
+  '## Coverage Thresholds',
+  '## Tools & Frameworks Overview',
 ];
 
 const REQUIRED_LAYER_HEADINGS = ['### Unit', '### Integration', '### E2E'];
+
+const REQUIRED_REFERENCES = [
+  { term: 'Playwright', message: 'Testing strategy doc must reference Playwright for browser E2E coverage.' },
+  { term: 'npm run test:e2e', message: 'Testing strategy doc must include the E2E command for browser journeys.' },
+  { term: 'axe-core', message: 'Testing strategy doc must reference axe-core for accessibility testing.' },
+  { term: 'k6', message: 'Testing strategy doc must reference k6 for load testing.' },
+  { term: 'proptest', message: 'Testing strategy doc must reference proptest for contract property-based testing.' },
+  { term: 'cargo-fuzz', message: 'Testing strategy doc must reference cargo-fuzz for coverage-guided fuzzing.' },
+  { term: 'Cypress', message: 'Testing strategy doc must reference Cypress for smoke testing.' },
+];
 
 export function validateTestingStrategyDoc(markdownContent: string): ValidationResult {
   const errors: string[] = [];
@@ -42,12 +60,10 @@ export function validateTestingStrategyDoc(markdownContent: string): ValidationR
     }
   }
 
-  if (!markdownContent.includes('Playwright')) {
-    errors.push('Testing strategy doc must reference Playwright for browser E2E coverage.');
-  }
-
-  if (!markdownContent.includes('npm run test:e2e')) {
-    errors.push('Testing strategy doc must include the E2E command for browser journeys.');
+  for (const ref of REQUIRED_REFERENCES) {
+    if (!markdownContent.includes(ref.term)) {
+      errors.push(ref.message);
+    }
   }
 
   return { valid: errors.length === 0, errors, warnings };

@@ -6,13 +6,6 @@ import axe from "axe-core";
 import VaultComparison from "./VaultComparison";
 import { MAX_COMPARISON_SELECTION } from "../lib/vaultStrategies";
 
-function renderComparison(initialEntry = "/compare") {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <VaultComparison />
-    </MemoryRouter>,
-  );
-}
 
 /** The strategy names in column order, skipping the leading "Metric" header. */
 function columnNames(): string[] {
@@ -74,8 +67,14 @@ describe("VaultComparison", () => {
 
     expect(screen.getByRole("heading", { name: /Compare Vault Strategies/i })).toBeInTheDocument();
     expect(screen.getByText(/Side-by-side comparison/i)).toBeInTheDocument();
+    const franklinMatches = screen.getAllByText(/Franklin BENJI Connector/i);
+    expect(franklinMatches.length).toBeGreaterThan(0);
+    const tokenizedMatches = screen.getAllByText(/Tokenized Treasury Ladder/i);
+    expect(tokenizedMatches.length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Franklin BENJI Connector/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Tokenized Treasury Ladder/i })).toBeInTheDocument();
+  });
+
   it("renders the default two-strategy comparison", () => {
     renderComparison();
 
@@ -124,6 +123,8 @@ describe("VaultComparison", () => {
 
   it("shows the empty state when fewer than two strategies are selected", () => {
     renderComparison();
+  });
+
   it("blocks selection past the cap and explains why instead of ignoring the click", () => {
     renderComparison("/compare?strategies=benji,treasury-ladder,credit-income");
 
@@ -199,6 +200,8 @@ describe("VaultComparison", () => {
     const bestCell = screen.getByRole("table").querySelector('td[data-best="true"]');
     expect(bestCell).not.toBeNull();
     expect(bestCell).toHaveTextContent("9.15%");
+  });
+
   it("caps an over-long URL selection", () => {
     renderComparison(
       "/compare?strategies=benji,treasury-ladder,credit-income,liquidity-buffer",

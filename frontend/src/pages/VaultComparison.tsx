@@ -31,6 +31,9 @@ function parseStrategiesParam(raw: string | null): string[] {
 function parseApy(apy: string): number {
   const parsed = Number.parseFloat(apy.replace(/[^\d.-]/g, ""));
   return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+import {
   COMPARISON_METRICS,
   MAX_COMPARISON_SELECTION,
   MIN_COMPARISON_SELECTION,

@@ -278,11 +278,33 @@ Escalate as an operational incident when any of the following occur:
 
 Preserve transaction hashes, ledger numbers, timestamps, correlation IDs, and relevant logs. Do not delete or rewrite the original transaction record during investigation.
 
+## Contract error code reference
+
+YieldVault returns typed `VaultError` codes when on-chain operations fail. The table below maps each error relevant to deposits and withdrawals to the troubleshooting sections in this guide.
+
+| Code | Error | Trigger | Troubleshooting section |
+| --- | --- | --- | --- |
+| `VaultError::InvalidAmount` (3) | Amount is zero or negative | Deposit or withdrawal amount is invalid | [Deposit fails before signing](#deposit-fails-before-wallet-signing), [Withdrawal fails before signing](#withdrawal-fails-before-wallet-signing) |
+| `VaultError::ContractPaused` (4) | Vault is paused | All deposits and withdrawals blocked | [Check the vault pause state](#5-check-the-vault-pause-state) |
+| `VaultError::ExceedsUserCap` (5) | Over per-user cap | Deposit exceeds per-user cap | [Deposit fails before signing](#deposit-fails-before-wallet-signing) |
+| `VaultError::MinDepositNotMet` (6) | Below minimum deposit | Deposit below `min_deposit` threshold | [Deposit fails before signing](#deposit-fails-before-wallet-signing) |
+| `VaultError::TimelockNotExpired` (7) | Timelock still active | Large withdrawal before 24h expires | [Withdrawal transaction fails on-chain](#withdrawal-transaction-fails-on-chain) |
+| `VaultError::WithdrawalCooldownActive` (12) | Cooldown active | Deposit then immediate withdrawal | [Withdrawal fails before signing](#withdrawal-fails-before-wallet-signing) |
+| `VaultError::InsufficientShares` (2) | Not enough shares | Withdrawal exceeds share balance | [Withdrawal fails before signing](#withdrawal-fails-before-wallet-signing) |
+| `VaultError::InsufficientLiquidity` (24) | Idle liquidity too low | Vault cannot satisfy withdrawal from idle | [Withdrawal transaction fails on-chain](#withdrawal-transaction-fails-on-chain) |
+| `VaultError::WithdrawalQueued` (21) | Withdrawal queued due to low liquidity | Withdrawal placed in queue instead of immediate | [Withdrawal transaction fails on-chain](#withdrawal-transaction-fails-on-chain) |
+| `VaultError::SlippageExceeded` (15) | Strategy slippage too high | Strategy withdrawal exceeded slippage tolerance | [Withdrawal transaction fails on-chain](#withdrawal-transaction-fails-on-chain) |
+| `VaultError::RapidAction` (49) | Opposing action same ledger | Deposit followed by withdrawal (or vice versa) in same ledger | [Withdrawal fails before signing](#withdrawal-fails-before-wallet-signing) |
+
+For the complete catalog of all `VaultError` codes, REST API errors, and backend submission codes, see [API Error Code Catalog](../docs/api/ERROR_CODE_CATALOG.md).
+
 ## Useful references
 
 - [Deposit and Withdrawal Lifecycle](./DEPOSIT_WITHDRAWAL_LIFECYCLE.md)
+- [API Error Code Catalog](../docs/api/ERROR_CODE_CATALOG.md)
 - [Monitoring and Observability](./MONITORING_OBSERVABILITY.md)
 - [Domain Glossary](./GLOSSARY.md)
+- [Failed Withdrawal Incident Playbook](../docs/runbooks/FAILED_WITHDRAWAL_INCIDENT_PLAYBOOK.md)
 - Backend transaction history and reconciliation documentation under [`backend/docs`](../backend/docs/)
 
 ## User-facing short version

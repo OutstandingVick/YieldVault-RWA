@@ -51,8 +51,9 @@ describe("Drawer", () => {
   it("closes on backdrop click", async () => {
     renderDrawer(true);
 
-    const backdrop = screen.getByRole("dialog");
-    fireEvent.click(backdrop);
+    const backdrop = screen.getByText("Drawer Title").closest(".drawer-backdrop");
+    expect(backdrop).toBeInTheDocument();
+    fireEvent.click(backdrop!);
 
     await waitFor(() => {
       expect(onClose).toHaveBeenCalledTimes(1);
